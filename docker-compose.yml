@@ -1,0 +1,56 @@
+name: ecommerce-api
+
+services:
+
+  # ── Redis ──────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7.4-alpine
+    container_name: ecommerce-redis
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"   # accesible desde el host (dev local con mvn)
+    volumes:
+      - redis_data:/data
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ── Spring Boot API ────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ecommerce-api
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      # Redis: siempre apunta al contenedor del mismo compose
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      CACHE_TYPE: redis
+      SESSION_STORE_TYPE: redis
+    ports:
+      - "${SERVER_PORT:-8080}:8080"
+    extra_hosts:
+      # Permite que host.docker.internal resuelva al host en Linux/VPS
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+volumes:
+  redis_data:
