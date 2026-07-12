@@ -52,6 +52,13 @@ public class Pedido {
     @Column(name = "ped_notas", columnDefinition = "text")
     private String notas;
 
+    // true cuando el stock se agotó entre el checkout y la confirmación del pago
+    // (dos clientes comprando la última unidad casi al mismo tiempo). El pago ya
+    // se cobró, así que el pedido sigue "pagado", pero el admin debe revisarlo
+    // manualmente antes de prepararlo — ver PagoConfirmacionService.descontarStock.
+    @Column(name = "ped_alerta_stock", nullable = false)
+    private boolean alertaStock = false;
+
     @Column(name = "ped_creado_en", nullable = false, insertable = false, updatable = false)
     private OffsetDateTime creadoEn;
 

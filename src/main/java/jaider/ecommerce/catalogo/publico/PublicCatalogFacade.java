@@ -39,6 +39,20 @@ public class PublicCatalogFacade {
         );
     }
 
+    /** Paginado — usado por el scroll infinito del catálogo en la tienda. */
+    public jaider.ecommerce.shared.dto.PageResponse<PublicProductoResponse> getProductosPaginado(
+            Long catId, String q, int page, int size) {
+        String tnd = TenantContext.get();
+        long v = cache.currentVersion(tnd);
+        String seg = buildProductsSegment(catId, q) + ":p" + page + ":s" + size;
+        return cache.getOrLoad(
+                cache.key(tnd, v, "products-page", seg),
+                Duration.ofMinutes(10),
+                () -> service.getProductosPaginado(catId, q, page, size),
+                new TypeReference<>() {}
+        );
+    }
+
     public PublicProductoResponse getProductoById(Long id) {
         String tnd = TenantContext.get();
         long v = cache.currentVersion(tnd);

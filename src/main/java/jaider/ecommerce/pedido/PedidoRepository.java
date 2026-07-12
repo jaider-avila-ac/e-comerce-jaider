@@ -9,7 +9,7 @@ import java.util.List;
 
 public interface PedidoRepository extends JpaRepository<Pedido, Long> {
 
-    @Query("SELECT p FROM Pedido p ORDER BY p.creadoEn DESC")
+    @Query("SELECT p FROM Pedido p WHERE p.estado <> 'pendiente_pago' ORDER BY p.creadoEn DESC")
     List<Pedido> findAllOrdered();
 
     @Query("SELECT p FROM Pedido p WHERE p.estado = :estado ORDER BY p.creadoEn DESC")

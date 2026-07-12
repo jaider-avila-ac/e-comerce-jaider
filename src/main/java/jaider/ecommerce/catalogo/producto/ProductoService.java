@@ -1,16 +1,24 @@
 package jaider.ecommerce.catalogo.producto;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jaider.ecommerce.catalogo.CatalogCacheService;
+import jaider.ecommerce.notificacion.event.StockDisponibleEvent;
+import jaider.ecommerce.shared.dto.PageResponse;
 import jaider.ecommerce.shared.interceptor.TenantContext;
 import jaider.ecommerce.shared.TenantSupport;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Duration;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -28,6 +36,7 @@ public class ProductoService {
     private final ProductoImagenRepository imagenRepo;
     private final TenantSupport tenantSupport;
     private final CatalogCacheService catalogCache;
+    private final ApplicationEventPublisher eventPublisher;
 
     @PersistenceContext
     private EntityManager em;
@@ -35,15 +44,23 @@ public class ProductoService {
     // ─── Queries ──────────────────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
-    public List<ProductoResponse> getAll() {
+    public PageResponse<ProductoResponse> search(Long catId, Boolean activo, String q, int page, int size) {
         tenantSupport.applyTenant(em);
-        return productoRepo.findAllOrdered().stream().map(this::toResponse).toList();
-    }
+        String tenantId = TenantContext.get();
+        String qNorm = (q == null || q.isBlank()) ? null : q.trim();
 
-    @Transactional(readOnly = true)
-    public List<ProductoResponse> getByCat(Long catId) {
-        tenantSupport.applyTenant(em);
-        return productoRepo.findByCatId(catId).stream().map(this::toResponse).toList();
+        long version = catalogCache.currentVersion(tenantId);
+        String cacheKey = catalogCache.key(tenantId, version, "admin-productos",
+                String.valueOf(catId), String.valueOf(activo), qNorm == null ? "-" : qNorm,
+                "p" + page, "s" + size);
+
+        return catalogCache.getOrLoad(cacheKey, Duration.ofMinutes(2), () -> {
+            Pageable pageable = PageRequest.of(page, size);
+            Page<Producto> result = productoRepo.search(catId, activo, qNorm, pageable);
+            List<ProductoResponse> content = result.getContent().stream().map(this::toResponse).toList();
+            return new PageResponse<>(content, result.getNumber(), result.getSize(),
+                    result.getTotalElements(), result.getTotalPages());
+        }, new TypeReference<PageResponse<ProductoResponse>>() {});
     }
 
     @Transactional(readOnly = true)
@@ -208,9 +225,31 @@ public class ProductoService {
         tenantSupport.applyTenant(em);
         Variante v = varianteRepo.findById(varId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Variante no encontrada"));
+
+        boolean estabaAgotado = estabaAgotado(v);
         v.setStock(cantidad);
         catalogCache.invalidate(TenantContext.get());
-        return toVarianteResponse(varianteRepo.save(v));
+        VarianteResponse response = toVarianteResponse(varianteRepo.save(v));
+
+        if (estabaAgotado && cantidad != null && cantidad > 0) {
+            productoRepo.findById(v.getPrdId()).ifPresent(p ->
+                    eventPublisher.publishEvent(new StockDisponibleEvent(p.getTndId(), p.getId(), p.getNombre())));
+        }
+
+        return response;
+    }
+
+    /** true si, antes de este cambio, el producto entero (todas sus variantes) estaba sin stock. */
+    private boolean estabaAgotado(Variante v) {
+        Integer stockActual = v.getStock();
+        if (stockActual != null && stockActual > 0) return false;
+
+        Number otrasConStock = (Number) em.createNativeQuery(
+                "SELECT COUNT(*) FROM variantes WHERE var_prd_id = :prdId AND var_id <> :varId AND var_stock > 0")
+                .setParameter("prdId", v.getPrdId())
+                .setParameter("varId", v.getId())
+                .getSingleResult();
+        return otrasConStock.longValue() == 0;
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -220,7 +259,7 @@ public class ProductoService {
         p.setSubId(req.subId());
         if (req.nombre() != null) p.setNombre(req.nombre());
         if (req.slug() != null) p.setSlug(req.slug());
-        p.setDescripcion(req.descripcion());
+        if (req.descripcion() != null) p.setDescripcion(req.descripcion());
         if (req.precioAntes() != null) {
             if (req.precio() != null && req.precio() >= req.precioAntes()) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -238,7 +277,7 @@ public class ProductoService {
         } else {
             p.setOfertaHasta(null);
         }
-        p.setFichaTecnica(req.fichaTecnica() != null ? req.fichaTecnica() : Map.of());
+        if (req.fichaTecnica() != null) p.setFichaTecnica(req.fichaTecnica());
         if (req.activo() != null) p.setActivo(req.activo());
     }
 

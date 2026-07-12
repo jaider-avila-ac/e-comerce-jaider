@@ -1,11 +1,14 @@
 package jaider.ecommerce.auth;
 
-import jaider.ecommerce.auth.admin.Empleado;
-import jaider.ecommerce.auth.admin.EmpleadoRepository;
+import jaider.ecommerce.auth.admin.AdminUser;
+import jaider.ecommerce.auth.admin.AdminUserRepository;
 import jaider.ecommerce.auth.dto.AdminMeResponse;
 import jaider.ecommerce.auth.dto.LoginRequest;
 import jaider.ecommerce.auth.dto.LoginResponse;
 import jaider.ecommerce.auth.jwt.JwtService;
+import jaider.ecommerce.shared.TenantSupport;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -17,6 +20,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
@@ -28,12 +32,17 @@ public class AuthController {
 
     private final AuthenticationManager authManager;
     private final JwtService jwtService;
-    private final EmpleadoRepository empleadoRepository;
+    private final AdminUserRepository adminUserRepository;
+    private final TenantSupport tenantSupport;
+
+    @PersistenceContext
+    private EntityManager em;
 
     @Value("${jwt.expiration-ms:86400000}")
     private long expirationMs;
 
     @PostMapping("/login")
+    @Transactional
     public ResponseEntity<?> login(@Valid @RequestBody LoginRequest req) {
         try {
             Authentication auth = authManager.authenticate(
@@ -41,13 +50,14 @@ public class AuthController {
             );
             UserDetails user = (UserDetails) auth.getPrincipal();
 
-            Empleado emp = empleadoRepository.findByEmail(user.getUsername()).orElseThrow();
-            // superadmin no tiene tnd_id; para el panel admin siempre es calzacaribe = 1
-            Long tndId = emp.getTndId() != null ? emp.getTndId() : 1L;
-            String token = jwtService.generate(emp.getEmail(), emp.getRol(), tndId);
+            tenantSupport.applyTenant(em);
+            AdminUser admin = adminUserRepository.findByEmail(user.getUsername()).orElseThrow();
+            // superadmin no tiene tienda_id; para el panel admin siempre es calzacaribe = 1
+            Long tndId = admin.getTiendaId() != null ? admin.getTiendaId() : 1L;
+            String token = jwtService.generate(admin.getEmail(), admin.getRol(), tndId);
 
             return ResponseEntity.ok(new LoginResponse(
-                    token, expirationMs, emp.getEmail(), emp.getNombre(), tndId, emp.getRol()
+                    token, expirationMs, admin.getEmail(), admin.getNombre(), tndId, admin.getRol()
             ));
 
         } catch (BadCredentialsException e) {
@@ -57,10 +67,12 @@ public class AuthController {
     }
 
     @GetMapping("/me")
+    @Transactional
     public ResponseEntity<AdminMeResponse> me(@AuthenticationPrincipal UserDetails userDetails) {
-        Empleado emp = empleadoRepository.findByEmail(userDetails.getUsername()).orElseThrow();
+        tenantSupport.applyTenant(em);
+        AdminUser admin = adminUserRepository.findByEmail(userDetails.getUsername()).orElseThrow();
         return ResponseEntity.ok(new AdminMeResponse(
-                emp.getId(), emp.getEmail(), emp.getNombre(), emp.getRol(), emp.isActivo()
+                admin.getId(), admin.getEmail(), admin.getNombre(), admin.getRol(), admin.isActivo()
         ));
     }
 }

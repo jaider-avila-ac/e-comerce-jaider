@@ -25,6 +25,13 @@ public class AdminUser {
     @Column(nullable = false)
     private String nombre;
 
+    // Stored as String para compatibilidad con el tipo PostgreSQL rol_empleado
+    @Column(nullable = false, columnDefinition = "rol_empleado")
+    private String rol;
+
+    @Column(name = "tienda_id")
+    private Long tiendaId;
+
     @Column(nullable = false)
     private boolean activo = true;
 

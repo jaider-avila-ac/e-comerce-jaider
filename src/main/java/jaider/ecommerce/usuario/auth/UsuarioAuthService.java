@@ -21,6 +21,7 @@ import org.springframework.web.server.ResponseStatusException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.security.SecureRandom;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Map;
 
 @Slf4j
@@ -71,8 +72,12 @@ public class UsuarioAuthService {
         String hash = passwordEncoder.encode(req.password());
         String nombre = req.nombre() != null ? req.nombre().trim() : "";
         String apellido = req.apellido() != null ? req.apellido().trim() : "";
-        String datosJson = "{\"nombre\":\"%s\",\"apellido\":\"%s\",\"password_hash\":\"%s\"}"
-                .formatted(escapeJson(nombre), escapeJson(apellido), escapeJson(hash));
+        String tipoDocumento = req.tipoDocumento() != null ? req.tipoDocumento().trim().toUpperCase() : "";
+        String numeroDocumento = req.numeroDocumento() != null ? req.numeroDocumento().trim() : "";
+        String datosJson = ("{\"nombre\":\"%s\",\"apellido\":\"%s\",\"password_hash\":\"%s\"," +
+                "\"tipo_documento\":\"%s\",\"numero_documento\":\"%s\"}")
+                .formatted(escapeJson(nombre), escapeJson(apellido), escapeJson(hash),
+                        escapeJson(tipoDocumento), escapeJson(numeroDocumento));
 
         em.createNativeQuery(
                 "INSERT INTO registros_pendientes (rp_email, rp_codigo, rp_datos, rp_expira_en, rp_tnd_id) " +
@@ -121,27 +126,16 @@ public class UsuarioAuthService {
 
         // Extraer datos del JSONB
         Map<String, String> datos = parseDatos(datosJson);
-        String nombre       = datos.getOrDefault("nombre", "");
-        String apellido     = datos.getOrDefault("apellido", "");
-        String passwordHash = datos.getOrDefault("password_hash", "");
+        String nombre          = datos.getOrDefault("nombre", "");
+        String apellido        = datos.getOrDefault("apellido", "");
+        String passwordHash    = datos.getOrDefault("password_hash", "");
+        String tipoDocumento   = datos.getOrDefault("tipo_documento", "");
+        String numeroDocumento = datos.getOrDefault("numero_documento", "");
 
-        // Crear usuario con native query (auth_provider enum + tnd_id NOT NULL)
-        Long usrId = ((Number) em.createNativeQuery(
-                "INSERT INTO usuarios (usr_email, usr_provider, usr_password_hash, usr_tnd_id) " +
-                "VALUES (:email, CAST('EMAIL' AS auth_provider), :hash, :tndId) RETURNING usr_id")
-                .setParameter("email", email)
-                .setParameter("hash", passwordHash)
-                .setParameter("tndId", tndId)
-                .getSingleResult()).longValue();
-
-        // Crear perfil del cliente
-        em.createNativeQuery(
-                "INSERT INTO clientes_perfil (cp_usr_id, cp_nombre, cp_apellido) " +
-                "VALUES (:usrId, :nombre, :apellido)")
-                .setParameter("usrId", usrId.longValue())
-                .setParameter("nombre", nombre.isBlank() ? null : nombre)
-                .setParameter("apellido", apellido.isBlank() ? null : apellido)
-                .executeUpdate();
+        Long usrId = numeroDocumento.isBlank()
+                ? crearUsuarioNuevo(email, passwordHash, tndId, nombre, apellido, null, null)
+                : ascenderOCrear(email, passwordHash, tndId, nombre, apellido,
+                        tipoDocumento.isBlank() ? "CC" : tipoDocumento, numeroDocumento);
 
         // Eliminar pendiente
         em.createNativeQuery(
@@ -153,6 +147,80 @@ public class UsuarioAuthService {
         log.info("[VERIFY-REGISTER] email={} tndId={} usrId={}", email, tndId, usrId);
         String token = jwtService.generate(email, "CLIENTE", tndId, usrId);
         return new TiendaAuthResponse(token, usrId, email, nombre, apellido, null, "EMAIL");
+    }
+
+    /**
+     * Si ya existe un cliente de venta local (usr_provider=LOCAL, sin credenciales) con esta
+     * misma cédula en esta tienda, se asciende ESA MISMA fila a cuenta real (mismo usr_id, por
+     * eso su historial de compras previas queda visible sin mover nada). Si no existe, se crea
+     * un usuario nuevo normal, guardando también su documento.
+     */
+    private Long ascenderOCrear(String email, String passwordHash, Long tndId, String nombre, String apellido,
+                                 String tipoDocumento, String numeroDocumento) {
+        @SuppressWarnings("unchecked")
+        List<Number> existentes = em.createNativeQuery("""
+                SELECT u.usr_id FROM usuarios u
+                JOIN clientes_perfil cp ON cp.cp_usr_id = u.usr_id
+                WHERE u.usr_tnd_id = :tndId AND u.usr_provider = CAST('LOCAL' AS auth_provider)
+                  AND cp.cp_tipo_documento = CAST(:tipoDocumento AS tipo_documento)
+                  AND cp.cp_numero_documento = :numeroDocumento
+                """)
+                .setParameter("tndId", tndId)
+                .setParameter("tipoDocumento", tipoDocumento)
+                .setParameter("numeroDocumento", numeroDocumento)
+                .getResultList();
+
+        if (existentes.isEmpty()) {
+            return crearUsuarioNuevo(email, passwordHash, tndId, nombre, apellido, tipoDocumento, numeroDocumento);
+        }
+
+        Long usrId = existentes.get(0).longValue();
+        em.createNativeQuery("""
+                UPDATE usuarios SET usr_email = :email, usr_provider = CAST('EMAIL' AS auth_provider),
+                       usr_password_hash = :hash, usr_acepto_terminos = true
+                WHERE usr_id = :usrId
+                """)
+                .setParameter("email", email)
+                .setParameter("hash", passwordHash)
+                .setParameter("usrId", usrId)
+                .executeUpdate();
+
+        em.createNativeQuery("""
+                UPDATE clientes_perfil SET cp_nombre = :nombre, cp_apellido = :apellido
+                WHERE cp_usr_id = :usrId
+                """)
+                .setParameter("nombre", nombre.isBlank() ? null : nombre)
+                .setParameter("apellido", apellido.isBlank() ? null : apellido)
+                .setParameter("usrId", usrId)
+                .executeUpdate();
+
+        log.info("[VERIFY-REGISTER] cuenta de venta local ascendida — usrId={} tndId={}", usrId, tndId);
+        return usrId;
+    }
+
+    private Long crearUsuarioNuevo(String email, String passwordHash, Long tndId, String nombre, String apellido,
+                                    String tipoDocumento, String numeroDocumento) {
+        Long usrId = ((Number) em.createNativeQuery(
+                "INSERT INTO usuarios (usr_email, usr_provider, usr_password_hash, usr_tnd_id) " +
+                "VALUES (:email, CAST('EMAIL' AS auth_provider), :hash, :tndId) RETURNING usr_id")
+                .setParameter("email", email)
+                .setParameter("hash", passwordHash)
+                .setParameter("tndId", tndId)
+                .getSingleResult()).longValue();
+
+        em.createNativeQuery("""
+                INSERT INTO clientes_perfil (cp_usr_id, cp_tnd_id, cp_nombre, cp_apellido, cp_tipo_documento, cp_numero_documento)
+                VALUES (:usrId, :tndId, :nombre, :apellido, CAST(:tipoDocumento AS tipo_documento), :numeroDocumento)
+                """)
+                .setParameter("usrId", usrId)
+                .setParameter("tndId", tndId)
+                .setParameter("nombre", nombre.isBlank() ? null : nombre)
+                .setParameter("apellido", apellido.isBlank() ? null : apellido)
+                .setParameter("tipoDocumento", tipoDocumento)
+                .setParameter("numeroDocumento", numeroDocumento)
+                .executeUpdate();
+
+        return usrId;
     }
 
     // ── Reenviar código ──────────────────────────────────────────────────────

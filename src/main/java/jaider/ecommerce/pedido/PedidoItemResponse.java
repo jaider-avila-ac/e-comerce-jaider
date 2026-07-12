@@ -12,5 +12,6 @@ public record PedidoItemResponse(
         Long precioUnitario,
         Long descuentoUnitario,
         Integer cantidad,
-        Long subtotal
+        Long subtotal,
+        Boolean stockInsuficiente
 ) {}

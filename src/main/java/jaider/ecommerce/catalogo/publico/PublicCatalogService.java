@@ -5,10 +5,12 @@ import jakarta.persistence.PersistenceContext;
 import jaider.ecommerce.catalogo.categoria.Categoria;
 import jaider.ecommerce.catalogo.categoria.CategoriaRepository;
 import jaider.ecommerce.catalogo.producto.*;
+import jaider.ecommerce.catalogo.resena.ResenaService;
 import jaider.ecommerce.catalogo.subcategoria.Subcategoria;
 import jaider.ecommerce.catalogo.subcategoria.SubcategoriaRepository;
 import jaider.ecommerce.shared.TenantSupport;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,6 +30,10 @@ public class PublicCatalogService {
     private final VarianteRepository varianteRepo;
     private final ProductoImagenRepository imagenRepo;
     private final TenantSupport tenantSupport;
+    private final ResenaService resenaService;
+
+    @Value("${app.base-url}")
+    private String baseUrl;
 
     @PersistenceContext
     private EntityManager em;
@@ -75,6 +81,30 @@ public class PublicCatalogService {
             ).toList();
         }
 
+        return enrich(lista);
+    }
+
+    /**
+     * Versión paginada — usada por el scroll infinito del catálogo en la tienda.
+     * Mantiene el mismo criterio de "activo" que {@link #getProductos}: sin filtro
+     * cuando se navega por categoría, solo activos cuando se ve el catálogo completo.
+     */
+    @Transactional(readOnly = true)
+    public jaider.ecommerce.shared.dto.PageResponse<PublicProductoResponse> getProductosPaginado(
+            Long catId, String q, int page, int size) {
+        tenantSupport.applyTenant(em);
+
+        Boolean activo = (catId != null) ? null : true;
+        String qNorm = (q == null || q.isBlank()) ? null : q.trim();
+        var pageable = org.springframework.data.domain.PageRequest.of(page, size);
+        var result = prodRepo.search(catId, activo, qNorm, pageable);
+
+        List<PublicProductoResponse> content = enrich(result.getContent());
+        return new jaider.ecommerce.shared.dto.PageResponse<>(
+                content, result.getNumber(), result.getSize(), result.getTotalElements(), result.getTotalPages());
+    }
+
+    private List<PublicProductoResponse> enrich(List<Producto> lista) {
         Set<Long> catIds = lista.stream().map(Producto::getCatId).collect(Collectors.toSet());
         Map<Long, Categoria> catMap = catRepo.findAllById(catIds).stream()
                 .collect(Collectors.toMap(Categoria::getId, c -> c));
@@ -84,10 +114,13 @@ public class PublicCatalogService {
                 .collect(Collectors.toMap(Subcategoria::getId, s -> s));
 
         // Carga masiva de "más vendidos" (top 20% o mínimo 3 ventas) para evitar N+1
-        Set<Long> masVendidosIds = loadMasVendidosIds(lista.stream().map(Producto::getId).toList());
+        List<Long> prdIds = lista.stream().map(Producto::getId).toList();
+        Set<Long> masVendidosIds = loadMasVendidosIds(prdIds);
+        Map<Long, ResenaService.ResenaResumen> resumenes = resenaService.resumenBulk(prdIds);
 
         return lista.stream()
-                .map(p -> toPublicResponse(p, catMap.get(p.getCatId()), subMap.get(p.getSubId()), masVendidosIds))
+                .map(p -> toPublicResponse(p, catMap.get(p.getCatId()), subMap.get(p.getSubId()), masVendidosIds,
+                        resumenes.get(p.getId())))
                 .toList();
     }
 
@@ -99,13 +132,14 @@ public class PublicCatalogService {
         Categoria cat = catRepo.findById(p.getCatId()).orElse(null);
         Subcategoria sub = p.getSubId() != null ? subRepo.findById(p.getSubId()).orElse(null) : null;
         Set<Long> masVendidosIds = loadMasVendidosIds(List.of(p.getId()));
-        return toPublicResponse(p, cat, sub, masVendidosIds);
+        ResenaService.ResenaResumen resumen = resenaService.resumenBulk(List.of(p.getId())).get(p.getId());
+        return toPublicResponse(p, cat, sub, masVendidosIds, resumen);
     }
 
     // ─── Transformación ────────────────────────────────────────────────────
 
     private PublicProductoResponse toPublicResponse(Producto p, Categoria cat, Subcategoria sub,
-                                                    Set<Long> masVendidosIds) {
+                                                    Set<Long> masVendidosIds, ResenaService.ResenaResumen resumen) {
         // Oferta vigente: tiene precio descuento Y (sin vencimiento O aún no venció)
         boolean ofertaVigente = p.getPrecioDescuentoCentavos() != null
                 && p.getPrecioDescuentoCentavos() > 0
@@ -137,7 +171,9 @@ public class PublicCatalogService {
 
         List<PublicProductoResponse.ImagenInfo> imagenes = imagenRepo.findByPrdIdOrderByOrdenAscIdAsc(p.getId())
                 .stream()
-                .map(img -> new PublicProductoResponse.ImagenInfo(img.getUrl(), img.getVarId()))
+                .map(img -> new PublicProductoResponse.ImagenInfo(
+                        baseUrl + "/api/v1/public/media/producto/" + p.getTndId() + "/" + img.getId(),
+                        img.getVarId()))
                 .toList();
 
         List<Variante> vars = varianteRepo.findByPrdIdOrderByIdAsc(p.getId())
@@ -176,7 +212,9 @@ public class PublicCatalogService {
                 tallasOpc,
                 variantes,
                 stockVariantes,
-                caracteristicas
+                caracteristicas,
+                resumen != null ? resumen.promedio() : null,
+                resumen != null ? resumen.total() : null
         );
     }
 

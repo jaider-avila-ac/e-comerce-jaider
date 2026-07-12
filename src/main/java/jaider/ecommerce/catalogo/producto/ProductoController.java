@@ -1,10 +1,9 @@
 package jaider.ecommerce.catalogo.producto;
 
+import jaider.ecommerce.shared.dto.PageResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/productos")
@@ -14,8 +13,13 @@ public class ProductoController {
     private final ProductoService service;
 
     @GetMapping
-    public List<ProductoResponse> getAll(@RequestParam(required = false) Long catId) {
-        return catId != null ? service.getByCat(catId) : service.getAll();
+    public PageResponse<ProductoResponse> getAll(
+            @RequestParam(required = false) Long catId,
+            @RequestParam(required = false) Boolean activo,
+            @RequestParam(required = false) String q,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return service.search(catId, activo, q, page, size);
     }
 
     @GetMapping("/{id}")

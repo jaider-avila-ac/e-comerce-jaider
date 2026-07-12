@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 
 @Entity
@@ -17,27 +18,30 @@ public class Empleado {
     @Column(name = "emp_id")
     private Long id;
 
-    @Column(name = "emp_tnd_id")
-    private Long tndId;
-
-    @Column(name = "emp_nombre", nullable = false, length = 120)
-    private String nombre;
+    @Column(name = "emp_adm_id", nullable = false, unique = true)
+    private Long adminUserId;
 
     @Column(name = "emp_apellido", length = 120)
     private String apellido;
 
-    @Column(name = "emp_email", nullable = false, unique = true, length = 191)
-    private String email;
+    @Column(name = "emp_telefono", length = 20)
+    private String telefono;
 
-    @Column(name = "emp_password_hash", nullable = false, length = 255)
-    private String passwordHash;
+    @Column(name = "emp_avatar", length = 512)
+    private String avatar;
 
-    // Stored as String para compatibilidad con el tipo PostgreSQL rol_empleado
-    @Column(name = "emp_rol", nullable = false, columnDefinition = "rol_empleado")
-    private String rol;
+    @Column(name = "emp_cargo", length = 100)
+    private String cargo;
 
-    @Column(name = "emp_activo", nullable = false)
-    private boolean activo = true;
+    // Stored as String para compatibilidad con el tipo PostgreSQL tipo_documento
+    @Column(name = "emp_tipo_documento", columnDefinition = "tipo_documento")
+    private String tipoDocumento;
+
+    @Column(name = "emp_numero_documento", length = 30)
+    private String numeroDocumento;
+
+    @Column(name = "emp_fecha_nacimiento")
+    private LocalDate fechaNacimiento;
 
     @Column(name = "emp_creado_en", nullable = false, insertable = false, updatable = false)
     private OffsetDateTime creadoEn;

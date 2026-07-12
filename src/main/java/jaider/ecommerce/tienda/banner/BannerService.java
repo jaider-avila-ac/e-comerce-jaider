@@ -1,10 +1,12 @@
 package jaider.ecommerce.tienda.banner;
 
+import jaider.ecommerce.notificacion.event.OfertaEvent;
 import jaider.ecommerce.shared.TenantSupport;
 import jaider.ecommerce.shared.interceptor.TenantContext;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,6 +20,7 @@ public class BannerService {
 
     private final BannerRepository repo;
     private final TenantSupport tenantSupport;
+    private final ApplicationEventPublisher eventPublisher;
 
     @PersistenceContext
     private EntityManager em;
@@ -51,6 +54,8 @@ public class BannerService {
                 "SELECT COALESCE(MAX(ban_orden), -1) FROM banners").getSingleResult();
         short nuevoOrden = (short) (maxOrden.intValue() + 1);
 
+        boolean activo = req.activo() == null || req.activo();
+
         Number id = (Number) em.createNativeQuery(
                 "INSERT INTO banners (ban_tnd_id, ban_posicion, ban_tipo, ban_url, ban_titulo, ban_cta_link, ban_orden, ban_activo) " +
                 "VALUES (:tndId, CAST(:posicion AS posicion_banner), CAST(:tipo AS tipo_media), :url, :titulo, :ctaLink, :orden, :activo) " +
@@ -62,8 +67,12 @@ public class BannerService {
                 .setParameter("titulo",   req.titulo())
                 .setParameter("ctaLink",  req.ctaLink())
                 .setParameter("orden",    nuevoOrden)
-                .setParameter("activo",   req.activo() == null || req.activo())
+                .setParameter("activo",   activo)
                 .getSingleResult();
+
+        if ("promo".equals(posicion) && activo) {
+            publicarOferta(Long.parseLong(tndId), id.longValue(), req.titulo());
+        }
 
         em.clear();
         return toResponse(repo.findById(id.longValue())
@@ -76,6 +85,8 @@ public class BannerService {
         Banner b = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Banner no encontrado: " + id));
 
+        boolean eraActivo = b.isActivo();
+
         validateLink(req.ctaLink());
         if (req.url()    != null && !req.url().isBlank()) b.setUrl(req.url());
         if (req.titulo() != null) b.setTitulo(req.titulo());
@@ -84,16 +95,31 @@ public class BannerService {
         if (req.activo() != null) b.setActivo(req.activo());
         repo.save(b);
 
+        String posicionFinal = req.posicion() != null && !req.posicion().isBlank() ? req.posicion() : b.getPosicion();
         if (req.posicion() != null || req.tipo() != null) {
             repo.updatePosicionTipo(
                     id,
-                    req.posicion() != null && !req.posicion().isBlank() ? req.posicion() : b.getPosicion(),
-                    req.tipo()     != null && !req.tipo().isBlank()     ? req.tipo()     : b.getTipo()
+                    posicionFinal,
+                    req.tipo() != null && !req.tipo().isBlank() ? req.tipo() : b.getTipo()
             );
+        }
+
+        // Se considera "publicada" la transición a activo=true de un banner tipo "promo"
+        // (ya sea porque se acaba de activar, o porque se cambia su posición a "promo" ya activo).
+        if ("promo".equals(posicionFinal) && !eraActivo && b.isActivo()) {
+            publicarOferta(b.getTndId(), id, b.getTitulo());
         }
 
         em.clear();
         return toResponse(repo.findById(id).orElseThrow());
+    }
+
+    private void publicarOferta(Long tndId, Long banId, String titulo) {
+        String tituloNotif = "Oferta especial";
+        String mensaje = (titulo != null && !titulo.isBlank())
+                ? titulo
+                : "Hay una nueva promoción disponible en la tienda.";
+        eventPublisher.publishEvent(new OfertaEvent(tndId, tituloNotif, mensaje, "banner", banId));
     }
 
     @Transactional

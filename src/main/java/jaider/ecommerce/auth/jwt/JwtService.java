@@ -53,6 +53,11 @@ public class JwtService {
         return parseClaims(token).getSubject();
     }
 
+    public String extractRole(String token) {
+        Object raw = parseClaims(token).get("role");
+        return raw != null ? raw.toString() : null;
+    }
+
     public Long extractTndId(String token) {
         Object raw = parseClaims(token).get("tnd_id");
         if (raw instanceof Integer i) return i.longValue();

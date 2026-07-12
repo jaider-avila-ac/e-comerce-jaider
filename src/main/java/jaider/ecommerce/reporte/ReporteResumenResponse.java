@@ -5,7 +5,7 @@ public record ReporteResumenResponse(
         Long ingresosEsteMes,      // COP — pedidos entregados en el mes actual
         Long totalPedidos,
         Long pedidosEsteMes,
-        Long pedidosEnProceso,     // pendiente_pago + pagado + preparando
+        Long pedidosEnProceso,     // pagado + preparando + enviado
         Long ticketPromedio,       // COP — total_ingresos / total_pedidos (0 si sin pedidos)
         Long totalClientes,
         Long clientesEsteMes,

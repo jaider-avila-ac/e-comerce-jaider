@@ -19,6 +19,7 @@ import java.util.Map;
 public class ClienteService {
 
     private final TenantSupport tenantSupport;
+    private final TiendaClientePerfilService perfilService;
 
     @PersistenceContext
     private EntityManager em;
@@ -39,13 +40,10 @@ public class ClienteService {
                    cp.cp_apellido,
                    COALESCE(stats.total_pedidos, 0) AS total_pedidos,
                    COALESCE(stats.total_gastado_centavos, 0) AS total_gastado_centavos,
-                   latest_dir.dir_snapshot ->> 'contactoTelefono' AS telefono,
-                   NULL AS tipo_documento,
-                   NULL AS numero_documento,
-                   COALESCE(
-                       latest_dir.dir_snapshot ->> 'municipio',
-                       latest_dir.dir_snapshot ->> 'ciudad'
-                   ) AS ciudad
+                   cp.cp_telefono AS telefono,
+                   COALESCE(cp.cp_tipo_documento::text, 'CC') AS tipo_documento,
+                   cp.cp_numero_documento,
+                   latest_dir.cd_municipio AS ciudad
             FROM usuarios u
             LEFT JOIN clientes_perfil cp ON cp.cp_usr_id = u.usr_id
             LEFT JOIN (
@@ -58,14 +56,19 @@ public class ClienteService {
                        END) AS total_gastado_centavos
                 FROM pedidos
                 WHERE ped_tnd_id = :tndId
+                  AND EXISTS (
+                      SELECT 1 FROM pagos pg
+                      WHERE pg.pag_ped_id = pedidos.ped_id
+                        AND pg.pag_estado = CAST('APPROVED' AS estado_pago)
+                  )
                 GROUP BY ped_usr_id
             ) stats ON stats.ped_usr_id = u.usr_id
             LEFT JOIN LATERAL (
-                SELECT p.ped_dir_snapshot AS dir_snapshot
-                FROM pedidos p
-                WHERE p.ped_usr_id = u.usr_id
-                  AND p.ped_tnd_id = :tndId
-                ORDER BY p.ped_creado_en DESC
+                SELECT cd.cd_municipio
+                FROM clientes_direcciones cd
+                WHERE cd.cd_usr_id = u.usr_id
+                  AND cd.cd_tnd_id = :tndId
+                ORDER BY cd.cd_creado_en DESC
                 LIMIT 1
             ) latest_dir ON true
             WHERE u.usr_tnd_id = :tndId
@@ -78,33 +81,26 @@ public class ClienteService {
     }
 
     @Transactional(readOnly = true)
-    @SuppressWarnings("unchecked")
     public Map<String, Object> getById(Long id) {
         tenantSupport.applyTenant(em);
         Long tndId = tenantId();
 
-        List<Object[]> rows = em.createNativeQuery("""
-            SELECT u.usr_id,
-                   u.usr_email,
-                   u.usr_provider::text,
+        // Perfil (nombre, apellido, telefono, documento, direcciones) es el mismo que ve
+        // el propio cliente en /clientes/me — una sola fuente de verdad para ambos.
+        // soloActivos=false: el admin tambien debe poder ver clientes desactivados.
+        Map<String, Object> cliente = new LinkedHashMap<>(perfilService.fetchPerfil(id, tndId, false));
+        cliente.putAll(fetchStatsAdmin(id, tndId));
+        return cliente;
+    }
+
+    private Map<String, Object> fetchStatsAdmin(Long id, Long tndId) {
+        Object[] row = (Object[]) em.createNativeQuery("""
+            SELECT u.usr_provider::text,
                    u.usr_activo,
                    to_char(u.usr_creado_en AT TIME ZONE 'America/Bogota', 'DD/MM/YYYY HH24:MI') AS creado_en,
-                   cp.cp_nombre,
-                   cp.cp_apellido,
                    COALESCE(stats.total_pedidos, 0) AS total_pedidos,
-                   COALESCE(stats.total_gastado_centavos, 0) AS total_gastado_centavos,
-                   COALESCE(
-                       latest_dir.dir_snapshot ->> 'contactoTelefono',
-                       latest_dir.dir_snapshot ->> 'telefono'
-                   ) AS telefono,
-                   NULL AS tipo_documento,
-                   NULL AS numero_documento,
-                   COALESCE(
-                       latest_dir.dir_snapshot ->> 'municipio',
-                       latest_dir.dir_snapshot ->> 'ciudad'
-                   ) AS ciudad
+                   COALESCE(stats.total_gastado_centavos, 0) AS total_gastado_centavos
             FROM usuarios u
-            LEFT JOIN clientes_perfil cp ON cp.cp_usr_id = u.usr_id
             LEFT JOIN (
                 SELECT ped_usr_id,
                        COUNT(*) AS total_pedidos,
@@ -115,30 +111,27 @@ public class ClienteService {
                        END) AS total_gastado_centavos
                 FROM pedidos
                 WHERE ped_tnd_id = :tndId
+                  AND EXISTS (
+                      SELECT 1 FROM pagos pg
+                      WHERE pg.pag_ped_id = pedidos.ped_id
+                        AND pg.pag_estado = CAST('APPROVED' AS estado_pago)
+                  )
                 GROUP BY ped_usr_id
             ) stats ON stats.ped_usr_id = u.usr_id
-            LEFT JOIN LATERAL (
-                SELECT p.ped_dir_snapshot AS dir_snapshot
-                FROM pedidos p
-                WHERE p.ped_usr_id = u.usr_id
-                  AND p.ped_tnd_id = :tndId
-                ORDER BY p.ped_creado_en DESC
-                LIMIT 1
-            ) latest_dir ON true
             WHERE u.usr_id = :id
               AND u.usr_tnd_id = :tndId
             """)
             .setParameter("id", id)
             .setParameter("tndId", tndId)
-            .getResultList();
+            .getSingleResult();
 
-        if (rows.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Cliente no encontrado");
-        }
-
-        Map<String, Object> cliente = toCliente(rows.get(0));
-        cliente.put("direcciones", getDirecciones(id, tndId));
-        return cliente;
+        Map<String, Object> stats = new LinkedHashMap<>();
+        stats.put("provider", row[0] != null ? row[0] : "EMAIL");
+        stats.put("activo", row[1]);
+        stats.put("creado_en", row[2]);
+        stats.put("total_pedidos", ((Number) row[3]).longValue());
+        stats.put("total_gastado", ((Number) row[4]).longValue() / 100L);
+        return stats;
     }
 
     @Transactional
@@ -177,58 +170,6 @@ public class ClienteService {
         cliente.put("numero_documento", row[11]);
         cliente.put("ciudad", row[12]);
         return cliente;
-    }
-
-    @SuppressWarnings("unchecked")
-    private List<Map<String, Object>> getDirecciones(Long usrId, Long tndId) {
-        List<Object[]> rows = em.createNativeQuery("""
-            SELECT p.ped_id,
-                   p.ped_dir_snapshot ->> 'direccion' AS direccion,
-                   p.ped_dir_snapshot ->> 'complemento' AS complemento,
-                   p.ped_dir_snapshot ->> 'departamento' AS departamento,
-                   COALESCE(
-                       p.ped_dir_snapshot ->> 'municipio',
-                       p.ped_dir_snapshot ->> 'ciudad'
-                   ) AS municipio,
-                   p.ped_dir_snapshot ->> 'barrio' AS barrio,
-                   p.ped_dir_snapshot ->> 'apartamento' AS apartamento,
-                   COALESCE(
-                       p.ped_dir_snapshot ->> 'contactoNombre',
-                       p.ped_dir_snapshot ->> 'nombre_destinatario'
-                   ) AS contacto_nombre,
-                   COALESCE(
-                       p.ped_dir_snapshot ->> 'contactoTelefono',
-                       p.ped_dir_snapshot ->> 'telefono'
-                   ) AS contacto_telefono
-            FROM pedidos p
-            WHERE p.ped_usr_id = :usrId
-              AND p.ped_tnd_id = :tndId
-              AND p.ped_dir_snapshot IS NOT NULL
-            ORDER BY p.ped_creado_en DESC, p.ped_id DESC
-            """)
-            .setParameter("usrId", usrId)
-            .setParameter("tndId", tndId)
-            .getResultList();
-
-        List<Map<String, Object>> direcciones = new java.util.ArrayList<>();
-        java.util.Set<String> seen = new java.util.HashSet<>();
-        for (Object[] row : rows) {
-            String key = java.util.Arrays.toString(java.util.Arrays.copyOfRange(row, 1, row.length));
-            if (!seen.add(key)) continue;
-
-            Map<String, Object> direccion = new LinkedHashMap<>();
-            direccion.put("id", ((Number) row[0]).longValue());
-            direccion.put("direccion", row[1]);
-            direccion.put("complemento", row[2]);
-            direccion.put("departamento", row[3]);
-            direccion.put("municipio", row[4]);
-            direccion.put("barrio", row[5]);
-            direccion.put("apartamento", row[6]);
-            direccion.put("contacto_nombre", row[7]);
-            direccion.put("contacto_telefono", row[8]);
-            direcciones.add(direccion);
-        }
-        return direcciones;
     }
 
     private Long tenantId() {

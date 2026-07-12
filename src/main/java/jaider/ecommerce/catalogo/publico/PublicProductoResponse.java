@@ -21,7 +21,9 @@ public record PublicProductoResponse(
         List<TiendaOpcion> tallas,      // para hasStock en ProductCard
         List<TiendaVariante> variantes, // para ProductDetailPage
         List<StockVariante> stockVariantes,
-        Map<String, Object> caracteristicas
+        Map<String, Object> caracteristicas,
+        Double ratingPromedio, // null si el producto no tiene reseñas aprobadas todavía
+        Integer totalResenas
 ) {
     public record ImagenInfo(String url, Long varId) {}
     public record TiendaOpcion(String valor, Integer stock, String hex, Long varId) {}

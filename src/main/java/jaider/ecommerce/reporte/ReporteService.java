@@ -37,7 +37,7 @@ public class ReporteService {
             SELECT
               COALESCE(SUM(CASE WHEN ped_estado='entregado' THEN ped_total_centavos END), 0)   AS total_ingresos,
               COUNT(*)                                                                          AS total_pedidos,
-              COUNT(*) FILTER (WHERE ped_estado IN ('pendiente_pago', 'pagado', 'preparando')) AS en_proceso
+              COUNT(*) FILTER (WHERE ped_estado IN ('pagado', 'preparando', 'enviado')) AS en_proceso
             FROM pedidos
             """ + pedidosWhere)
             .unwrap(org.hibernate.query.NativeQuery.class)

@@ -17,5 +17,6 @@ public record PedidoResponse(
         Long total,
         String notas,
         OffsetDateTime creadoEn,
+        Boolean alertaStock,
         List<PedidoItemResponse> items   // null en el listado, poblado en el detalle
 ) {}

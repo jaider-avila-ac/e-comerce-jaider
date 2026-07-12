@@ -49,4 +49,7 @@ public class PedidoItem {
 
     @Column(name = "pi_subtotal_centavos", nullable = false)
     private Long subtotalCentavos;
+
+    @Column(name = "pi_stock_insuficiente", nullable = false)
+    private boolean stockInsuficiente = false;
 }

@@ -46,7 +46,7 @@ public class Producto {
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "prd_ficha_tecnica", columnDefinition = "jsonb", nullable = false)
-    private Map<String, Object> fichaTecnica;
+    private Map<String, Object> fichaTecnica = Map.of();
 
     @Column(name = "prd_activo", nullable = false)
     private boolean activo = true;
