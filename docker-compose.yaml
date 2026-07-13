@@ -41,7 +41,10 @@ services:
       CACHE_TYPE: redis
       SESSION_STORE_TYPE: redis
     ports:
-      - "${SERVER_PORT:-8080}:8080"
+      # HOST_PORT: puerto expuesto en el host (VPS o local). El puerto interno del
+      # contenedor siempre es 8080 (fijo — no confundir con SERVER_PORT, que es el
+      # puerto en el que escucha Spring Boot DENTRO del contenedor y no debe cambiarse).
+      - "${HOST_PORT:-8080}:8080"
     extra_hosts:
       # Permite que host.docker.internal resuelva al host en Linux/VPS
       - "host.docker.internal:host-gateway"
