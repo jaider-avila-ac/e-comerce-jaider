@@ -339,9 +339,10 @@ public class UsuarioAuthService {
                     .getSingleResult()).longValue();
 
             em.createNativeQuery(
-                    "INSERT INTO clientes_perfil (cp_usr_id, cp_nombre, cp_apellido, cp_avatar) " +
-                    "VALUES (:usrId, :nombre, :apellido, :avatar)")
+                    "INSERT INTO clientes_perfil (cp_usr_id, cp_tnd_id, cp_nombre, cp_apellido, cp_avatar) " +
+                    "VALUES (:usrId, :tndId, :nombre, :apellido, :avatar)")
                     .setParameter("usrId", usrId)
+                    .setParameter("tndId", tndId)
                     .setParameter("nombre", nombre)
                     .setParameter("apellido", apellido)
                     .setParameter("avatar", picture)
