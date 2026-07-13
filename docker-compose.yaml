@@ -21,6 +21,13 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    networks:
+      default:
+        # Alias único: el servicio "api" también está en la red externa 'coolify',
+        # donde el propio Redis interno de Coolify (coolify-redis) ya responde al
+        # alias genérico "redis" — usar un alias específico evita esa colisión.
+        aliases:
+          - ecommerce-redis
 
   # ── Spring Boot API ────────────────────────────────────────────────────────
   api:
@@ -35,8 +42,9 @@ services:
     env_file:
       - .env
     environment:
-      # Redis: siempre apunta al contenedor del mismo compose
-      REDIS_HOST: redis
+      # Redis: alias único (ver servicio "redis" abajo) — evita colisión con
+      # coolify-redis, que también responde al alias genérico "redis" en la red 'coolify'.
+      REDIS_HOST: ecommerce-redis
       REDIS_PORT: 6379
       CACHE_TYPE: redis
       SESSION_STORE_TYPE: redis
