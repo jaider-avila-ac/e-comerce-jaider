@@ -54,6 +54,16 @@ services:
       timeout: 10s
       retries: 5
       start_period: 40s
+    networks:
+      - default
+      # Red de Coolify: necesaria para resolver por nombre el contenedor de Postgres
+      # (calzacaribe-postgresql-database) cuando corre en el VPS.
+      - coolify
 
 volumes:
   redis_data:
+
+networks:
+  default:
+  coolify:
+    external: true
