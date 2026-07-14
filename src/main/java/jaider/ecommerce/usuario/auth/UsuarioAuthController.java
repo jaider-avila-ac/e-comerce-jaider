@@ -1,6 +1,7 @@
 package jaider.ecommerce.usuario.auth;
 
 import jakarta.validation.Valid;
+import jaider.ecommerce.auth.jwt.JwtService;
 import jaider.ecommerce.shared.interceptor.TenantContext;
 import jaider.ecommerce.usuario.auth.dto.*;
 import lombok.RequiredArgsConstructor;
@@ -17,6 +18,7 @@ import java.util.Map;
 public class UsuarioAuthController {
 
     private final UsuarioAuthService service;
+    private final JwtService jwtService;
 
     private Long currentTnd() {
         String id = TenantContext.get();
@@ -67,5 +69,13 @@ public class UsuarioAuthController {
     public ResponseEntity<Map<String, String>> resetPassword(@Valid @RequestBody TiendaResetPasswordRequest req) {
         service.resetPassword(req, currentTnd());
         return ResponseEntity.ok(Map.of("message", "Contraseña actualizada"));
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(@RequestHeader(value = "Authorization", required = false) String authHeader) {
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            jwtService.invalidate(authHeader.substring(7));
+        }
+        return ResponseEntity.noContent().build();
     }
 }

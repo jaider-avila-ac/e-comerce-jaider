@@ -75,4 +75,12 @@ public class AuthController {
                 admin.getId(), admin.getEmail(), admin.getNombre(), admin.getRol(), admin.isActivo()
         ));
     }
+
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(@RequestHeader(value = "Authorization", required = false) String authHeader) {
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            jwtService.invalidate(authHeader.substring(7));
+        }
+        return ResponseEntity.noContent().build();
+    }
 }

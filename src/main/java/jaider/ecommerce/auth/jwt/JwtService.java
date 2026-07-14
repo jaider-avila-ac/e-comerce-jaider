@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Date;
 
 @Service
@@ -16,12 +17,15 @@ public class JwtService {
 
     private final SecretKey key;
     private final long expirationMs;
+    private final TokenBlacklistService blacklistService;
 
     public JwtService(
             @Value("${jwt.secret}") String secret,
-            @Value("${jwt.expiration-ms:86400000}") long expirationMs) {
+            @Value("${jwt.expiration-ms:86400000}") long expirationMs,
+            TokenBlacklistService blacklistService) {
         this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
         this.expirationMs = expirationMs;
+        this.blacklistService = blacklistService;
     }
 
     public String generate(String email, String role, Long tndId) {
@@ -75,9 +79,21 @@ public class JwtService {
     public boolean isValid(String token) {
         try {
             parseClaims(token);
-            return true;
         } catch (JwtException | IllegalArgumentException e) {
             return false;
+        }
+        return !blacklistService.isBlacklisted(token);
+    }
+
+    /** Invalida el token de inmediato (logout) — queda en lista negra hasta que hubiera
+     *  vencido de todas formas, así que nunca se puede volver a usar tras cerrar sesión. */
+    public void invalidate(String token) {
+        try {
+            Date expiration = parseClaims(token).getExpiration();
+            Duration remaining = Duration.between(new Date().toInstant(), expiration.toInstant());
+            blacklistService.blacklist(token, remaining);
+        } catch (JwtException | IllegalArgumentException e) {
+            // Token ya inválido/vencido: no hay nada que invalidar.
         }
     }
 
