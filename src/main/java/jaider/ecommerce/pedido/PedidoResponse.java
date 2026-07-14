@@ -19,5 +19,6 @@ public record PedidoResponse(
         OffsetDateTime creadoEn,
         Boolean alertaStock,
         String linkSeguimiento,
+        OffsetDateTime confirmadoClienteEn,
         List<PedidoItemResponse> items   // null en el listado, poblado en el detalle
 ) {}

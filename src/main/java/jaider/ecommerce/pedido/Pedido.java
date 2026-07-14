@@ -55,6 +55,13 @@ public class Pedido {
     @Column(name = "ped_link_seguimiento", length = 500)
     private String linkSeguimiento;
 
+    // Independiente de ped_estado: el cliente puede confirmar recibido apenas le llega el
+    // pedido, sin importar si fue él mismo quien lo hizo pasar a "entregado" o si lo cambió
+    // el admin (no hay integración con transportadoras, así que normalmente es el cliente
+    // quien confirma la entrega real).
+    @Column(name = "ped_confirmado_cliente_en")
+    private OffsetDateTime confirmadoClienteEn;
+
     // true cuando el stock se agotó entre el checkout y la confirmación del pago
     // (dos clientes comprando la última unidad casi al mismo tiempo). El pago ya
     // se cobró, así que el pedido sigue "pagado", pero el admin debe revisarlo

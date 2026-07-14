@@ -33,6 +33,7 @@ public class PedidoCreacionService {
 
     private final TenantSupport tenantSupport;
     private final ObjectMapper objectMapper;
+    private final PedidoService pedidoService;
 
     @PersistenceContext
     private EntityManager em;
@@ -140,6 +141,51 @@ public class PedidoCreacionService {
                 .getSingleResult();
     }
 
+    private static final java.util.Set<String> ESTADOS_CONFIRMABLES = java.util.Set.of("enviado", "entregado");
+
+    /**
+     * El cliente confirma que ya recibió su pedido. Independiente de que el admin lo haya
+     * marcado o no como "entregado" (no hay integración con transportadoras, así que
+     * normalmente es el cliente quien primero confirma la entrega real). Si el pedido
+     * todavía está en "enviado", esta confirmación también lo hace pasar a "entregado".
+     */
+    @Transactional
+    public void confirmarRecibido(Long usrId, Long tndId, String numero) {
+        tenantSupport.applyTenant(em);
+
+        Object[] row;
+        try {
+            row = (Object[]) em.createNativeQuery("""
+                    SELECT ped_id, ped_estado::text
+                    FROM pedidos WHERE ped_numero = :numero AND ped_usr_id = :usrId AND ped_tnd_id = :tndId
+                    """)
+                    .setParameter("numero", numero)
+                    .setParameter("usrId", usrId)
+                    .setParameter("tndId", tndId)
+                    .getSingleResult();
+        } catch (NoResultException e) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Pedido no encontrado");
+        }
+
+        Long pedId = ((Number) row[0]).longValue();
+        String estado = (String) row[1];
+        if (!ESTADOS_CONFIRMABLES.contains(estado)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Todavía no se puede confirmar la entrega de este pedido");
+        }
+
+        em.createNativeQuery("""
+                UPDATE pedidos SET ped_confirmado_cliente_en = now()
+                WHERE ped_id = :id AND ped_confirmado_cliente_en IS NULL
+                """)
+                .setParameter("id", pedId)
+                .executeUpdate();
+
+        if ("enviado".equals(estado)) {
+            pedidoService.updateEstado(pedId, "entregado", null);
+        }
+    }
+
     /** Estado del pedido y su último pago, para que el frontend haga polling tras el checkout. */
     @Transactional(readOnly = true)
     public Map<String, Object> consultarEstado(Long usrId, Long tndId, String numero) {
@@ -148,7 +194,8 @@ public class PedidoCreacionService {
         Object[] row;
         try {
             row = (Object[]) em.createNativeQuery("""
-                    SELECT ped_id, ped_numero, ped_estado::text, ped_total_centavos, ped_creado_en, ped_link_seguimiento
+                    SELECT ped_id, ped_numero, ped_estado::text, ped_total_centavos, ped_creado_en,
+                           ped_link_seguimiento, ped_confirmado_cliente_en
                     FROM pedidos WHERE ped_numero = :numero AND ped_usr_id = :usrId AND ped_tnd_id = :tndId
                     """)
                     .setParameter("numero", numero)
@@ -167,6 +214,7 @@ public class PedidoCreacionService {
         result.put("total", ((Number) row[3]).longValue() / 100L);
         result.put("creado_en", row[4]);
         result.put("link_seguimiento", row[5]);
+        result.put("confirmado_cliente_en", row[6]);
 
         @SuppressWarnings("unchecked")
         List<Object[]> pagos = em.createNativeQuery("""
@@ -195,7 +243,7 @@ public class PedidoCreacionService {
                 SELECT DISTINCT p.ped_id, p.ped_numero, p.ped_estado::text, p.ped_subtotal_centavos,
                        p.ped_descuento_centavos, p.ped_envio_centavos, p.ped_total_centavos,
                        p.ped_dir_snapshot::text, p.ped_notas, p.ped_alerta_stock, p.ped_link_seguimiento,
-                       p.ped_creado_en
+                       p.ped_creado_en, p.ped_confirmado_cliente_en
                 FROM pedidos p
                 JOIN pagos pg ON pg.pag_ped_id = p.ped_id AND pg.pag_estado = CAST('APPROVED' AS estado_pago)
                 WHERE p.ped_usr_id = :usrId AND p.ped_tnd_id = :tndId
@@ -226,6 +274,7 @@ public class PedidoCreacionService {
             compra.put("alerta_stock", row[9]);
             compra.put("link_seguimiento", row[10]);
             compra.put("creado_en", row[11]);
+            compra.put("confirmado_cliente_en", row[12]);
             compra.put("items", itemsPorPedido.getOrDefault(pedId, List.of()));
             compras.add(compra);
         }

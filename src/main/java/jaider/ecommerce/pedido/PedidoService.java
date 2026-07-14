@@ -305,6 +305,7 @@ public class PedidoService {
                 p.getCreadoEn(),
                 p.isAlertaStock(),
                 p.getLinkSeguimiento(),
+                p.getConfirmadoClienteEn(),
                 itemsList
         );
     }

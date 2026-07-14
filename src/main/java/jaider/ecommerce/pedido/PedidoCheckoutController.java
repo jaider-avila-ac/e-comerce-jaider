@@ -53,6 +53,16 @@ public class PedidoCheckoutController {
         return pedidoCreacionService.consultarEstado(ids[0], ids[1], numero);
     }
 
+    /** El cliente confirma que ya recibió su pedido (con o sin envío ya marcado como
+     *  "entregado" por el admin — no hay integración con transportadoras). */
+    @PostMapping("/{numero}/confirmar-recibido")
+    public void confirmarRecibido(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @PathVariable String numero) {
+        Long[] ids = extractIds(authHeader);
+        pedidoCreacionService.confirmarRecibido(ids[0], ids[1], numero);
+    }
+
     private Long[] extractIds(String authHeader) {
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Token requerido");
