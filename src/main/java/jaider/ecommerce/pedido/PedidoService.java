@@ -33,15 +33,15 @@ public class PedidoService {
             "pendiente_pago", "pagado", "preparando", "enviado", "entregado", "cancelado", "devuelto"
     );
 
-    private static final Map<String, Set<String>> TRANSICIONES_VALIDAS = Map.of(
-            "pendiente_pago", Set.of("pagado", "cancelado"),
-            "pagado", Set.of("preparando", "cancelado", "devuelto"),
-            "preparando", Set.of("enviado", "cancelado", "devuelto"),
-            "enviado", Set.of("entregado", "devuelto"),
-            "entregado", Set.of("devuelto"),
-            "cancelado", Set.of(),
-            "devuelto", Set.of()
+    // Flujo activo del pedido, en orden. El admin puede moverse a cualquiera de estos estados
+    // desde cualquier otro (saltar hacia adelante, ej. pagado -> entregado, o retroceder si se
+    // equivocó) — ver validarTransicion(). "pendiente_pago" nunca es un destino manual: solo se
+    // asigna al crear el pedido.
+    private static final List<String> ORDEN_ACTIVO = List.of(
+            "pendiente_pago", "pagado", "preparando", "enviado", "entregado"
     );
+
+    private static final Set<String> ESTADOS_TERMINALES = Set.of("cancelado", "devuelto");
 
     // Estados alcanzables solo después de que el pago se confirmó y PagoConfirmacionService
     // ya descontó el stock de las variantes (ver descontarStock allá).
@@ -142,13 +142,19 @@ public class PedidoService {
             p.setAlertaStock(false);
         }
 
-        em.createNativeQuery(
-                "INSERT INTO pedido_historial_estados (phe_ped_id, phe_estado, phe_admin_id) " +
-                "VALUES (:pedId, CAST(:estado AS estado_pedido), :adminId)")
-                .setParameter("pedId", id)
-                .setParameter("estado", estado)
-                .setParameter("adminId", adminId)
-                .executeUpdate();
+        // Si se saltaron pasos hacia adelante (ej. pagado -> entregado), se dejan registrados
+        // en el historial los estados intermedios que nunca se marcaron explícitamente, para
+        // que el seguimiento del pedido (stepper del cliente y del admin) no se vea incompleto.
+        int idxActual = ORDEN_ACTIVO.indexOf(estadoAnterior);
+        int idxNuevo = ORDEN_ACTIVO.indexOf(estado);
+        if (idxActual >= 0 && idxNuevo > idxActual + 1) {
+            for (int i = idxActual + 1; i < idxNuevo; i++) {
+                insertarHistorial(id, ORDEN_ACTIVO.get(i), adminId,
+                        "Marcado automáticamente al saltar directo a \"" + estado + "\"");
+            }
+        }
+
+        insertarHistorial(id, estado, adminId, null);
 
         if (adminId != null) {
             auditoriaService.registrar(p.getTndId(), adminId, "pedido.cambio_estado", "pedido", id,
@@ -261,14 +267,49 @@ public class PedidoService {
                 .executeUpdate();
     }
 
+    private void insertarHistorial(Long pedId, String estado, Long adminId, String nota) {
+        em.createNativeQuery(
+                "INSERT INTO pedido_historial_estados (phe_ped_id, phe_estado, phe_admin_id, phe_nota) " +
+                "VALUES (:pedId, CAST(:estado AS estado_pedido), :adminId, :nota)")
+                .setParameter("pedId", pedId)
+                .setParameter("estado", estado)
+                .setParameter("adminId", adminId)
+                .setParameter("nota", nota)
+                .executeUpdate();
+    }
+
     private void validarTransicion(String actual, String siguiente) {
         if (Objects.equals(actual, siguiente)) return;
 
-        Set<String> permitidos = TRANSICIONES_VALIDAS.getOrDefault(actual, Set.of());
-        if (!permitidos.contains(siguiente)) {
+        if (ESTADOS_TERMINALES.contains(actual)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Transicion de estado no permitida: " + actual + " -> " + siguiente);
+                    "El pedido ya está en un estado final (" + actual + ") y no se puede cambiar");
         }
+        if ("pendiente_pago".equals(siguiente)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "No se puede volver a \"pago pendiente\" manualmente");
+        }
+        if ("cancelado".equals(siguiente)) {
+            if ("entregado".equals(actual)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Un pedido ya entregado no se puede cancelar — usa \"devuelto\"");
+            }
+            return;
+        }
+        if ("devuelto".equals(siguiente)) {
+            if ("pendiente_pago".equals(actual)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Un pedido sin pagar no se puede devolver");
+            }
+            return;
+        }
+        if (!ORDEN_ACTIVO.contains(siguiente)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Transición de estado no permitida: " + actual + " -> " + siguiente);
+        }
+        // Entre estados del flujo activo (pagado, preparando, enviado, entregado) se permite
+        // avanzar saltando pasos o retroceder libremente — ver updateEstado() para el relleno
+        // automático del historial cuando se salta hacia adelante.
     }
 
     @SuppressWarnings("unchecked")
