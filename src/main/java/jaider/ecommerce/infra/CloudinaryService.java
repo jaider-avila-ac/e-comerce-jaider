@@ -66,4 +66,55 @@ public class CloudinaryService {
         log.info("Archivo ({}) subido a Cloudinary en {}: {}", resourceType, folder, url);
         return url;
     }
+
+    /**
+     * Borra un archivo de Cloudinary a partir de su secure_url (nunca lanza — un fallo acá
+     * no debe impedir que la operación real en la base de datos se complete). Se usa cuando
+     * una imagen/video se reemplaza o se borra, y al borrar productos/banners/categorías, para
+     * que nunca queden archivos huérfanos en el gestor de imágenes.
+     */
+    public void delete(String url) {
+        if (url == null || url.isBlank()) return;
+        try {
+            String resourceType = url.contains("/video/upload/") ? "video" : "image";
+            String publicId = extractPublicId(url);
+            if (publicId == null) return;
+            cloudinary.uploader().destroy(publicId, ObjectUtils.asMap("resource_type", resourceType));
+            log.info("Archivo eliminado de Cloudinary: {}", publicId);
+        } catch (Exception e) {
+            log.warn("No se pudo eliminar de Cloudinary la url {}: {}", url, e.getMessage());
+        }
+    }
+
+    /** Borra una carpeta de Cloudinary (debe estar vacía) — best-effort, ej. tras borrar el
+     *  último archivo de la carpeta dedicada de un producto. Nunca lanza. */
+    public void deleteFolder(String folder) {
+        if (folder == null || folder.isBlank()) return;
+        try {
+            cloudinary.api().deleteFolder(folder, ObjectUtils.emptyMap());
+            log.info("Carpeta eliminada de Cloudinary: {}", folder);
+        } catch (Exception e) {
+            log.warn("No se pudo eliminar la carpeta de Cloudinary {}: {}", folder, e.getMessage());
+        }
+    }
+
+    /** Carpeta dedicada de un producto (ver upload()), para limpiarla cuando se borra el producto. */
+    public String folderDeProducto(Long tndId, Long productId) {
+        String slug = tiendaRepo.findById(tndId).map(t -> t.getSlug()).orElse("default");
+        return "ecommerce/" + slug + "/productos/" + productId;
+    }
+
+    /**
+     * Extrae el public_id (incluye la carpeta) de una secure_url de Cloudinary, ej.:
+     * https://res.cloudinary.com/demo/image/upload/v1699999999/ecommerce/tienda/productos/42/abc123.jpg
+     * -> ecommerce/tienda/productos/42/abc123
+     */
+    private String extractPublicId(String url) {
+        int uploadIdx = url.indexOf("/upload/");
+        if (uploadIdx < 0) return null;
+        String afterUpload = url.substring(uploadIdx + "/upload/".length());
+        afterUpload = afterUpload.replaceFirst("^v\\d+/", "");
+        int lastDot = afterUpload.lastIndexOf('.');
+        return lastDot > 0 ? afterUpload.substring(0, lastDot) : afterUpload;
+    }
 }

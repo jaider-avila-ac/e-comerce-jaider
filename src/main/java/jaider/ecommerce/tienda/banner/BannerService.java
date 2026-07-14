@@ -1,5 +1,6 @@
 package jaider.ecommerce.tienda.banner;
 
+import jaider.ecommerce.infra.CloudinaryService;
 import jaider.ecommerce.notificacion.event.OfertaEvent;
 import jaider.ecommerce.shared.TenantSupport;
 import jaider.ecommerce.shared.interceptor.TenantContext;
@@ -21,6 +22,7 @@ public class BannerService {
     private final BannerRepository repo;
     private final TenantSupport tenantSupport;
     private final ApplicationEventPublisher eventPublisher;
+    private final CloudinaryService cloudinaryService;
 
     @PersistenceContext
     private EntityManager em;
@@ -86,6 +88,7 @@ public class BannerService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Banner no encontrado: " + id));
 
         boolean eraActivo = b.isActivo();
+        String urlAnterior = b.getUrl();
 
         validateLink(req.ctaLink());
         if (req.url()    != null && !req.url().isBlank()) b.setUrl(req.url());
@@ -111,7 +114,12 @@ public class BannerService {
         }
 
         em.clear();
-        return toResponse(repo.findById(id).orElseThrow());
+        BannerResponse resp = toResponse(repo.findById(id).orElseThrow());
+
+        if (req.url() != null && !req.url().isBlank() && !req.url().equals(urlAnterior)) {
+            cloudinaryService.delete(urlAnterior);
+        }
+        return resp;
     }
 
     private void publicarOferta(Long tndId, Long banId, String titulo) {
@@ -136,8 +144,10 @@ public class BannerService {
     @Transactional
     public void delete(Long id) {
         tenantSupport.applyTenant(em);
-        if (!repo.existsById(id)) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Banner no encontrado: " + id);
+        Banner b = repo.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Banner no encontrado: " + id));
         repo.deleteById(id);
+        cloudinaryService.delete(b.getUrl());
     }
 
     private static void validateLink(String link) {

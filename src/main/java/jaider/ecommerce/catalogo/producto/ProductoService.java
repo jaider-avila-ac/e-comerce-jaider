@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jaider.ecommerce.catalogo.CatalogCacheService;
+import jaider.ecommerce.infra.CloudinaryService;
 import jaider.ecommerce.notificacion.event.StockDisponibleEvent;
 import jaider.ecommerce.shared.dto.PageResponse;
 import jaider.ecommerce.shared.interceptor.TenantContext;
@@ -37,6 +38,7 @@ public class ProductoService {
     private final TenantSupport tenantSupport;
     private final CatalogCacheService catalogCache;
     private final ApplicationEventPublisher eventPublisher;
+    private final CloudinaryService cloudinaryService;
 
     @PersistenceContext
     private EntityManager em;
@@ -103,8 +105,15 @@ public class ProductoService {
             updateVariantes(p.getId(), req.variantes());
         }
         if (req.imagenes() != null) {
+            List<String> urlsAnteriores = imagenRepo.findByPrdIdOrderByOrdenAscIdAsc(p.getId())
+                    .stream().map(ProductoImagen::getUrl).toList();
             imagenRepo.deleteByPrdId(p.getId());
             saveImagenes(p.getId(), req.imagenes());
+
+            // Solo se borran de Cloudinary las que ya no están en la lista nueva — las que el
+            // admin conservó se re-insertan con nueva fila pero es la misma imagen remota.
+            Set<String> urlsNuevas = req.imagenes().stream().map(ImagenRequest::url).collect(java.util.stream.Collectors.toSet());
+            urlsAnteriores.stream().filter(u -> !urlsNuevas.contains(u)).forEach(cloudinaryService::delete);
         }
 
         catalogCache.invalidate(TenantContext.get());
@@ -114,13 +123,20 @@ public class ProductoService {
     @Transactional
     public void delete(Long id) {
         tenantSupport.applyTenant(em);
-        if (!productoRepo.existsById(id)) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Producto no encontrado");
-        }
+        Producto p = productoRepo.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Producto no encontrado"));
+
+        List<String> urls = imagenRepo.findByPrdIdOrderByOrdenAscIdAsc(id)
+                .stream().map(ProductoImagen::getUrl).toList();
+
         imagenRepo.deleteByPrdId(id);
         varianteRepo.deleteByPrdId(id);
         productoRepo.deleteById(id);
         catalogCache.invalidate(TenantContext.get());
+
+        // Nunca deben quedar archivos ni carpetas huérfanas en Cloudinary tras borrar un producto.
+        urls.forEach(cloudinaryService::delete);
+        cloudinaryService.deleteFolder(cloudinaryService.folderDeProducto(p.getTndId(), id));
     }
 
     @Transactional(readOnly = true)

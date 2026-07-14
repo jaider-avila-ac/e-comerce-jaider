@@ -1,6 +1,7 @@
 package jaider.ecommerce.catalogo.categoria;
 
 import jaider.ecommerce.catalogo.CatalogCacheService;
+import jaider.ecommerce.infra.CloudinaryService;
 import jaider.ecommerce.shared.TenantSupport;
 import jaider.ecommerce.shared.interceptor.TenantContext;
 import jakarta.persistence.EntityManager;
@@ -20,6 +21,7 @@ public class CategoriaService {
     private final CategoriaRepository repo;
     private final TenantSupport tenantSupport;
     private final CatalogCacheService catalogCache;
+    private final CloudinaryService cloudinaryService;
 
     @PersistenceContext
     private EntityManager em;
@@ -78,20 +80,27 @@ public class CategoriaService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Categoría no encontrada: " + id));
         if (req.nombre() != null && !req.nombre().isBlank()) cat.setNombre(req.nombre());
         if (req.slug() != null && !req.slug().isBlank()) cat.setSlug(req.slug());
+        String imagenAnterior = cat.getImagenUrl();
         if (req.imagenUrl() != null) cat.setImagenUrl(req.imagenUrl());
         if (req.orden() != null) cat.setOrden(req.orden());
         if (req.activo() != null) cat.setActivo(req.activo());
         CategoriaResponse resp = toResponse(repo.save(cat));
         catalogCache.invalidate(TenantContext.get());
+
+        if (req.imagenUrl() != null && !req.imagenUrl().equals(imagenAnterior)) {
+            cloudinaryService.delete(imagenAnterior);
+        }
         return resp;
     }
 
     @Transactional
     public void delete(Long id) {
         tenantSupport.applyTenant(em);
-        if (!repo.existsById(id)) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Categoría no encontrada: " + id);
+        Categoria cat = repo.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Categoría no encontrada: " + id));
         repo.deleteById(id);
         catalogCache.invalidate(TenantContext.get());
+        cloudinaryService.delete(cat.getImagenUrl());
     }
 
     private CategoriaResponse toResponse(Categoria c) {
