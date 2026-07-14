@@ -139,7 +139,7 @@ public class PedidoCreacionService {
         Object[] row;
         try {
             row = (Object[]) em.createNativeQuery("""
-                    SELECT ped_id, ped_numero, ped_estado::text, ped_total_centavos, ped_creado_en
+                    SELECT ped_id, ped_numero, ped_estado::text, ped_total_centavos, ped_creado_en, ped_link_seguimiento
                     FROM pedidos WHERE ped_numero = :numero AND ped_usr_id = :usrId AND ped_tnd_id = :tndId
                     """)
                     .setParameter("numero", numero)
@@ -157,6 +157,7 @@ public class PedidoCreacionService {
         result.put("estado", row[2]);
         result.put("total", ((Number) row[3]).longValue() / 100L);
         result.put("creado_en", row[4]);
+        result.put("link_seguimiento", row[5]);
 
         @SuppressWarnings("unchecked")
         List<Object[]> pagos = em.createNativeQuery("""
@@ -182,31 +183,69 @@ public class PedidoCreacionService {
 
         @SuppressWarnings("unchecked")
         List<Object[]> rows = em.createNativeQuery("""
-                SELECT p.ped_id, p.ped_numero, p.ped_estado::text, p.ped_total_centavos,
-                       p.ped_creado_en, COUNT(pi.pi_id) AS items_count
+                SELECT DISTINCT p.ped_id, p.ped_numero, p.ped_estado::text, p.ped_subtotal_centavos,
+                       p.ped_descuento_centavos, p.ped_envio_centavos, p.ped_total_centavos,
+                       p.ped_dir_snapshot::text, p.ped_notas, p.ped_alerta_stock, p.ped_link_seguimiento,
+                       p.ped_creado_en
                 FROM pedidos p
                 JOIN pagos pg ON pg.pag_ped_id = p.ped_id AND pg.pag_estado = CAST('APPROVED' AS estado_pago)
-                LEFT JOIN pedido_items pi ON pi.pi_ped_id = p.ped_id
                 WHERE p.ped_usr_id = :usrId AND p.ped_tnd_id = :tndId
-                GROUP BY p.ped_id, p.ped_numero, p.ped_estado, p.ped_total_centavos, p.ped_creado_en
                 ORDER BY p.ped_creado_en DESC
                 """)
                 .setParameter("usrId", usrId)
                 .setParameter("tndId", tndId)
                 .getResultList();
 
+        if (rows.isEmpty()) return List.of();
+
+        List<Long> pedIds = rows.stream().map(r -> ((Number) r[0]).longValue()).toList();
+        Map<Long, List<Map<String, Object>>> itemsPorPedido = cargarItemsPorPedido(pedIds);
+
         List<Map<String, Object>> compras = new ArrayList<>();
         for (Object[] row : rows) {
+            Long pedId = ((Number) row[0]).longValue();
             Map<String, Object> compra = new LinkedHashMap<>();
-            compra.put("id", row[0]);
+            compra.put("id", pedId);
             compra.put("numero", row[1]);
             compra.put("estado", row[2]);
-            compra.put("total", ((Number) row[3]).longValue() / 100L);
-            compra.put("creado_en", row[4]);
-            compra.put("items_count", ((Number) row[5]).longValue());
+            compra.put("subtotal", ((Number) row[3]).longValue() / 100L);
+            compra.put("descuento", ((Number) row[4]).longValue() / 100L);
+            compra.put("envio", ((Number) row[5]).longValue() / 100L);
+            compra.put("total", ((Number) row[6]).longValue() / 100L);
+            compra.put("dir_snapshot", fromJson((String) row[7]));
+            compra.put("notas", row[8]);
+            compra.put("alerta_stock", row[9]);
+            compra.put("link_seguimiento", row[10]);
+            compra.put("creado_en", row[11]);
+            compra.put("items", itemsPorPedido.getOrDefault(pedId, List.of()));
             compras.add(compra);
         }
         return compras;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<Long, List<Map<String, Object>>> cargarItemsPorPedido(List<Long> pedIds) {
+        List<Object[]> rows = em.createNativeQuery("""
+                SELECT pi_ped_id, pi_prd_id, pi_nombre_snap, pi_imagen_snap, pi_variantes_snap::text,
+                       pi_precio_unitario_centavos, pi_cantidad
+                FROM pedido_items WHERE pi_ped_id IN :pedIds ORDER BY pi_id ASC
+                """)
+                .setParameter("pedIds", pedIds)
+                .getResultList();
+
+        Map<Long, List<Map<String, Object>>> porPedido = new LinkedHashMap<>();
+        for (Object[] r : rows) {
+            Long pedId = ((Number) r[0]).longValue();
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("producto_id", r[1]);
+            item.put("nombre", r[2]);
+            item.put("imagen", r[3]);
+            item.put("variantes", fromJson((String) r[4]));
+            item.put("precio", ((Number) r[5]).longValue() / 100L);
+            item.put("cantidad", r[6]);
+            porPedido.computeIfAbsent(pedId, k -> new ArrayList<>()).add(item);
+        }
+        return porPedido;
     }
 
     @SuppressWarnings("unchecked")
@@ -336,6 +375,18 @@ public class PedidoCreacionService {
         } catch (Exception e) {
             log.warn("No se pudo serializar JSON de pedido: {}", e.getMessage());
             return "{}";
+        }
+    }
+
+    /** Convierte el texto de una columna jsonb (leída con ::text) a un mapa navegable,
+     *  en vez de dejarlo como string plano en la respuesta al frontend. */
+    private Map<String, Object> fromJson(String json) {
+        if (json == null || json.isBlank()) return Map.of();
+        try {
+            return objectMapper.readValue(json, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
+        } catch (Exception e) {
+            log.warn("No se pudo parsear JSON de pedido: {}", e.getMessage());
+            return Map.of();
         }
     }
 }

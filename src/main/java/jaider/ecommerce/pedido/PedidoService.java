@@ -146,6 +146,29 @@ public class PedidoService {
         return toResponse(p, clientMap.get(p.getUsrId()), null);
     }
 
+    // ─── Link de seguimiento de envío ───────────────────────────────────────
+
+    /** El admin pega aquí el link de seguimiento que le da la transportadora (ej. Coordinadora).
+     *  Sin restricción de estado: puede agregarse o corregirse en cualquier momento. */
+    @Transactional
+    public PedidoResponse updateLinkSeguimiento(Long id, String link) {
+        tenantSupport.applyTenant(em);
+
+        String linkLimpio = (link != null && !link.isBlank()) ? link.trim() : null;
+        if (linkLimpio != null && !linkLimpio.startsWith("http://") && !linkLimpio.startsWith("https://")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El link debe empezar por http:// o https://");
+        }
+
+        Pedido p = pedidoRepo.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pedido no encontrado"));
+
+        pedidoRepo.updateLinkSeguimiento(id, linkLimpio);
+        p.setLinkSeguimiento(linkLimpio);
+
+        Map<Long, String[]> clientMap = loadClientInfo(Set.of(p.getUsrId()));
+        return toResponse(p, clientMap.get(p.getUsrId()), null);
+    }
+
     // ─── Alerta de stock ─────────────────────────────────────────────────────
 
     /** El admin confirma que ya resolvió manualmente el faltante de stock (reabasteció,
@@ -264,6 +287,7 @@ public class PedidoService {
                 p.getNotas(),
                 p.getCreadoEn(),
                 p.isAlertaStock(),
+                p.getLinkSeguimiento(),
                 itemsList
         );
     }

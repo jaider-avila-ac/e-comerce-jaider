@@ -52,6 +52,9 @@ public class Pedido {
     @Column(name = "ped_notas", columnDefinition = "text")
     private String notas;
 
+    @Column(name = "ped_link_seguimiento", length = 500)
+    private String linkSeguimiento;
+
     // true cuando el stock se agotó entre el checkout y la confirmación del pago
     // (dos clientes comprando la última unidad casi al mismo tiempo). El pago ya
     // se cobró, así que el pedido sigue "pagado", pero el admin debe revisarlo

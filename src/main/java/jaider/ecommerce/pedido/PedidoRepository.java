@@ -21,4 +21,8 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
     @Query(value = "UPDATE pedidos SET ped_estado = CAST(:estado AS estado_pedido) WHERE ped_id = :id",
            nativeQuery = true)
     void updateEstado(@Param("id") Long id, @Param("estado") String estado);
+
+    @Modifying(clearAutomatically = true)
+    @Query(value = "UPDATE pedidos SET ped_link_seguimiento = :link WHERE ped_id = :id", nativeQuery = true)
+    void updateLinkSeguimiento(@Param("id") Long id, @Param("link") String link);
 }

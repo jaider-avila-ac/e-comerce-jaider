@@ -56,4 +56,9 @@ public class PedidoController {
     public PedidoResponse resolverAlertaStock(@PathVariable Long id) {
         return pedidoService.resolverAlertaStock(id);
     }
+
+    @PatchMapping("/{id}/link-seguimiento")
+    public PedidoResponse updateLinkSeguimiento(@PathVariable Long id, @RequestBody LinkSeguimientoRequest req) {
+        return pedidoService.updateLinkSeguimiento(id, req.link());
+    }
 }
