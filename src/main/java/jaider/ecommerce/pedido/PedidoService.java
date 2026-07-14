@@ -49,6 +49,23 @@ public class PedidoService {
             "pagado", "preparando", "enviado", "entregado"
     );
 
+    @Transactional(readOnly = true)
+    public Map<String, Long> conteosPorEstado() {
+        tenantSupport.applyTenant(em);
+        @SuppressWarnings("unchecked")
+        List<Object[]> rows = em.createNativeQuery(
+                "SELECT ped_estado::text, COUNT(*) FROM pedidos GROUP BY ped_estado").getResultList();
+        Map<String, Long> conteos = new LinkedHashMap<>();
+        long total = 0L;
+        for (Object[] row : rows) {
+            long cantidad = ((Number) row[1]).longValue();
+            conteos.put(String.valueOf(row[0]), cantidad);
+            total += cantidad;
+        }
+        conteos.put("total", total);
+        return conteos;
+    }
+
     // ─── Listado ───────────────────────────────────────────────────────────
 
     @Transactional(readOnly = true)

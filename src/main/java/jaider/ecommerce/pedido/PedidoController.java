@@ -29,6 +29,11 @@ public class PedidoController {
         return pedidoService.getAll(estado);
     }
 
+    @GetMapping("/conteos")
+    public java.util.Map<String, Long> conteos() {
+        return pedidoService.conteosPorEstado();
+    }
+
     @GetMapping("/{id}")
     public PedidoResponse getById(@PathVariable Long id) {
         return pedidoService.getById(id);

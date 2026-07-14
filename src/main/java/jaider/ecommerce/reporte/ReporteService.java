@@ -104,11 +104,13 @@ public class ReporteService {
             .getResultList();
 
         List<Map<String, Object>> result = new ArrayList<>();
+        long maxCantidad = rows.stream().mapToLong(r -> ((Number) r[1]).longValue()).max().orElse(1L);
         for (Object[] r : rows) {
             result.add(Map.of(
                     "estado", r[0],
                     "cantidad", ((Number) r[1]).longValue(),
-                    "total", ((Number) r[2]).longValue() / 100L
+                    "total", ((Number) r[2]).longValue() / 100L,
+                    "porcentaje_grafica", ((Number) r[1]).longValue() * 100L / maxCantidad
             ));
         }
         return result;
@@ -189,11 +191,13 @@ public class ReporteService {
             .getResultList();
 
         List<Map<String, Object>> result = new ArrayList<>();
+        long maxTotal = rows.stream().mapToLong(r -> ((Number) r[1]).longValue()).max().orElse(1L);
         for (Object[] r : rows) {
             result.add(Map.of(
                     "categoria", r[0],
                     "total",     ((Number) r[1]).longValue() / 100L,
-                    "unidades",  ((Number) r[2]).longValue()
+                    "unidades",  ((Number) r[2]).longValue(),
+                    "porcentaje_grafica", ((Number) r[1]).longValue() * 100L / maxTotal
             ));
         }
         return result;

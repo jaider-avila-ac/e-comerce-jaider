@@ -159,7 +159,11 @@ public class ProductoService {
                    CASE WHEN v.var_stock = 0 THEN 'agotado'
                         WHEN v.var_stock <= 5 THEN 'bajo'
                         ELSE 'disponible' END AS estado_stock,
-                   p.prd_ficha_tecnica ->> 'marca' AS marca
+                   p.prd_ficha_tecnica ->> 'marca' AS marca,
+                   SUM(v.var_stock) OVER (PARTITION BY v.var_prd_id) AS total_stock_producto,
+                   CASE MIN(CASE WHEN v.var_stock = 0 THEN 0 WHEN v.var_stock <= 5 THEN 1 ELSE 2 END)
+                        OVER (PARTITION BY v.var_prd_id)
+                        WHEN 0 THEN 'agotado' WHEN 1 THEN 'bajo' ELSE 'disponible' END AS estado_producto
             FROM variantes v
             JOIN productos p ON p.prd_id = v.var_prd_id
             WHERE v.var_activo = true
@@ -179,6 +183,8 @@ public class ProductoService {
             item.put("activo",       r[7]);
             item.put("estado_stock", r[8] != null ? r[8] : "disponible");
             item.put("marca",        r[9]);
+            item.put("total_stock_producto", ((Number) r[10]).longValue());
+            item.put("estado_producto", r[11]);
             items.add(item);
         }
 

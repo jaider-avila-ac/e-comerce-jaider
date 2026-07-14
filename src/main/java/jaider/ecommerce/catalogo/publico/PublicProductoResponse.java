@@ -24,6 +24,7 @@ public record PublicProductoResponse(
         List<TiendaOpcion> tallas,      // para hasStock en ProductCard
         List<TiendaVariante> variantes, // para ProductDetailPage
         List<StockVariante> stockVariantes,
+        Integer stockTotal,
         Map<String, Object> caracteristicas,
         Double ratingPromedio, // null si el producto no tiene reseñas aprobadas todavía
         Integer totalResenas

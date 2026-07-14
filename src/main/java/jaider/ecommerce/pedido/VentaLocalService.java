@@ -40,7 +40,23 @@ public class VentaLocalService {
 
     public record VentaLocalCreada(Long pedidoId, String numero) {}
 
+    public record ItemCotizado(Long prdId, Long varId, Integer cantidad, Long precio, Long subtotal,
+                               String nombre) {}
+    public record CotizacionVentaLocal(List<ItemCotizado> items, Long total) {}
+
     private record ItemResuelto(Long prdId, Long varId, int cantidad, long precioCentavos, String nombre, String imagen) {}
+
+    @Transactional(readOnly = true)
+    public CotizacionVentaLocal cotizar(List<VentaLocalRequest.ItemVentaLocal> pedidos) {
+        tenantSupport.applyTenant(em);
+        if (pedidos == null || pedidos.isEmpty()) return new CotizacionVentaLocal(List.of(), 0L);
+        List<ItemResuelto> resueltos = resolverItems(pedidos);
+        List<ItemCotizado> items = resueltos.stream().map(item -> new ItemCotizado(
+                item.prdId(), item.varId(), item.cantidad(), item.precioCentavos() / 100L,
+                item.precioCentavos() * item.cantidad() / 100L, item.nombre())).toList();
+        long total = items.stream().mapToLong(ItemCotizado::subtotal).sum();
+        return new CotizacionVentaLocal(items, total);
+    }
 
     @Transactional
     public VentaLocalCreada crear(Long tndId, Long adminId, VentaLocalRequest req) {
@@ -127,7 +143,7 @@ public class VentaLocalService {
                 .executeUpdate();
 
         auditoriaService.registrar(tndId, adminId, "venta_local.creada", "pedido", pedId,
-                Map.of("numero", numero, "total_centavos", total, "usr_id", usrId));
+                Map.of("numero", numero, "total", total / 100L, "usr_id", usrId));
 
         log.info("[VentaLocal] Pedido {} ({}) creado por admin {} — cliente usrId={} total={}",
                 pedId, numero, adminId, usrId, total);

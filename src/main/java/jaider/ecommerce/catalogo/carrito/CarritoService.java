@@ -6,6 +6,7 @@ import jakarta.persistence.PersistenceContext;
 import jaider.ecommerce.shared.TenantSupport;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -24,11 +25,14 @@ public class CarritoService {
     @PersistenceContext
     private EntityManager em;
 
+    @Value("${app.shipping.flat-cost-centavos}")
+    private long shippingFlatCostCentavos;
+
     @Transactional
     public Map<String, Object> getCarrito(Long usrId, Long tndId) {
         tenantSupport.applyTenant(em);
         Long carId = ensureCarrito(usrId);
-        return buildCarrito(carId);
+        return buildCarrito(carId, tndId);
     }
 
     @Transactional
@@ -67,7 +71,7 @@ public class CarritoService {
             .setParameter("precio", precioCentavos)
             .executeUpdate();
 
-        return buildCarrito(carId);
+        return buildCarrito(carId, tndId);
     }
 
     @Transactional
@@ -93,7 +97,7 @@ public class CarritoService {
                 throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Ítem no encontrado");
             }
         }
-        return buildCarrito(carId);
+        return buildCarrito(carId, tndId);
     }
 
     @Transactional
@@ -108,7 +112,7 @@ public class CarritoService {
         if (deleted == 0) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Ítem no encontrado");
         }
-        return buildCarrito(carId);
+        return buildCarrito(carId, tndId);
     }
 
     @Transactional
@@ -118,7 +122,7 @@ public class CarritoService {
         em.createNativeQuery("DELETE FROM carrito_items WHERE ci_car_id = :carId")
             .setParameter("carId", carId)
             .executeUpdate();
-        return buildCarrito(carId);
+        return buildCarrito(carId, tndId);
     }
 
     private Long ensureCarrito(Long usrId) {
@@ -157,7 +161,7 @@ public class CarritoService {
     }
 
     @SuppressWarnings("unchecked")
-    private Map<String, Object> buildCarrito(Long carId) {
+    private Map<String, Object> buildCarrito(Long carId, Long tndId) {
         List<Object[]> rows = em.createNativeQuery("""
             SELECT ci.ci_id, ci.ci_prd_id, ci.ci_cantidad, ci.ci_precio_snap_centavos,
                    p.prd_nombre, p.prd_activo, p.prd_slug,
@@ -198,6 +202,7 @@ public class CarritoService {
             item.put("producto_id", ((Number) r[1]).longValue());
             item.put("cantidad", cantidad);
             item.put("precio", precio);
+            item.put("subtotal", precio * cantidad);
             item.put("nombre", r[4]);
             item.put("producto_activo", r[5]);
             item.put("slug", r[6]);
@@ -216,6 +221,26 @@ public class CarritoService {
         result.put("items", items);
         result.put("count", count);
         result.put("total", total);
+        Object[] envioConfig = (Object[]) em.createNativeQuery("""
+                SELECT tnd_envio_gratis_activo, tnd_envio_gratis_desde_centavos
+                FROM tiendas WHERE tnd_id = :tndId
+                """)
+                .setParameter("tndId", tndId)
+                .getSingleResult();
+        boolean envioGratisActivo = Boolean.TRUE.equals(envioConfig[0]);
+        long envioGratisDesde = ((Number) envioConfig[1]).longValue() / 100L;
+        long envio = envioGratisActivo && total >= envioGratisDesde ? 0L : shippingFlatCostCentavos / 100L;
+        long faltanteEnvioGratis = envioGratisActivo ? Math.max(0L, envioGratisDesde - total) : 0L;
+        int progresoEnvioGratis = envioGratisActivo && envioGratisDesde > 0
+                ? (int) Math.min(100L, total * 100L / envioGratisDesde)
+                : 0;
+        result.put("envio", envio);
+        result.put("total_con_envio", total + envio);
+        result.put("envio_gratis_activo", envioGratisActivo);
+        result.put("envio_gratis_desde", envioGratisDesde);
+        result.put("envio_gratis_alcanzado", envioGratisActivo && total >= envioGratisDesde);
+        result.put("faltante_envio_gratis", faltanteEnvioGratis);
+        result.put("progreso_envio_gratis", progresoEnvioGratis);
         return result;
     }
 

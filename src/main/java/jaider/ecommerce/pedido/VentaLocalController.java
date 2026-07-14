@@ -37,4 +37,9 @@ public class VentaLocalController {
         Long tndId = Long.parseLong(TenantContext.get());
         return service.crear(tndId, adminId, req);
     }
+
+    @PostMapping("/cotizacion")
+    public VentaLocalService.CotizacionVentaLocal cotizar(@RequestBody VentaLocalRequest req) {
+        return service.cotizar(req.items());
+    }
 }

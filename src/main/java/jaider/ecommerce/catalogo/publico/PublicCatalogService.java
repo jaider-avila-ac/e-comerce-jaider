@@ -188,6 +188,7 @@ public class PublicCatalogService {
                         v.getId(), v.getTalla(), v.getColor(), v.getStock()
                 ))
                 .toList();
+        int stockTotal = vars.stream().mapToInt(v -> v.getStock() != null ? v.getStock() : 0).sum();
 
         Map<String, Object> caracteristicas = new LinkedHashMap<>();
         ficha.forEach((k, v) -> {
@@ -215,6 +216,7 @@ public class PublicCatalogService {
                 tallasOpc,
                 variantes,
                 stockVariantes,
+                stockTotal,
                 caracteristicas,
                 resumen != null ? resumen.promedio() : null,
                 resumen != null ? resumen.total() : null

@@ -9,6 +9,7 @@ import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -37,6 +38,9 @@ public class PedidoCreacionService {
     @PersistenceContext
     private EntityManager em;
 
+    @Value("${app.shipping.flat-cost-centavos}")
+    private long shippingFlatCostCentavos;
+
     private static final SecureRandom RANDOM = new SecureRandom();
 
     public record ItemCarrito(Long prdId, Long varId, int cantidad, long precioCentavos,
@@ -54,20 +58,29 @@ public class PedidoCreacionService {
         List<ItemCarrito> items = cargarCarritoValidado(usrId);
         Map<String, Object> dirSnapshot = resolverDireccion(usrId, tndId, direccionId, direccionInline);
 
-        long total = items.stream().mapToLong(i -> i.precioCentavos() * i.cantidad()).sum();
+        long subtotal = items.stream().mapToLong(i -> i.precioCentavos() * i.cantidad()).sum();
+        Object[] envioConfig = (Object[]) em.createNativeQuery("""
+                SELECT tnd_envio_gratis_activo, tnd_envio_gratis_desde_centavos
+                FROM tiendas WHERE tnd_id = :tndId
+                """).setParameter("tndId", tndId).getSingleResult();
+        boolean envioGratis = Boolean.TRUE.equals(envioConfig[0])
+                && subtotal >= ((Number) envioConfig[1]).longValue();
+        long envio = envioGratis ? 0L : shippingFlatCostCentavos;
+        long total = subtotal + envio;
         String numero = generarNumeroUnico();
 
         Number pedIdNum = (Number) em.createNativeQuery("""
                 INSERT INTO pedidos (ped_tnd_id, ped_usr_id, ped_numero, ped_dir_snapshot,
-                                      ped_subtotal_centavos, ped_total_centavos, ped_notas)
-                VALUES (:tndId, :usrId, :numero, CAST(:dirSnapshot AS jsonb), :subtotal, :total, :notas)
+                                      ped_subtotal_centavos, ped_envio_centavos, ped_total_centavos, ped_notas)
+                VALUES (:tndId, :usrId, :numero, CAST(:dirSnapshot AS jsonb), :subtotal, :envio, :total, :notas)
                 RETURNING ped_id
                 """)
                 .setParameter("tndId", tndId)
                 .setParameter("usrId", usrId)
                 .setParameter("numero", numero)
                 .setParameter("dirSnapshot", toJson(dirSnapshot))
-                .setParameter("subtotal", total)
+                .setParameter("subtotal", subtotal)
+                .setParameter("envio", envio)
                 .setParameter("total", total)
                 .setParameter("notas", (notas != null && !notas.isBlank()) ? notas.trim() : null)
                 .getSingleResult();

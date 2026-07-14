@@ -54,11 +54,18 @@ public class ResenaService {
         )).toList();
 
         if (items.isEmpty()) {
-            return new ResenaListResponse(null, 0, items);
+            return new ResenaListResponse(null, 0, List.of(), items);
         }
         double promedio = items.stream().mapToInt(ResenaResponse::calificacion).average().orElse(0);
         double redondeado = Math.round(promedio * 10) / 10.0;
-        return new ResenaListResponse(redondeado, items.size(), items);
+        List<ResenaListResponse.Distribucion> distribucion = java.util.stream.IntStream
+                .iterate(5, n -> n >= 1, n -> n - 1)
+                .mapToObj(estrellas -> {
+                    long cantidad = items.stream().filter(i -> i.calificacion() == estrellas).count();
+                    return new ResenaListResponse.Distribucion(
+                            estrellas, cantidad, Math.round(cantidad * 100.0 / items.size()));
+                }).toList();
+        return new ResenaListResponse(redondeado, items.size(), distribucion, items);
     }
 
     /** Carga masiva de promedio/total por producto — evita N+1 al enriquecer el catálogo. */
