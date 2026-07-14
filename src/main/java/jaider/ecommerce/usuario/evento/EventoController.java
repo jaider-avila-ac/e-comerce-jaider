@@ -2,6 +2,7 @@ package jaider.ecommerce.usuario.evento;
 
 import jakarta.validation.Valid;
 import jaider.ecommerce.auth.jwt.JwtService;
+import jaider.ecommerce.catalogo.publico.PublicProductoResponse;
 import jaider.ecommerce.shared.interceptor.TenantContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -31,7 +32,7 @@ public class EventoController {
     }
 
     @GetMapping("/recientes")
-    public List<Map<String, Object>> recientes(
+    public List<PublicProductoResponse> recientes(
             @RequestParam(defaultValue = "8") int limit,
             @RequestHeader(value = "Authorization", required = false) String authHeader) {
 

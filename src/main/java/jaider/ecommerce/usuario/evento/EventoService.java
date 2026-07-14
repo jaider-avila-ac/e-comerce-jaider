@@ -2,13 +2,14 @@ package jaider.ecommerce.usuario.evento;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import jaider.ecommerce.catalogo.publico.PublicCatalogService;
+import jaider.ecommerce.catalogo.publico.PublicProductoResponse;
 import jaider.ecommerce.shared.TenantSupport;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -18,6 +19,7 @@ import java.util.Map;
 public class EventoService {
 
     private final TenantSupport tenantSupport;
+    private final PublicCatalogService publicCatalogService;
 
     @PersistenceContext
     private EntityManager em;
@@ -36,49 +38,34 @@ public class EventoService {
         log.debug("[EVENTO] usr={} tipo={} entidad={}/{}", usrId, req.tipo(), req.entidadTipo(), req.entidadId());
     }
 
+    /**
+     * Últimos productos vistos (sin repetir), en el mismo shape que el resto del catálogo
+     * público — antes tenía su propio formato incompleto (sin marca, imágenes reales,
+     * descuento, etc.), lo que rompía la visualización en "Vistos recientemente".
+     */
     @Transactional(readOnly = true)
     @SuppressWarnings("unchecked")
-    public List<Map<String, Object>> recientes(Long usrId, Long tndId, int limit) {
+    public List<PublicProductoResponse> recientes(Long usrId, Long tndId, int limit) {
         tenantSupport.applyTenant(em);
 
-        // Últimos productos vistos (sin repetir), unidos a datos del producto
-        List<Object[]> rows = em.createNativeQuery("""
-                SELECT DISTINCT ON (e.eu_entidad_id)
-                    p.prd_id, p.prd_nombre, p.prd_slug,
-                    p.prd_precio_centavos, p.prd_precio_descuento_centavos,
-                    pi.pi_url,
-                    e.eu_creado_en
-                FROM eventos_usuario e
-                JOIN productos p ON p.prd_id = e.eu_entidad_id
-                LEFT JOIN producto_imagenes pi
-                    ON pi.pi_prd_id = p.prd_id
-                    AND pi.pi_orden = (SELECT MIN(pi2.pi_orden) FROM producto_imagenes pi2 WHERE pi2.pi_prd_id = p.prd_id)
-                WHERE e.eu_usr_id = :usrId
-                  AND e.eu_tipo = 'vista_producto'
-                  AND p.prd_activo = true
-                ORDER BY e.eu_entidad_id, e.eu_creado_en DESC
+        // DISTINCT ON se queda con la vista más reciente de cada producto, y el ORDER BY
+        // externo ordena esas últimas vistas entre sí (más reciente primero) antes de recortar.
+        List<Number> idsOrdenados = em.createNativeQuery("""
+                SELECT eu_entidad_id FROM (
+                    SELECT DISTINCT ON (eu_entidad_id) eu_entidad_id, eu_creado_en
+                    FROM eventos_usuario
+                    WHERE eu_usr_id = :usrId AND eu_tipo = 'vista_producto'
+                    ORDER BY eu_entidad_id, eu_creado_en DESC
+                ) ultimos
+                ORDER BY eu_creado_en DESC
                 LIMIT :limit
                 """)
                 .setParameter("usrId", usrId)
                 .setParameter("limit", limit)
                 .getResultList();
 
-        List<Map<String, Object>> result = new ArrayList<>();
-        for (Object[] r : rows) {
-            Long precio = r[4] != null
-                    ? ((Number) r[4]).longValue() / 100L
-                    : ((Number) r[3]).longValue() / 100L;
-            Long precioAntes = r[4] != null ? ((Number) r[3]).longValue() / 100L : null;
-            result.add(Map.of(
-                    "id",          ((Number) r[0]).longValue(),
-                    "nombre",      r[1],
-                    "slug",        r[2] != null ? r[2] : "",
-                    "precio",      precio,
-                    "precio_antes", precioAntes != null ? precioAntes : precio,
-                    "imagen_url",  r[5] != null ? r[5] : ""
-            ));
-        }
-        return result;
+        List<Long> ids = idsOrdenados.stream().map(Number::longValue).toList();
+        return publicCatalogService.getProductosByIds(ids);
     }
 
     @Transactional(readOnly = true)

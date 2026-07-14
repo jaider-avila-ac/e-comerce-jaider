@@ -124,6 +124,28 @@ public class PublicCatalogService {
                 .toList();
     }
 
+    /**
+     * Productos activos para una lista de IDs, en el mismo orden en que llegaron (ej. "vistos
+     * recientemente": más reciente primero) y con el mismo shape que el resto del catálogo
+     * público — nunca un formato aparte con campos incompletos.
+     */
+    @Transactional(readOnly = true)
+    public List<PublicProductoResponse> getProductosByIds(List<Long> ids) {
+        tenantSupport.applyTenant(em);
+        if (ids.isEmpty()) return List.of();
+
+        Map<Long, Producto> porId = prodRepo.findAllById(ids).stream()
+                .filter(Producto::isActivo)
+                .collect(Collectors.toMap(Producto::getId, p -> p));
+
+        List<Producto> ordenados = ids.stream()
+                .map(porId::get)
+                .filter(Objects::nonNull)
+                .toList();
+
+        return enrich(ordenados);
+    }
+
     @Transactional(readOnly = true)
     public PublicProductoResponse getProductoById(Long id) {
         tenantSupport.applyTenant(em);
