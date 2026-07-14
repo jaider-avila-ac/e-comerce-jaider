@@ -26,6 +26,11 @@ public class ReporteService {
 
     // ─── Resumen general ──────────────────────────────────────────────────────
 
+    // Una venta cuenta como ingreso desde "preparando" en adelante — no desde "pagado", porque
+    // un pedido recién pagado puede tener una alerta de stock sin resolver (ver alertaStock en
+    // Pedido) y todavía no es un ingreso confirmado; y no en "entregado" solamente, porque esa
+    // transición ahora también la puede disparar el cliente al confirmar recibido, y esa acción
+    // no debe tener ningún efecto en las cuentas. Cancelado/devuelto quedan fuera del conteo.
     @Transactional(readOnly = true)
     public ReporteResumenResponse resumen(String mes) {
         tenantSupport.applyTenant(em);
@@ -35,7 +40,8 @@ public class ReporteService {
 
         Object[] row = (Object[]) em.createNativeQuery("""
             SELECT
-              COALESCE(SUM(CASE WHEN ped_estado='entregado' THEN ped_total_centavos END), 0)   AS total_ingresos,
+              COALESCE(SUM(CASE WHEN ped_estado IN ('preparando', 'enviado', 'entregado')
+                                 THEN ped_total_centavos END), 0)                                AS total_ingresos,
               COUNT(*)                                                                          AS total_pedidos,
               COUNT(*) FILTER (WHERE ped_estado IN ('pagado', 'preparando', 'enviado')) AS en_proceso
             FROM pedidos
@@ -138,7 +144,7 @@ public class ReporteService {
                ORDER BY pim.pi_orden ASC LIMIT 1)      AS imagen_url
             FROM pedido_items pi
             JOIN pedidos p ON p.ped_id = pi.pi_ped_id
-            WHERE p.ped_estado = 'entregado'
+            WHERE p.ped_estado IN ('preparando', 'enviado', 'entregado')
             """ + where + """
             GROUP BY pi.pi_prd_id, pi.pi_nombre_snap
             ORDER BY unidades DESC
@@ -181,7 +187,7 @@ public class ReporteService {
             JOIN pedidos p   ON p.ped_id   = pi.pi_ped_id
             JOIN productos pr ON pr.prd_id  = pi.pi_prd_id
             JOIN categorias c ON c.cat_id   = pr.prd_cat_id
-            WHERE p.ped_estado = 'entregado'
+            WHERE p.ped_estado IN ('preparando', 'enviado', 'entregado')
             """ + where + """
             GROUP BY c.cat_nombre
             ORDER BY total_centavos DESC
