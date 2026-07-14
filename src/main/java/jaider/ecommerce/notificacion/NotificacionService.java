@@ -1,7 +1,9 @@
 package jaider.ecommerce.notificacion;
 
+import jaider.ecommerce.infra.ResendEmailService;
 import jaider.ecommerce.shared.TenantSupport;
 import jaider.ecommerce.shared.interceptor.TenantContext;
+import jaider.ecommerce.tienda.TiendaRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +30,8 @@ public class NotificacionService {
 
     private final TenantSupport tenantSupport;
     private final SimpMessagingTemplate messagingTemplate;
+    private final TiendaRepository tiendaRepo;
+    private final ResendEmailService emailService;
 
     @PersistenceContext
     private EntityManager em;
@@ -105,6 +109,41 @@ public class NotificacionService {
         } catch (Exception e) {
             log.error("[Notificaciones] No se pudo notificar al cliente {} de la tienda {}: {}",
                     usrId, tndId, e.getMessage(), e);
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    /** Aviso por correo (Resend) al email que el admin configuró en Ajustes cuando un pedido se
+     *  paga — además de la notificación in-app de notificarAdmin(). Si la tienda no tiene un
+     *  correo configurado, no se envía nada. */
+    @Transactional(readOnly = true)
+    public void avisarNuevoPedidoPorEmail(Long tndId, Long pedId, String numero) {
+        try {
+            TenantContext.set(tndId.toString());
+            tenantSupport.applyTenant(em);
+
+            String emailDestino = tiendaRepo.findById(tndId)
+                    .map(t -> t.getEmailNotificacionPedidos())
+                    .orElse(null);
+            if (emailDestino == null || emailDestino.isBlank()) return;
+
+            Object[] row = (Object[]) em.createNativeQuery("""
+                    SELECT p.ped_total_centavos, COALESCE(cp.cp_nombre, u.usr_email)
+                    FROM pedidos p
+                    JOIN usuarios u ON u.usr_id = p.ped_usr_id
+                    LEFT JOIN clientes_perfil cp ON cp.cp_usr_id = u.usr_id
+                    WHERE p.ped_id = :pedId
+                    """)
+                    .setParameter("pedId", pedId)
+                    .getSingleResult();
+            long totalPesos = ((Number) row[0]).longValue() / 100L;
+            String clienteNombre = (String) row[1];
+
+            emailService.sendNuevoPedido(emailDestino, numero, clienteNombre, totalPesos);
+        } catch (Exception e) {
+            log.warn("[Notificaciones] No se pudo enviar aviso por correo del pedido {} en tienda {}: {}",
+                    numero, tndId, e.getMessage());
         } finally {
             TenantContext.clear();
         }

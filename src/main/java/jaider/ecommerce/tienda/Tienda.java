@@ -55,6 +55,11 @@ public class Tienda {
     @Column(name = "tnd_dominio_staff", length = 120)
     private String dominioStaff;
 
+    // Correo al que llega un aviso (vía Resend) cada vez que un cliente hace un pedido pagado.
+    // Null/blank = no enviar ningún correo (además de la notificación in-app que ya existe).
+    @Column(name = "tnd_email_notificacion_pedidos", length = 255)
+    private String emailNotificacionPedidos;
+
     @Column(name = "tnd_activo", nullable = false)
     private boolean activo = true;
 

@@ -26,6 +26,8 @@ public class NotificacionEventListener {
                 "Nuevo pedido pagado",
                 "El pedido " + event.numero() + " fue pagado y está listo para preparar.",
                 "pedido", event.pedId());
+
+        notificacionService.avisarNuevoPedidoPorEmail(event.tndId(), event.pedId(), event.numero());
     }
 
     @Async

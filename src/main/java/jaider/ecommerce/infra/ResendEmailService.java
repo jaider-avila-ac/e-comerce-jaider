@@ -47,6 +47,23 @@ public class ResendEmailService {
         send(recipient, "Restablecer contraseña — Calzacaribe", html);
     }
 
+    /** Aviso al correo que el admin configuró en Ajustes — no usa override() a propósito:
+     *  ese correo lo eligió el propio admin, no es un dato de un cliente de prueba. */
+    public void sendNuevoPedido(String to, String numero, String clienteNombre, long totalPesos) {
+        String totalFmt = String.format("$%,d", totalPesos).replace(',', '.');
+        String html = """
+            <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#fff">
+              <h2 style="margin:0 0 8px;color:#111;font-size:20px">Nuevo pedido pagado</h2>
+              <p style="color:#555;font-size:15px;margin:0 0 16px">
+                <strong>%s</strong> hizo un pedido por <strong>%s</strong>.
+              </p>
+              <p style="color:#888;font-size:13px">Pedido #%s</p>
+            </div>
+            """.formatted(clienteNombre != null && !clienteNombre.isBlank() ? clienteNombre : "Un cliente",
+                    totalFmt, numero);
+        send(to, "Nuevo pedido — " + numero, html);
+    }
+
     private String override(String original) {
         return (emailOverride != null && !emailOverride.isBlank()) ? emailOverride : original;
     }

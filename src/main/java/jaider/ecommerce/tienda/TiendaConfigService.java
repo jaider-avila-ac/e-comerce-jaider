@@ -42,6 +42,13 @@ public class TiendaConfigService {
             if (dominio.startsWith("@")) dominio = dominio.substring(1);
             tienda.setDominioStaff(dominio.isBlank() ? null : dominio);
         }
+        if (req.emailNotificacionPedidos() != null) {
+            String email = req.emailNotificacionPedidos().trim();
+            if (!email.isBlank() && !email.matches("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Correo inválido");
+            }
+            tienda.setEmailNotificacionPedidos(email.isBlank() ? null : email);
+        }
 
         repo.save(tienda);
         return toResponse(tienda);
@@ -61,7 +68,8 @@ public class TiendaConfigService {
                 tienda.isEnvioGratisActivo(),
                 tienda.getEnvioGratisDesdeCentavos() / 100L,
                 tienda.getEnvioCostoCentavos() / 100L,
-                tienda.getDominioStaff()
+                tienda.getDominioStaff(),
+                tienda.getEmailNotificacionPedidos()
         );
     }
 }
