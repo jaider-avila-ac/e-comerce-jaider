@@ -55,6 +55,21 @@ public class Pedido {
     @Column(name = "ped_link_seguimiento", length = 500)
     private String linkSeguimiento;
 
+    // Nombre de la transportadora — el admin elige entre una lista fija que vive en el
+    // frontend (Envía, Coordinadora, Interrapidísimo, Servientrega, etc.), el backend solo
+    // guarda el texto que llegue, sin validar contra un catálogo.
+    @Column(name = "ped_transportadora", length = 50)
+    private String transportadora;
+
+    @Column(name = "ped_codigo_rastreo", length = 100)
+    private String codigoRastreo;
+
+    // 'codigo' | 'link' | 'ambos' — qué le muestra la tienda al cliente. Null equivale a
+    // "ambos" cuando hay datos de seguimiento, para no perder información ya cargada antes
+    // de que existiera esta preferencia.
+    @Column(name = "ped_mostrar_seguimiento", length = 10)
+    private String mostrarSeguimiento;
+
     // Independiente de ped_estado: el cliente puede confirmar recibido apenas le llega el
     // pedido, sin importar si fue él mismo quien lo hizo pasar a "entregado" o si lo cambió
     // el admin (no hay integración con transportadoras, así que normalmente es el cliente

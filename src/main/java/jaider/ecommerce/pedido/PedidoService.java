@@ -163,24 +163,39 @@ public class PedidoService {
         return toResponse(p, clientMap.get(p.getUsrId()), null);
     }
 
-    // ─── Link de seguimiento de envío ───────────────────────────────────────
+    // ─── Seguimiento de envío ────────────────────────────────────────────────
 
-    /** El admin pega aquí el link de seguimiento que le da la transportadora (ej. Coordinadora).
-     *  Sin restricción de estado: puede agregarse o corregirse en cualquier momento. */
+    private static final Set<String> MOSTRAR_SEGUIMIENTO_VALIDOS = Set.of("codigo", "link", "ambos");
+
+    /** El admin registra la transportadora (nombre libre, la lista fija vive en el frontend),
+     *  el código de rastreo y/o el link que le dio, y elige qué le muestra a la tienda. Sin
+     *  restricción de estado: puede agregarse o corregirse en cualquier momento. */
     @Transactional
-    public PedidoResponse updateLinkSeguimiento(Long id, String link) {
+    public PedidoResponse updateSeguimiento(Long id, String transportadora, String codigoRastreo,
+                                             String link, String mostrar) {
         tenantSupport.applyTenant(em);
 
         String linkLimpio = (link != null && !link.isBlank()) ? link.trim() : null;
         if (linkLimpio != null && !linkLimpio.startsWith("http://") && !linkLimpio.startsWith("https://")) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El link debe empezar por http:// o https://");
         }
+        String mostrarLimpio = (mostrar != null && !mostrar.isBlank()) ? mostrar.trim() : null;
+        if (mostrarLimpio != null && !MOSTRAR_SEGUIMIENTO_VALIDOS.contains(mostrarLimpio)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Valor inválido, debe ser: " + MOSTRAR_SEGUIMIENTO_VALIDOS);
+        }
+        String transportadoraLimpia = (transportadora != null && !transportadora.isBlank())
+                ? transportadora.trim() : null;
+        String codigoLimpio = (codigoRastreo != null && !codigoRastreo.isBlank()) ? codigoRastreo.trim() : null;
 
         Pedido p = pedidoRepo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pedido no encontrado"));
 
-        pedidoRepo.updateLinkSeguimiento(id, linkLimpio);
+        pedidoRepo.updateSeguimiento(id, transportadoraLimpia, codigoLimpio, linkLimpio, mostrarLimpio);
+        p.setTransportadora(transportadoraLimpia);
+        p.setCodigoRastreo(codigoLimpio);
         p.setLinkSeguimiento(linkLimpio);
+        p.setMostrarSeguimiento(mostrarLimpio);
 
         Map<Long, String[]> clientMap = loadClientInfo(Set.of(p.getUsrId()));
         return toResponse(p, clientMap.get(p.getUsrId()), null);
@@ -305,6 +320,9 @@ public class PedidoService {
                 p.getCreadoEn(),
                 p.isAlertaStock(),
                 p.getLinkSeguimiento(),
+                p.getTransportadora(),
+                p.getCodigoRastreo(),
+                p.getMostrarSeguimiento(),
                 p.getConfirmadoClienteEn(),
                 itemsList
         );

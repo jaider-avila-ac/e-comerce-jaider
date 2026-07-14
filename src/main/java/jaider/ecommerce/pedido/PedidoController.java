@@ -63,7 +63,7 @@ public class PedidoController {
     }
 
     @PatchMapping("/{id}/link-seguimiento")
-    public PedidoResponse updateLinkSeguimiento(@PathVariable Long id, @RequestBody LinkSeguimientoRequest req) {
-        return pedidoService.updateLinkSeguimiento(id, req.link());
+    public PedidoResponse updateSeguimiento(@PathVariable Long id, @RequestBody SeguimientoRequest req) {
+        return pedidoService.updateSeguimiento(id, req.transportadora(), req.codigoRastreo(), req.link(), req.mostrar());
     }
 }

@@ -23,6 +23,12 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
     void updateEstado(@Param("id") Long id, @Param("estado") String estado);
 
     @Modifying(clearAutomatically = true)
-    @Query(value = "UPDATE pedidos SET ped_link_seguimiento = :link WHERE ped_id = :id", nativeQuery = true)
-    void updateLinkSeguimiento(@Param("id") Long id, @Param("link") String link);
+    @Query(value = """
+            UPDATE pedidos SET ped_transportadora = :transportadora, ped_codigo_rastreo = :codigo,
+                                ped_link_seguimiento = :link, ped_mostrar_seguimiento = :mostrar
+            WHERE ped_id = :id
+            """, nativeQuery = true)
+    void updateSeguimiento(@Param("id") Long id, @Param("transportadora") String transportadora,
+                            @Param("codigo") String codigo, @Param("link") String link,
+                            @Param("mostrar") String mostrar);
 }

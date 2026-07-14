@@ -195,7 +195,8 @@ public class PedidoCreacionService {
         try {
             row = (Object[]) em.createNativeQuery("""
                     SELECT ped_id, ped_numero, ped_estado::text, ped_total_centavos, ped_creado_en,
-                           ped_link_seguimiento, ped_confirmado_cliente_en
+                           ped_link_seguimiento, ped_confirmado_cliente_en,
+                           ped_transportadora, ped_codigo_rastreo, ped_mostrar_seguimiento
                     FROM pedidos WHERE ped_numero = :numero AND ped_usr_id = :usrId AND ped_tnd_id = :tndId
                     """)
                     .setParameter("numero", numero)
@@ -215,6 +216,9 @@ public class PedidoCreacionService {
         result.put("creado_en", row[4]);
         result.put("link_seguimiento", row[5]);
         result.put("confirmado_cliente_en", row[6]);
+        result.put("transportadora", row[7]);
+        result.put("codigo_rastreo", row[8]);
+        result.put("mostrar_seguimiento", row[9]);
 
         @SuppressWarnings("unchecked")
         List<Object[]> pagos = em.createNativeQuery("""
@@ -243,7 +247,8 @@ public class PedidoCreacionService {
                 SELECT DISTINCT p.ped_id, p.ped_numero, p.ped_estado::text, p.ped_subtotal_centavos,
                        p.ped_descuento_centavos, p.ped_envio_centavos, p.ped_total_centavos,
                        p.ped_dir_snapshot::text, p.ped_notas, p.ped_alerta_stock, p.ped_link_seguimiento,
-                       p.ped_creado_en, p.ped_confirmado_cliente_en
+                       p.ped_creado_en, p.ped_confirmado_cliente_en,
+                       p.ped_transportadora, p.ped_codigo_rastreo, p.ped_mostrar_seguimiento
                 FROM pedidos p
                 JOIN pagos pg ON pg.pag_ped_id = p.ped_id AND pg.pag_estado = CAST('APPROVED' AS estado_pago)
                 WHERE p.ped_usr_id = :usrId AND p.ped_tnd_id = :tndId
@@ -275,6 +280,9 @@ public class PedidoCreacionService {
             compra.put("link_seguimiento", row[10]);
             compra.put("creado_en", row[11]);
             compra.put("confirmado_cliente_en", row[12]);
+            compra.put("transportadora", row[13]);
+            compra.put("codigo_rastreo", row[14]);
+            compra.put("mostrar_seguimiento", row[15]);
             compra.put("items", itemsPorPedido.getOrDefault(pedId, List.of()));
             compras.add(compra);
         }
