@@ -49,6 +49,9 @@ public class Tienda {
     @Column(name = "tnd_envio_gratis_desde_centavos", nullable = false)
     private Long envioGratisDesdeCentavos = 20_000_000L;
 
+    @Column(name = "tnd_envio_costo_centavos", nullable = false)
+    private Long envioCostoCentavos = 1_200_000L;
+
     @Column(name = "tnd_dominio_staff", length = 120)
     private String dominioStaff;
 

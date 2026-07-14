@@ -31,6 +31,12 @@ public class TiendaConfigService {
             }
             tienda.setEnvioGratisDesdeCentavos(req.envioGratisDesde() * 100L);
         }
+        if (req.envioCosto() != null) {
+            if (req.envioCosto() < 0) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El costo de envío no puede ser negativo");
+            }
+            tienda.setEnvioCostoCentavos(req.envioCosto() * 100L);
+        }
         if (req.dominioStaff() != null) {
             String dominio = req.dominioStaff().trim().toLowerCase();
             if (dominio.startsWith("@")) dominio = dominio.substring(1);
@@ -54,6 +60,7 @@ public class TiendaConfigService {
         return new TiendaConfigResponse(
                 tienda.isEnvioGratisActivo(),
                 tienda.getEnvioGratisDesdeCentavos() / 100L,
+                tienda.getEnvioCostoCentavos() / 100L,
                 tienda.getDominioStaff()
         );
     }

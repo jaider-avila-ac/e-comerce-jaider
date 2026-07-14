@@ -6,7 +6,6 @@ import jakarta.persistence.PersistenceContext;
 import jaider.ecommerce.shared.TenantSupport;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -24,9 +23,6 @@ public class CarritoService {
 
     @PersistenceContext
     private EntityManager em;
-
-    @Value("${app.shipping.flat-cost-centavos}")
-    private long shippingFlatCostCentavos;
 
     @Transactional
     public Map<String, Object> getCarrito(Long usrId, Long tndId) {
@@ -222,14 +218,15 @@ public class CarritoService {
         result.put("count", count);
         result.put("total", total);
         Object[] envioConfig = (Object[]) em.createNativeQuery("""
-                SELECT tnd_envio_gratis_activo, tnd_envio_gratis_desde_centavos
+                SELECT tnd_envio_gratis_activo, tnd_envio_gratis_desde_centavos, tnd_envio_costo_centavos
                 FROM tiendas WHERE tnd_id = :tndId
                 """)
                 .setParameter("tndId", tndId)
                 .getSingleResult();
         boolean envioGratisActivo = Boolean.TRUE.equals(envioConfig[0]);
         long envioGratisDesde = ((Number) envioConfig[1]).longValue() / 100L;
-        long envio = envioGratisActivo && total >= envioGratisDesde ? 0L : shippingFlatCostCentavos / 100L;
+        long envioCosto = ((Number) envioConfig[2]).longValue() / 100L;
+        long envio = envioGratisActivo && total >= envioGratisDesde ? 0L : envioCosto;
         long faltanteEnvioGratis = envioGratisActivo ? Math.max(0L, envioGratisDesde - total) : 0L;
         int progresoEnvioGratis = envioGratisActivo && envioGratisDesde > 0
                 ? (int) Math.min(100L, total * 100L / envioGratisDesde)

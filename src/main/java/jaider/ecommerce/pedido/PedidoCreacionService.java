@@ -9,7 +9,6 @@ import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -38,9 +37,6 @@ public class PedidoCreacionService {
     @PersistenceContext
     private EntityManager em;
 
-    @Value("${app.shipping.flat-cost-centavos}")
-    private long shippingFlatCostCentavos;
-
     private static final SecureRandom RANDOM = new SecureRandom();
 
     public record ItemCarrito(Long prdId, Long varId, int cantidad, long precioCentavos,
@@ -60,12 +56,12 @@ public class PedidoCreacionService {
 
         long subtotal = items.stream().mapToLong(i -> i.precioCentavos() * i.cantidad()).sum();
         Object[] envioConfig = (Object[]) em.createNativeQuery("""
-                SELECT tnd_envio_gratis_activo, tnd_envio_gratis_desde_centavos
+                SELECT tnd_envio_gratis_activo, tnd_envio_gratis_desde_centavos, tnd_envio_costo_centavos
                 FROM tiendas WHERE tnd_id = :tndId
                 """).setParameter("tndId", tndId).getSingleResult();
         boolean envioGratis = Boolean.TRUE.equals(envioConfig[0])
                 && subtotal >= ((Number) envioConfig[1]).longValue();
-        long envio = envioGratis ? 0L : shippingFlatCostCentavos;
+        long envio = envioGratis ? 0L : ((Number) envioConfig[2]).longValue();
         long total = subtotal + envio;
         String numero = generarNumeroUnico();
 
