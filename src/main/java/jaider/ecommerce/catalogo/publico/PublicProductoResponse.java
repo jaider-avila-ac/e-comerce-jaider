@@ -9,7 +9,10 @@ public record PublicProductoResponse(
         String slug,
         String descripcion,
         Long precio,          // precio base original (para tachado) — prd_precio_centavos/100
-        Integer descuento,    // % de descuento (0 si no hay)
+        Long precioFinal,     // precio real a cobrar (con descuento aplicado si hay oferta vigente) — el
+                              // frontend nunca debe recalcularlo a partir de precio+descuento (el % está
+                              // redondeado y produce un valor distinto al real)
+        Integer descuento,    // % de descuento (0 si no hay) — solo para mostrar el badge, no para calcular
         String marca,
         String genero,        // lowercase: hombre, mujer, niños, unisex
         Long categoriaId,

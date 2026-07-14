@@ -146,8 +146,10 @@ public class PublicCatalogService {
                 && (p.getOfertaHasta() == null || p.getOfertaHasta().isAfter(OffsetDateTime.now()));
 
         long precioBase = p.getPrecioCentavos() / 100L;
+        long precioFinal = precioBase;
         int descuento = 0;
         if (ofertaVigente) {
+            precioFinal = p.getPrecioDescuentoCentavos() / 100L;
             descuento = (int) Math.round(
                     (1.0 - (double) p.getPrecioDescuentoCentavos() / p.getPrecioCentavos()) * 100
             );
@@ -200,6 +202,7 @@ public class PublicCatalogService {
                 p.getSlug(),
                 p.getDescripcion(),
                 precioBase,
+                precioFinal,
                 descuento,
                 marca,
                 genero,
