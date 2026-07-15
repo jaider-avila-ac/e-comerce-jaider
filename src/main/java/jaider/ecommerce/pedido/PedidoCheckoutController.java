@@ -1,9 +1,14 @@
 package jaider.ecommerce.pedido;
 
 import jaider.ecommerce.auth.jwt.JwtService;
+import jaider.ecommerce.pedido.devolucion.CodigoRastreoDevolucionRequest;
+import jaider.ecommerce.pedido.devolucion.SolicitudDevolucionRequest;
+import jaider.ecommerce.pedido.devolucion.SolicitudDevolucionResponse;
+import jaider.ecommerce.pedido.devolucion.SolicitudDevolucionService;
 import jaider.ecommerce.shared.interceptor.TenantContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -17,6 +22,7 @@ public class PedidoCheckoutController {
 
     private final PedidoCheckoutService checkoutService;
     private final PedidoCreacionService pedidoCreacionService;
+    private final SolicitudDevolucionService devolucionService;
     private final JwtService jwtService;
 
     /** Checkout hospedado: crea el pedido y devuelve la URL de la ventana de pago de Wompi. */
@@ -61,6 +67,44 @@ public class PedidoCheckoutController {
             @PathVariable String numero) {
         Long[] ids = extractIds(authHeader);
         pedidoCreacionService.confirmarRecibido(ids[0], ids[1], numero);
+    }
+
+    // ─── Devoluciones ────────────────────────────────────────────────────
+
+    @PostMapping("/{numero}/devolucion")
+    public SolicitudDevolucionResponse crearDevolucion(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @PathVariable String numero,
+            @RequestBody SolicitudDevolucionRequest req) {
+        Long[] ids = extractIds(authHeader);
+        return devolucionService.crear(ids[0], ids[1], numero, req);
+    }
+
+    @GetMapping("/{numero}/devolucion")
+    public ResponseEntity<SolicitudDevolucionResponse> verDevolucion(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @PathVariable String numero) {
+        Long[] ids = extractIds(authHeader);
+        return devolucionService.obtenerPorPedido(ids[0], ids[1], numero)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.noContent().build());
+    }
+
+    @PatchMapping("/{numero}/devolucion/codigo-rastreo")
+    public SolicitudDevolucionResponse registrarCodigoRastreoDevolucion(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @PathVariable String numero,
+            @RequestBody CodigoRastreoDevolucionRequest req) {
+        Long[] ids = extractIds(authHeader);
+        return devolucionService.registrarCodigoRastreo(ids[0], ids[1], numero, req.codigo());
+    }
+
+    @PostMapping("/{numero}/devolucion/cancelar")
+    public void cancelarDevolucion(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @PathVariable String numero) {
+        Long[] ids = extractIds(authHeader);
+        devolucionService.cancelar(ids[0], ids[1], numero);
     }
 
     private Long[] extractIds(String authHeader) {

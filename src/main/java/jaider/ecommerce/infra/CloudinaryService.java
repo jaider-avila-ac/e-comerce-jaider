@@ -40,6 +40,11 @@ public class CloudinaryService {
         return uploadToFolder(file, tndId, "categorias", false);
     }
 
+    /** Foto de evidencia que el cliente adjunta a una solicitud de devolución. */
+    public String uploadDevolucion(MultipartFile file, Long tndId, String numeroPedido) throws IOException {
+        return uploadToFolder(file, tndId, "devoluciones/" + numeroPedido, false);
+    }
+
     private String uploadToFolder(MultipartFile file, Long tndId, String subfolder, boolean esVideo) throws IOException {
         String slug = tiendaRepo.findById(tndId)
                 .map(t -> t.getSlug())
