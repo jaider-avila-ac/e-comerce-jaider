@@ -2,6 +2,7 @@ package jaider.ecommerce.catalogo.producto;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.NoResultException;
 import jakarta.persistence.PersistenceContext;
 import jaider.ecommerce.catalogo.CatalogCacheService;
 import jaider.ecommerce.infra.CloudinaryService;
@@ -21,6 +22,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Duration;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -387,12 +389,13 @@ public class ProductoService {
         short orden = 0;
         for (ImagenRequest ir : list) {
             String tipo = (ir.tipo() != null && !ir.tipo().isBlank()) ? ir.tipo() : "imagen";
+            Long varId = resolverVarIdPorColor(prdId, ir.color());
             em.createNativeQuery(
                     "INSERT INTO producto_imagenes (pi_prd_id, pi_var_id, pi_url, pi_tipo, pi_orden) " +
                     "VALUES (:prdId, :varId, :url, CAST(:tipo AS tipo_media), :orden)"
             )
             .setParameter("prdId", prdId)
-            .setParameter("varId", ir.varId())
+            .setParameter("varId", varId)
             .setParameter("url",   ir.url())
             .setParameter("tipo",  tipo)
             .setParameter("orden", ir.orden() != null ? ir.orden() : orden++)
@@ -400,11 +403,33 @@ public class ProductoService {
         }
     }
 
+    /** Resuelve el color elegido en el frontend a un var_id real. Nunca se recibe el var_id
+     *  directo del cliente: al crear un producto nuevo, las variantes recién elegidas todavía no
+     *  tienen id en el momento en que el admin arma la lista de imágenes en el navegador — esta
+     *  función corre después de que saveVariantes()/updateVariantes() ya insertó las variantes,
+     *  así que el color siempre es resoluble a esa altura. */
+    private Long resolverVarIdPorColor(Long prdId, String color) {
+        if (color == null || color.isBlank()) return null;
+        try {
+            return ((Number) em.createNativeQuery(
+                    "SELECT var_id FROM variantes WHERE var_prd_id = :prdId AND LOWER(var_color) = LOWER(:color) LIMIT 1")
+                    .setParameter("prdId", prdId)
+                    .setParameter("color", color)
+                    .getSingleResult()).longValue();
+        } catch (NoResultException e) {
+            return null; // el color ya no existe entre las variantes actuales — se guarda como "todos"
+        }
+    }
+
     private ProductoResponse toResponse(Producto p) {
-        List<VarianteResponse> variantes = varianteRepo.findByPrdIdOrderByIdAsc(p.getId())
-                .stream().map(this::toVarianteResponse).toList();
+        List<Variante> variantesRaw = varianteRepo.findByPrdIdOrderByIdAsc(p.getId());
+        Map<Long, String> colorPorVarId = new HashMap<>();
+        for (Variante v : variantesRaw) colorPorVarId.put(v.getId(), v.getColor());
+
+        List<VarianteResponse> variantes = variantesRaw.stream().map(this::toVarianteResponse).toList();
         List<ImagenResponse> imagenes = imagenRepo.findByPrdIdOrderByOrdenAscIdAsc(p.getId())
-                .stream().map(img -> new ImagenResponse(img.getId(), img.getUrl(), img.getOrden(), img.getTipo(), img.getVarId())).toList();
+                .stream().map(img -> new ImagenResponse(img.getId(), img.getUrl(), img.getOrden(), img.getTipo(),
+                        img.getVarId() != null ? colorPorVarId.get(img.getVarId()) : null)).toList();
 
         Long precio = p.getPrecioDescuentoCentavos() != null
                 ? p.getPrecioDescuentoCentavos() / 100L

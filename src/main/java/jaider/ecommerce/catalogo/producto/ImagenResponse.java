@@ -5,5 +5,5 @@ public record ImagenResponse(
         String url,
         Short orden,
         String tipo,   // "imagen" | "video"
-        Long varId     // var_id de la variante de color asociada (nullable)
+        String color   // color de la variante asociada (nullable = "todos los colores")
 ) {}
