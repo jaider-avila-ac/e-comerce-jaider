@@ -103,6 +103,12 @@ public class Pedido {
     @Column(name = "ped_cancelado_en")
     private OffsetDateTime canceladoEn;
 
+    // Colaborador responsable de gestionar este pedido — null hasta que alguien se
+    // autoasigne (ver PedidoService.asignarme/asignar). Visible para todo el staff, no
+    // solo para quien lo tomó.
+    @Column(name = "ped_colaborador_id")
+    private Long colaboradorId;
+
     @Column(name = "ped_creado_en", nullable = false, insertable = false, updatable = false)
     private OffsetDateTime creadoEn;
 

@@ -32,7 +32,7 @@ public class ReporteService {
     // transición ahora también la puede disparar el cliente al confirmar recibido, y esa acción
     // no debe tener ningún efecto en las cuentas. Cancelado/devuelto quedan fuera del conteo.
     @Transactional(readOnly = true)
-    public ReporteResumenResponse resumen(String mes) {
+    public ReporteResumenResponse resumen(String mes, boolean incluirFinanciero) {
         tenantSupport.applyTenant(em);
         Periodo periodo = periodo(mes);
         String pedidosWhere = periodo.hasRange() ? " WHERE ped_creado_en >= :start AND ped_creado_en < :end " : "";
@@ -75,13 +75,19 @@ public class ReporteService {
 
         long ticketPromedio = totalPedidos > 0 ? (totalIngresosCentavos / 100L) / totalPedidos : 0L;
 
+        // Colaborador/bodega no ven cifras de ingresos de la empresa — se redacta acá (en el
+        // backend), no solo ocultando la tarjeta en el frontend, para que no quede expuesto
+        // igual llamando al endpoint directamente.
+        Long ingresos = incluirFinanciero ? totalIngresosCentavos / 100L : null;
+        Long ticket    = incluirFinanciero ? ticketPromedio : null;
+
         return new ReporteResumenResponse(
-                totalIngresosCentavos / 100L,
-                totalIngresosCentavos / 100L,
+                ingresos,
+                ingresos,
                 totalPedidos,
                 totalPedidos,
                 pedidosEnProceso,
-                ticketPromedio,
+                ticket,
                 totalClientes,
                 totalClientes,
                 totalProductos,
@@ -91,9 +97,13 @@ public class ReporteService {
 
     // ─── Pedidos por estado ───────────────────────────────────────────────────
 
+    // El Dashboard (todo el staff) y Reportes (solo admin) comparten este endpoint — igual que en
+    // resumen(), se redacta "total" (ingresos por estado) para quien no sea admin/superadmin, en
+    // vez de bloquear todo el endpoint, porque el Dashboard necesita el conteo por estado
+    // (no financiero) para cualquier rol.
     @Transactional(readOnly = true)
     @SuppressWarnings("unchecked")
-    public List<Map<String, Object>> pedidosPorEstado(String mes) {
+    public List<Map<String, Object>> pedidosPorEstado(String mes, boolean incluirFinanciero) {
         tenantSupport.applyTenant(em);
         Periodo periodo = periodo(mes);
         String where = periodo.hasRange() ? "WHERE ped_creado_en >= :start AND ped_creado_en < :end " : "";
@@ -112,12 +122,12 @@ public class ReporteService {
         List<Map<String, Object>> result = new ArrayList<>();
         long maxCantidad = rows.stream().mapToLong(r -> ((Number) r[1]).longValue()).max().orElse(1L);
         for (Object[] r : rows) {
-            result.add(Map.of(
-                    "estado", r[0],
-                    "cantidad", ((Number) r[1]).longValue(),
-                    "total", ((Number) r[2]).longValue() / 100L,
-                    "porcentaje_grafica", ((Number) r[1]).longValue() * 100L / maxCantidad
-            ));
+            Map<String, Object> item = new java.util.HashMap<>();
+            item.put("estado", r[0]);
+            item.put("cantidad", ((Number) r[1]).longValue());
+            item.put("total", incluirFinanciero ? ((Number) r[2]).longValue() / 100L : null);
+            item.put("porcentaje_grafica", ((Number) r[1]).longValue() * 100L / maxCantidad);
+            result.add(item);
         }
         return result;
     }

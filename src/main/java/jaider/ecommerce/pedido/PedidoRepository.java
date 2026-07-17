@@ -10,11 +10,19 @@ import java.util.List;
 
 public interface PedidoRepository extends JpaRepository<Pedido, Long> {
 
-    @Query("SELECT p FROM Pedido p WHERE p.estado <> 'pendiente_pago' ORDER BY p.creadoEn DESC")
-    List<Pedido> findAllOrdered();
+    @Query("""
+            SELECT p FROM Pedido p WHERE p.estado <> 'pendiente_pago'
+            AND (:colaboradorId IS NULL OR p.colaboradorId = :colaboradorId)
+            ORDER BY p.creadoEn DESC
+            """)
+    List<Pedido> findAllOrdered(@Param("colaboradorId") Long colaboradorId);
 
-    @Query("SELECT p FROM Pedido p WHERE p.estado = :estado ORDER BY p.creadoEn DESC")
-    List<Pedido> findByEstado(@Param("estado") String estado);
+    @Query("""
+            SELECT p FROM Pedido p WHERE p.estado = :estado
+            AND (:colaboradorId IS NULL OR p.colaboradorId = :colaboradorId)
+            ORDER BY p.creadoEn DESC
+            """)
+    List<Pedido> findByEstado(@Param("estado") String estado, @Param("colaboradorId") Long colaboradorId);
 
     // clearAutomatically = true: limpia el contexto JPA tras el UPDATE nativo,
     // evitando que Hibernate intente hacer flush de la entidad dirty antes del próximo SELECT.
@@ -43,4 +51,8 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
     void registrarCancelacion(@Param("id") Long id, @Param("motivo") String motivo,
                                @Param("motivoOtro") String motivoOtro, @Param("nota") String nota,
                                @Param("adminId") Long adminId, @Param("canceladoEn") OffsetDateTime canceladoEn);
+
+    @Modifying(clearAutomatically = true)
+    @Query(value = "UPDATE pedidos SET ped_colaborador_id = :colaboradorId WHERE ped_id = :id", nativeQuery = true)
+    void asignarColaborador(@Param("id") Long id, @Param("colaboradorId") Long colaboradorId);
 }

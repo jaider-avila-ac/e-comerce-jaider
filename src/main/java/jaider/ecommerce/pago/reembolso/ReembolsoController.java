@@ -5,6 +5,7 @@ import jaider.ecommerce.shared.TenantSupport;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.transaction.annotation.Transactional;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/v1/reembolsos")
 @RequiredArgsConstructor
+@PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN')")
 public class ReembolsoController {
 
     private final ReembolsoService reembolsoService;

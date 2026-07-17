@@ -90,21 +90,43 @@ public class PedidoService {
     // ─── Listado ───────────────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
-    public List<PedidoResponse> getAll(String estado) {
+    public List<PedidoResponse> getAll(String estado, Long colaboradorId) {
         tenantSupport.applyTenant(em);
 
         List<Pedido> pedidos = (estado != null && !estado.isBlank())
-                ? pedidoRepo.findByEstado(estado)
-                : pedidoRepo.findAllOrdered();
+                ? pedidoRepo.findByEstado(estado, colaboradorId)
+                : pedidoRepo.findAllOrdered(colaboradorId);
 
         if (pedidos.isEmpty()) return List.of();
 
         Set<Long> usrIds = pedidos.stream().map(Pedido::getUsrId).collect(Collectors.toSet());
         Map<Long, String[]> clientMap = loadClientInfo(usrIds);
+        Map<Long, String> colaboradorMap = loadColaboradorInfo(pedidos.stream()
+                .map(Pedido::getColaboradorId).filter(Objects::nonNull).collect(Collectors.toSet()));
 
         return pedidos.stream()
-                .map(p -> toResponse(p, clientMap.get(p.getUsrId()), null))
+                .map(p -> toResponse(p, clientMap.get(p.getUsrId()), null, colaboradorMap.get(p.getColaboradorId())))
                 .toList();
+    }
+
+    /** Lista liviana de staff (admin/colaborador/bodega) para el selector de filtro/reasignación
+     *  de pedidos — no pasa por AdminUserController (restringido a admin/superadmin), cualquier
+     *  miembro del staff puede consultar quién puede tomar/gestionar un pedido. */
+    @Transactional(readOnly = true)
+    @SuppressWarnings("unchecked")
+    public List<Map<String, Object>> listarColaboradores() {
+        tenantSupport.applyTenant(em);
+        List<Object[]> rows = em.createNativeQuery(
+                "SELECT id, nombre FROM admin_users WHERE activo = true AND rol <> 'superadmin' ORDER BY nombre ASC")
+                .getResultList();
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Object[] row : rows) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("id", row[0]);
+            item.put("nombre", row[1]);
+            result.add(item);
+        }
+        return result;
     }
 
     // ─── Detalle ───────────────────────────────────────────────────────────
@@ -185,6 +207,52 @@ public class PedidoService {
         // Canal lateral: se publica al terminar el commit de esta transacción (ver
         // NotificacionEventListener), nunca puede retrasar ni afectar esta respuesta.
         eventPublisher.publishEvent(new PedidoEstadoCambiadoEvent(p.getTndId(), p.getUsrId(), id, p.getNumero(), estado));
+
+        Map<Long, String[]> clientMap = loadClientInfo(Set.of(p.getUsrId()));
+        return toResponse(p, clientMap.get(p.getUsrId()), null);
+    }
+
+    // ─── Responsable del pedido ─────────────────────────────────────────────
+
+    /** Cualquier miembro del staff puede tomar un pedido sin asignar. Si ya lo tiene otro
+     *  colaborador, se rechaza — evita que dos personas gestionen el mismo pedido a la vez. */
+    @Transactional
+    public PedidoResponse asignarme(Long id, Long adminId) {
+        tenantSupport.applyTenant(em);
+        Pedido p = pedidoRepo.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pedido no encontrado"));
+
+        if (p.getColaboradorId() != null && !p.getColaboradorId().equals(adminId)) {
+            String nombreActual = resolverColaboradorNombre(p.getColaboradorId());
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Ya lo está gestionando " + (nombreActual != null ? nombreActual : "otro colaborador"));
+        }
+        if (!Objects.equals(p.getColaboradorId(), adminId)) {
+            pedidoRepo.asignarColaborador(id, adminId);
+            p.setColaboradorId(adminId);
+            if (adminId != null) {
+                auditoriaService.registrar(p.getTndId(), adminId, "pedido.asignado", "pedido", id, Map.of());
+            }
+        }
+
+        Map<Long, String[]> clientMap = loadClientInfo(Set.of(p.getUsrId()));
+        return toResponse(p, clientMap.get(p.getUsrId()), null);
+    }
+
+    /** Reasignar o quitar el responsable (colaboradorId nullable) — solo admin/superadmin,
+     *  sin la validación de "ya está tomado" (es un override intencional). */
+    @Transactional
+    public PedidoResponse asignar(Long id, Long colaboradorId, Long adminId) {
+        tenantSupport.applyTenant(em);
+        Pedido p = pedidoRepo.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pedido no encontrado"));
+
+        pedidoRepo.asignarColaborador(id, colaboradorId);
+        p.setColaboradorId(colaboradorId);
+        if (adminId != null) {
+            auditoriaService.registrar(p.getTndId(), adminId, "pedido.reasignado", "pedido", id,
+                    Map.of("colaborador_id", String.valueOf(colaboradorId)));
+        }
 
         Map<Long, String[]> clientMap = loadClientInfo(Set.of(p.getUsrId()));
         return toResponse(p, clientMap.get(p.getUsrId()), null);
@@ -429,6 +497,28 @@ public class PedidoService {
     }
 
     @SuppressWarnings("unchecked")
+    private Map<Long, String> loadColaboradorInfo(Set<Long> colaboradorIds) {
+        // HashMap, no Map.of(): getAll() consulta este mapa con p.getColaboradorId(), que es
+        // null para cualquier pedido sin asignar — Map.of().get(null) lanza NPE (los mapas
+        // inmutables de Map.of rechazan null incluso en get()), HashMap.get(null) simplemente
+        // devuelve null.
+        if (colaboradorIds.isEmpty()) return new HashMap<>();
+        List<Object[]> rows = em.createNativeQuery(
+                "SELECT id, nombre FROM admin_users WHERE id IN :ids")
+                .setParameter("ids", colaboradorIds).getResultList();
+        Map<Long, String> map = new HashMap<>();
+        for (Object[] row : rows) {
+            map.put(((Number) row[0]).longValue(), (String) row[1]);
+        }
+        return map;
+    }
+
+    private String resolverColaboradorNombre(Long colaboradorId) {
+        if (colaboradorId == null) return null;
+        return loadColaboradorInfo(Set.of(colaboradorId)).get(colaboradorId);
+    }
+
+    @SuppressWarnings("unchecked")
     private Map<Long, String[]> loadClientInfo(Set<Long> usrIds) {
         if (usrIds.isEmpty()) return Map.of();
 
@@ -451,6 +541,10 @@ public class PedidoService {
     }
 
     private PedidoResponse toResponse(Pedido p, String[] clientInfo, List<PedidoItem> items) {
+        return toResponse(p, clientInfo, items, resolverColaboradorNombre(p.getColaboradorId()));
+    }
+
+    private PedidoResponse toResponse(Pedido p, String[] clientInfo, List<PedidoItem> items, String colaboradorNombre) {
         String clienteEmail = clientInfo != null ? clientInfo[0] : "";
         String nombre   = clientInfo != null ? clientInfo[1] : null;
         String apellido = clientInfo != null ? clientInfo[2] : null;
@@ -493,6 +587,8 @@ public class PedidoService {
                 p.getCancelNota(),
                 p.getCanceladoEn(),
                 reembolso,
+                p.getColaboradorId(),
+                colaboradorNombre,
                 itemsList
         );
     }

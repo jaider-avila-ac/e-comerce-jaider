@@ -31,5 +31,7 @@ public record PedidoResponse(
         String cancelNota,
         OffsetDateTime canceladoEn,
         ReembolsoResponse reembolso,
+        Long colaboradorId,       // null hasta que alguien se autoasigne el pedido
+        String colaboradorNombre,
         List<PedidoItemResponse> items   // null en el listado, poblado en el detalle
 ) {}

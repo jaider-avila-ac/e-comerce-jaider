@@ -5,6 +5,7 @@ import jaider.ecommerce.shared.TenantSupport;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,13 +26,19 @@ public class PedidoController {
     private EntityManager em;
 
     @GetMapping
-    public List<PedidoResponse> getAll(@RequestParam(required = false) String estado) {
-        return pedidoService.getAll(estado);
+    public List<PedidoResponse> getAll(@RequestParam(required = false) String estado,
+            @RequestParam(required = false) Long colaboradorId) {
+        return pedidoService.getAll(estado, colaboradorId);
     }
 
     @GetMapping("/conteos")
     public java.util.Map<String, Long> conteos() {
         return pedidoService.conteosPorEstado();
+    }
+
+    @GetMapping("/colaboradores")
+    public List<java.util.Map<String, Object>> listarColaboradores() {
+        return pedidoService.listarColaboradores();
     }
 
     @GetMapping("/{id}")
@@ -59,10 +66,27 @@ public class PedidoController {
 
     @PostMapping("/{id}/cancelar")
     @Transactional
+    @PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN')")
     public PedidoResponse cancelar(@AuthenticationPrincipal UserDetails userDetails,
             @PathVariable Long id, @RequestBody CancelarPedidoRequest req) {
         Long adminId = resolverAdminId(userDetails);
         return pedidoService.cancelarPorAdmin(id, req.motivo(), req.motivoOtro(), req.nota(), adminId);
+    }
+
+    @PostMapping("/{id}/asignarme")
+    @Transactional
+    public PedidoResponse asignarme(@AuthenticationPrincipal UserDetails userDetails, @PathVariable Long id) {
+        Long adminId = resolverAdminId(userDetails);
+        return pedidoService.asignarme(id, adminId);
+    }
+
+    @PatchMapping("/{id}/asignar")
+    @Transactional
+    @PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN')")
+    public PedidoResponse asignar(@AuthenticationPrincipal UserDetails userDetails,
+            @PathVariable Long id, @RequestBody AsignarPedidoRequest req) {
+        Long adminId = resolverAdminId(userDetails);
+        return pedidoService.asignar(id, req.colaboradorId(), adminId);
     }
 
     @GetMapping("/{id}/historial-estados")
