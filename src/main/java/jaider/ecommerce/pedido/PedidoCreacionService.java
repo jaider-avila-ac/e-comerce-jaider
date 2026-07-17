@@ -17,6 +17,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.security.SecureRandom;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -248,7 +249,8 @@ public class PedidoCreacionService {
                        p.ped_descuento_centavos, p.ped_envio_centavos, p.ped_total_centavos,
                        p.ped_dir_snapshot::text, p.ped_notas, p.ped_alerta_stock, p.ped_link_seguimiento,
                        p.ped_creado_en, p.ped_confirmado_cliente_en,
-                       p.ped_transportadora, p.ped_codigo_rastreo, p.ped_mostrar_seguimiento
+                       p.ped_transportadora, p.ped_codigo_rastreo, p.ped_mostrar_seguimiento,
+                       p.ped_cancel_motivo, p.ped_cancel_motivo_otro, p.ped_cancel_nota, p.ped_cancelado_en
                 FROM pedidos p
                 JOIN pagos pg ON pg.pag_ped_id = p.ped_id AND pg.pag_estado = CAST('APPROVED' AS estado_pago)
                 WHERE p.ped_usr_id = :usrId AND p.ped_tnd_id = :tndId
@@ -262,6 +264,8 @@ public class PedidoCreacionService {
 
         List<Long> pedIds = rows.stream().map(r -> ((Number) r[0]).longValue()).toList();
         Map<Long, List<Map<String, Object>>> itemsPorPedido = cargarItemsPorPedido(pedIds);
+        Map<Long, String> metodoPorPedido = cargarMetodoPagoPorPedido(pedIds);
+        Map<Long, Map<String, Object>> reembolsoPorPedido = cargarReembolsoPorPedido(pedIds);
 
         List<Map<String, Object>> compras = new ArrayList<>();
         for (Object[] row : rows) {
@@ -283,10 +287,55 @@ public class PedidoCreacionService {
             compra.put("transportadora", row[13]);
             compra.put("codigo_rastreo", row[14]);
             compra.put("mostrar_seguimiento", row[15]);
+            compra.put("cancel_motivo", row[16]);
+            compra.put("cancel_motivo_otro", row[17]);
+            compra.put("cancel_nota", row[18]);
+            compra.put("cancelado_en", row[19]);
+            compra.put("metodo_pago", metodoPorPedido.get(pedId));
+            compra.put("reembolso", reembolsoPorPedido.get(pedId));
             compra.put("items", itemsPorPedido.getOrDefault(pedId, List.of()));
             compras.add(compra);
         }
         return compras;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<Long, String> cargarMetodoPagoPorPedido(List<Long> pedIds) {
+        List<Object[]> rows = em.createNativeQuery("""
+                SELECT DISTINCT ON (pag_ped_id) pag_ped_id, pag_metodo::text
+                FROM pagos WHERE pag_ped_id IN :pedIds AND pag_estado = CAST('APPROVED' AS estado_pago)
+                ORDER BY pag_ped_id, pag_id DESC
+                """)
+                .setParameter("pedIds", pedIds)
+                .getResultList();
+        Map<Long, String> map = new HashMap<>();
+        for (Object[] row : rows) map.put(((Number) row[0]).longValue(), (String) row[1]);
+        return map;
+    }
+
+    /** El reembolso más reciente por pedido — solo existe cuando la compra fue cancelada por el
+     *  admin o el cliente devolvió el producto y el admin confirmó la recepción física. */
+    @SuppressWarnings("unchecked")
+    private Map<Long, Map<String, Object>> cargarReembolsoPorPedido(List<Long> pedIds) {
+        List<Object[]> rows = em.createNativeQuery("""
+                SELECT DISTINCT ON (ref_ped_id) ref_ped_id, ref_estado::text, ref_monto_centavos,
+                       ref_error_mensaje, ref_creado_en, ref_confirmado_en
+                FROM reembolsos WHERE ref_ped_id IN :pedIds
+                ORDER BY ref_ped_id, ref_id DESC
+                """)
+                .setParameter("pedIds", pedIds)
+                .getResultList();
+        Map<Long, Map<String, Object>> map = new HashMap<>();
+        for (Object[] row : rows) {
+            Map<String, Object> r = new LinkedHashMap<>();
+            r.put("estado", row[1]);
+            r.put("monto", ((Number) row[2]).longValue() / 100L);
+            r.put("error_mensaje", row[3]);
+            r.put("creado_en", row[4]);
+            r.put("confirmado_en", row[5]);
+            map.put(((Number) row[0]).longValue(), r);
+        }
+        return map;
     }
 
     @SuppressWarnings("unchecked")

@@ -84,6 +84,25 @@ public class Pedido {
     @Column(name = "ped_alerta_stock", nullable = false)
     private boolean alertaStock = false;
 
+    // Cancelación por el admin — sod_estado ya cubre "cancelado" en ped_estado; estos campos
+    // guardan el detalle (motivo elegido, explicación libre, quién y cuándo). Se completan una
+    // sola vez, vía cancelarPorAdmin() en PedidoService; nunca hay más de una cancelación por
+    // pedido (estado terminal), así que no ameritan tabla propia.
+    @Column(name = "ped_cancel_motivo", length = 30)
+    private String cancelMotivo;
+
+    @Column(name = "ped_cancel_motivo_otro", columnDefinition = "text")
+    private String cancelMotivoOtro;
+
+    @Column(name = "ped_cancel_nota", columnDefinition = "text")
+    private String cancelNota;
+
+    @Column(name = "ped_cancelado_por")
+    private Long canceladoPor;
+
+    @Column(name = "ped_cancelado_en")
+    private OffsetDateTime canceladoEn;
+
     @Column(name = "ped_creado_en", nullable = false, insertable = false, updatable = false)
     private OffsetDateTime creadoEn;
 

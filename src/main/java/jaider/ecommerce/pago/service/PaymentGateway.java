@@ -1,6 +1,7 @@
 package jaider.ecommerce.pago.service;
 
 import jaider.ecommerce.pago.dto.CobroTarjetaResultado;
+import jaider.ecommerce.pago.dto.ResultadoReembolso;
 import jaider.ecommerce.pago.dto.WebhookTransactionEvent;
 import jaider.ecommerce.pago.dto.WompiAcceptanceTokensDto;
 
@@ -66,4 +67,13 @@ public interface PaymentGateway {
      */
     CobroTarjetaResultado cobrarFuentePago(long paymentSourceId, String customerEmail,
                                             long amountCentavos, String referencia);
+
+    // ── Reembolso / anulación ──────────────────────────────────────────────
+
+    /**
+     * Intenta anular/reembolsar una transacción ya aprobada. No todos los métodos de pago ni
+     * todos los estados de conciliación son reembolsables por API — si la pasarela no lo soporta
+     * o falla, el resultado indica que se requiere gestión manual (nunca lanza excepción).
+     */
+    ResultadoReembolso reembolsar(String gatewayTxId, long amountCentavos);
 }

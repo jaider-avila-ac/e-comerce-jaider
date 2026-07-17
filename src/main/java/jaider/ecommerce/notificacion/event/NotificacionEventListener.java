@@ -53,6 +53,10 @@ public class NotificacionEventListener {
     @Async
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onPedidoEstadoCambiado(PedidoEstadoCambiadoEvent event) {
+        // La cancelación por admin publica además PedidoCanceladoEvent con el motivo/nota reales
+        // (ver onPedidoCancelado) — evita duplicar con este aviso genérico de cambio de estado.
+        if ("cancelado".equals(event.estado())) return;
+
         boolean pagado = "pagado".equals(event.estado());
         String tipo = pagado ? "pedido_confirmado" : "cambio_estado";
         String titulo = pagado
@@ -64,6 +68,18 @@ public class NotificacionEventListener {
 
         notificacionService.notificarCliente(
                 event.tndId(), event.usrId(), tipo, titulo, mensaje,
+                "pedido", event.pedId());
+    }
+
+    @Async
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void onPedidoCancelado(PedidoCanceladoEvent event) {
+        String mensaje = "Tu pedido " + event.numero() + " fue cancelado. Motivo: " + event.motivoLabel() + "."
+                + (event.nota() != null && !event.nota().isBlank() ? " " + event.nota() : "");
+
+        notificacionService.notificarCliente(
+                event.tndId(), event.usrId(), "pedido_cancelado",
+                "Tu pedido " + event.numero() + " fue cancelado", mensaje,
                 "pedido", event.pedId());
     }
 

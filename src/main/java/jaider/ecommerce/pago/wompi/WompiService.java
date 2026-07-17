@@ -3,6 +3,7 @@ package jaider.ecommerce.pago.wompi;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jaider.ecommerce.pago.dto.CobroTarjetaResultado;
+import jaider.ecommerce.pago.dto.ResultadoReembolso;
 import jaider.ecommerce.pago.dto.WebhookTransactionEvent;
 import jaider.ecommerce.pago.dto.WompiAcceptanceTokensDto;
 import jaider.ecommerce.pago.service.PaymentGateway;
@@ -327,6 +328,55 @@ public class WompiService implements PaymentGateway {
         } catch (Exception e) {
             log.error("[Wompi Tarjeta] Error de red cobrando ref {}: {}", referencia, e.getMessage());
             throw new RuntimeException("Error de red al intentar el cobro con tarjeta", e);
+        }
+    }
+
+    // ── Reembolso / anulación ─────────────────────────────────────────────
+
+    /**
+     * Wompi expone la anulación de una transacción vía POST /transactions/{id}/void — solo
+     * aplica mientras la transacción no haya sido conciliada (normalmente el mismo día). Si el
+     * endpoint responde con error (transacción ya conciliada, no soportada, etc.), se devuelve
+     * un resultado no-exitoso para que el reembolso quede pendiente de gestión manual — nunca se
+     * inventa un éxito.
+     */
+    @Override
+    public ResultadoReembolso reembolsar(String gatewayTxId, long amountCentavos) {
+        if (privateKey == null || privateKey.isBlank()) {
+            return new ResultadoReembolso(false, null, null, "WOMPI_PRIVATE_KEY no configurada");
+        }
+        if (gatewayTxId == null || gatewayTxId.isBlank()) {
+            return new ResultadoReembolso(false, null, null, "No hay transacción de Wompi asociada a este pago");
+        }
+
+        String url = wompiBase() + "/transactions/" + encode(gatewayTxId) + "/void";
+        try {
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("Authorization", "Bearer " + privateKey)
+                    .header("Content-Type", "application/json")
+                    .timeout(Duration.ofSeconds(15))
+                    .POST(HttpRequest.BodyPublishers.noBody())
+                    .build();
+            HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+
+            if (resp.statusCode() != 200 && resp.statusCode() != 201) {
+                log.warn("[Wompi Reembolso] HTTP {} anulando tx {}: {}", resp.statusCode(), gatewayTxId, resp.body());
+                return new ResultadoReembolso(false, null, resp.body(),
+                        "Wompi respondió HTTP " + resp.statusCode() + " — requiere gestión manual");
+            }
+
+            JsonNode tx = MAPPER.readTree(resp.body()).path("data");
+            String status = tx.path("status").asText(null);
+            String refundId = tx.path("id").asText(gatewayTxId);
+            boolean exitoso = "VOIDED".equals(status) || "APPROVED".equals(status);
+
+            log.info("[Wompi Reembolso] tx={} status={} exitoso={}", gatewayTxId, status, exitoso);
+            return new ResultadoReembolso(exitoso, refundId, resp.body(),
+                    exitoso ? null : "Wompi devolvió estado " + status + " — requiere gestión manual");
+        } catch (Exception e) {
+            log.error("[Wompi Reembolso] Error de red anulando tx {}: {}", gatewayTxId, e.getMessage());
+            return new ResultadoReembolso(false, null, null, "Error de red al intentar el reembolso automático");
         }
     }
 

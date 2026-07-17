@@ -1,10 +1,15 @@
 package jaider.ecommerce.pedido;
 
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.NoResultException;
 import jakarta.persistence.PersistenceContext;
 import jaider.ecommerce.auditoria.AuditoriaService;
 import jaider.ecommerce.notificacion.event.AlertaStockResueltaEvent;
+import jaider.ecommerce.notificacion.event.PedidoCanceladoEvent;
 import jaider.ecommerce.notificacion.event.PedidoEstadoCambiadoEvent;
+import jaider.ecommerce.pago.reembolso.ReembolsoRepository;
+import jaider.ecommerce.pago.reembolso.ReembolsoResponse;
+import jaider.ecommerce.pago.reembolso.ReembolsoService;
 import jaider.ecommerce.shared.TenantSupport;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
@@ -13,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.OffsetDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -25,6 +31,8 @@ public class PedidoService {
     private final TenantSupport tenantSupport;
     private final ApplicationEventPublisher eventPublisher;
     private final AuditoriaService auditoriaService;
+    private final ReembolsoService reembolsoService;
+    private final ReembolsoRepository reembolsoRepo;
 
     @PersistenceContext
     private EntityManager em;
@@ -32,6 +40,19 @@ public class PedidoService {
     private static final Set<String> ESTADOS_VALIDOS = Set.of(
             "pendiente_pago", "pagado", "preparando", "enviado", "entregado", "cancelado", "devuelto"
     );
+
+    // Catálogo fijo de motivos de cancelación por admin — igual filosofía que ESTADOS_VALIDOS:
+    // se valida en Java, la columna es un varchar simple (no un enum de Postgres) porque solo
+    // se escribe desde este único método, nunca desde SQL ad-hoc.
+    private static final Map<String, String> MOTIVOS_CANCELACION = new LinkedHashMap<>() {{
+        put("producto_agotado", "Producto agotado");
+        put("producto_inconveniente", "Producto con inconvenientes");
+        put("error_precio", "Error en el precio o la publicación");
+        put("envio_imposible", "Imposibilidad de realizar el envío");
+        put("compra_duplicada", "Compra duplicada");
+        put("acordado_cliente", "Solicitud acordada con el cliente");
+        put("otro", "Otro motivo");
+    }};
 
     // Flujo activo del pedido, en orden. El admin puede moverse a cualquiera de estos estados
     // desde cualquier otro (saltar hacia adelante, ej. pagado -> entregado, o retroceder si se
@@ -167,6 +188,101 @@ public class PedidoService {
 
         Map<Long, String[]> clientMap = loadClientInfo(Set.of(p.getUsrId()));
         return toResponse(p, clientMap.get(p.getUsrId()), null);
+    }
+
+    // ─── Cancelación por el admin + reembolso ──────────────────────────────
+
+    @Transactional
+    public PedidoResponse cancelarPorAdmin(Long id, String motivo, String motivoOtro, String nota, Long adminId) {
+        tenantSupport.applyTenant(em);
+
+        if (motivo == null || !MOTIVOS_CANCELACION.containsKey(motivo)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Motivo inválido. Valores permitidos: " + MOTIVOS_CANCELACION.keySet());
+        }
+        if ("otro".equals(motivo) && (motivoOtro == null || motivoOtro.isBlank())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Explica el motivo de la cancelación en el campo \"otro motivo\"");
+        }
+
+        // Guard explícito: validarTransicion() (dentro de updateEstado) trata actual==siguiente
+        // como no-op silencioso — sin este chequeo, recancelar un pedido ya "cancelado" volvería
+        // a crear un reembolso duplicado en vez de ser rechazado.
+        Pedido actual = pedidoRepo.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pedido no encontrado"));
+        if (ESTADOS_TERMINALES.contains(actual.getEstado())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "El pedido ya está en un estado final (" + actual.getEstado() + ") y no se puede cancelar de nuevo");
+        }
+
+        // Reusa la transición normal (valida que no esté "entregado" — ahí corresponde
+        // devolución, no cancelación — y restaura stock si ya se había descontado).
+        updateEstado(id, "cancelado", adminId);
+
+        String motivoOtroLimpio = "otro".equals(motivo) && motivoOtro != null ? motivoOtro.trim() : null;
+        String notaLimpia = (nota != null && !nota.isBlank()) ? nota.trim() : null;
+        OffsetDateTime ahora = OffsetDateTime.now();
+        pedidoRepo.registrarCancelacion(id, motivo, motivoOtroLimpio, notaLimpia, adminId, ahora);
+
+        Pedido p = pedidoRepo.findById(id).orElseThrow();
+
+        Long pagId = buscarUltimoPagoAprobado(id);
+        if (pagId != null) {
+            Long refId = reembolsoService.crear(pagId, id, p.getUsrId(), p.getTotalCentavos(),
+                    "Cancelación: " + MOTIVOS_CANCELACION.get(motivo), "cancelacion_admin");
+            reembolsoService.procesarAutomatico(refId);
+        }
+
+        if (adminId != null) {
+            auditoriaService.registrar(p.getTndId(), adminId, "pedido.cancelado_admin", "pedido", id,
+                    Map.of("motivo", motivo, "motivo_otro", motivoOtroLimpio == null ? "" : motivoOtroLimpio,
+                            "nota", notaLimpia == null ? "" : notaLimpia));
+        }
+
+        eventPublisher.publishEvent(new PedidoCanceladoEvent(p.getTndId(), p.getUsrId(), id, p.getNumero(),
+                MOTIVOS_CANCELACION.get(motivo), notaLimpia));
+
+        Map<Long, String[]> clientMap = loadClientInfo(Set.of(p.getUsrId()));
+        return toResponse(p, clientMap.get(p.getUsrId()), null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> getHistorialEstados(Long id) {
+        tenantSupport.applyTenant(em);
+        @SuppressWarnings("unchecked")
+        List<Object[]> rows = em.createNativeQuery("""
+                SELECT h.phe_estado::text, h.phe_nota, h.phe_creado_en, a.nombre
+                FROM pedido_historial_estados h
+                LEFT JOIN admin_users a ON a.id = h.phe_admin_id
+                WHERE h.phe_ped_id = :id
+                ORDER BY h.phe_creado_en ASC, h.phe_id ASC
+                """)
+                .setParameter("id", id)
+                .getResultList();
+
+        List<Map<String, Object>> historial = new ArrayList<>();
+        for (Object[] row : rows) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("estado", row[0]);
+            item.put("nota", row[1]);
+            item.put("fecha", row[2]);
+            item.put("admin", row[3]);
+            historial.add(item);
+        }
+        return historial;
+    }
+
+    private Long buscarUltimoPagoAprobado(Long pedId) {
+        try {
+            return ((Number) em.createNativeQuery("""
+                    SELECT pag_id FROM pagos WHERE pag_ped_id = :pedId AND pag_estado = CAST('APPROVED' AS estado_pago)
+                    ORDER BY pag_id DESC LIMIT 1
+                    """)
+                    .setParameter("pedId", pedId)
+                    .getSingleResult()).longValue();
+        } catch (NoResultException e) {
+            return null;
+        }
     }
 
     // ─── Seguimiento de envío ────────────────────────────────────────────────
@@ -346,6 +462,12 @@ public class PedidoService {
                 ? items.stream().map(this::toItemResponse).toList()
                 : null;
 
+        // Método de pago y reembolso solo se resuelven en el detalle (items != null), igual
+        // que la lista de ítems — evita N+1 queries al listar todos los pedidos.
+        boolean detalle = items != null;
+        String metodoPago = detalle ? obtenerMetodoPago(p.getId()) : null;
+        ReembolsoResponse reembolso = detalle ? obtenerReembolso(p.getId()) : null;
+
         return new PedidoResponse(
                 p.getId(),
                 p.getNumero(),
@@ -365,8 +487,34 @@ public class PedidoService {
                 p.getCodigoRastreo(),
                 p.getMostrarSeguimiento(),
                 p.getConfirmadoClienteEn(),
+                metodoPago,
+                p.getCancelMotivo(),
+                p.getCancelMotivoOtro(),
+                p.getCancelNota(),
+                p.getCanceladoEn(),
+                reembolso,
                 itemsList
         );
+    }
+
+    private String obtenerMetodoPago(Long pedId) {
+        try {
+            return (String) em.createNativeQuery("""
+                    SELECT pag_metodo::text FROM pagos WHERE pag_ped_id = :pedId AND pag_estado = CAST('APPROVED' AS estado_pago)
+                    ORDER BY pag_id DESC LIMIT 1
+                    """)
+                    .setParameter("pedId", pedId)
+                    .getSingleResult();
+        } catch (NoResultException e) {
+            return null;
+        }
+    }
+
+    private ReembolsoResponse obtenerReembolso(Long pedId) {
+        return reembolsoRepo.findByPedIdOrderByIdDesc(pedId).stream().findFirst()
+                .map(r -> new ReembolsoResponse(r.getId(), r.getEstado(), r.getMontoCentavos(),
+                        r.getGatewayRef(), r.getErrorMensaje(), r.getCreadoEn(), r.getConfirmadoEn()))
+                .orElse(null);
     }
 
     private PedidoItemResponse toItemResponse(PedidoItem item) {

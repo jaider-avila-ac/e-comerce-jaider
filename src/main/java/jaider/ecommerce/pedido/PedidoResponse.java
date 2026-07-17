@@ -1,5 +1,7 @@
 package jaider.ecommerce.pedido;
 
+import jaider.ecommerce.pago.reembolso.ReembolsoResponse;
+
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
@@ -23,5 +25,11 @@ public record PedidoResponse(
         String codigoRastreo,
         String mostrarSeguimiento,
         OffsetDateTime confirmadoClienteEn,
+        String metodoPago,
+        String cancelMotivo,
+        String cancelMotivoOtro,
+        String cancelNota,
+        OffsetDateTime canceladoEn,
+        ReembolsoResponse reembolso,
         List<PedidoItemResponse> items   // null en el listado, poblado en el detalle
 ) {}

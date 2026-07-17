@@ -57,6 +57,19 @@ public class PedidoController {
                 .orElse(null);
     }
 
+    @PostMapping("/{id}/cancelar")
+    @Transactional
+    public PedidoResponse cancelar(@AuthenticationPrincipal UserDetails userDetails,
+            @PathVariable Long id, @RequestBody CancelarPedidoRequest req) {
+        Long adminId = resolverAdminId(userDetails);
+        return pedidoService.cancelarPorAdmin(id, req.motivo(), req.motivoOtro(), req.nota(), adminId);
+    }
+
+    @GetMapping("/{id}/historial-estados")
+    public List<java.util.Map<String, Object>> getHistorialEstados(@PathVariable Long id) {
+        return pedidoService.getHistorialEstados(id);
+    }
+
     @PostMapping("/{id}/resolver-alerta-stock")
     public PedidoResponse resolverAlertaStock(@PathVariable Long id) {
         return pedidoService.resolverAlertaStock(id);

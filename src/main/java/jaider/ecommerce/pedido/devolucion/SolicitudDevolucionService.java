@@ -2,6 +2,7 @@ package jaider.ecommerce.pedido.devolucion;
 
 import jaider.ecommerce.auditoria.AuditoriaService;
 import jaider.ecommerce.infra.CloudinaryService;
+import jaider.ecommerce.pago.reembolso.ReembolsoService;
 import jaider.ecommerce.shared.TenantSupport;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
@@ -34,6 +35,7 @@ public class SolicitudDevolucionService {
     private final TenantSupport tenantSupport;
     private final CloudinaryService cloudinaryService;
     private final AuditoriaService auditoriaService;
+    private final ReembolsoService reembolsoService;
 
     @PersistenceContext
     private EntityManager em;
@@ -159,7 +161,7 @@ public class SolicitudDevolucionService {
     }
 
     @Transactional
-    public SolicitudDevolucionResponse aprobar(Long id, Long direccionId, Long adminId) {
+    public SolicitudDevolucionResponse aprobar(Long id, Long direccionId, String nota, Long adminId) {
         tenantSupport.applyTenant(em);
         SolicitudDevolucion s = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Solicitud no encontrada"));
@@ -172,15 +174,17 @@ public class SolicitudDevolucionService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Esa dirección de devolución está inactiva");
         }
 
+        String notaLimpia = (nota != null && !nota.isBlank()) ? nota.trim() : null;
         OffsetDateTime ahora = OffsetDateTime.now();
-        repo.aprobarORechazar(id, "aprobada", direccionId, null, ahora);
+        repo.aprobarORechazar(id, "aprobada", direccionId, notaLimpia, ahora);
         s.setEstado("aprobada");
         s.setDvdId(direccionId);
+        s.setAdminNota(notaLimpia);
         s.setRevisadoEn(ahora);
 
         if (adminId != null) {
             auditoriaService.registrar(s.getTndId(), adminId, "devolucion.aprobada", "solicitud_devolucion", id,
-                    Map.of("direccion_id", direccionId));
+                    Map.of("direccion_id", direccionId, "nota", notaLimpia == null ? "" : notaLimpia));
         }
         return toResponse(s, numeroDePedido(s.getPedId()));
     }
@@ -290,8 +294,9 @@ public class SolicitudDevolucionService {
                 .forEach(f -> cloudinaryService.delete(f.getUrl()));
     }
 
-    /** No procesa el reembolso en la pasarela — solo dejo la fila lista en estado "pendiente"
-     *  para que el admin lo gestione (ver alcance en el plan: fuera de esta función). */
+    /** Crea el reembolso e intenta procesarlo automáticamente contra la pasarela — mismo camino
+     *  compartido con la cancelación de pedido por el admin (ver ReembolsoService). Si no hay un
+     *  pago aprobado para el pedido (no debería pasar), simplemente no hay nada que reembolsar. */
     private void crearReembolsoPendiente(SolicitudDevolucion s) {
         Long pagId;
         try {
@@ -315,16 +320,9 @@ public class SolicitudDevolucionService {
         Long totalCentavos = ((Number) pedido[1]).longValue();
         String numero = (String) pedido[2];
 
-        em.createNativeQuery("""
-                INSERT INTO reembolsos (ref_pag_id, ref_ped_id, ref_usr_id, ref_monto_centavos, ref_motivo, ref_estado)
-                VALUES (:pagId, :pedId, :usrId, :monto, :motivo, CAST('pendiente' AS estado_reembolso))
-                """)
-                .setParameter("pagId", pagId)
-                .setParameter("pedId", s.getPedId())
-                .setParameter("usrId", usrId)
-                .setParameter("monto", totalCentavos)
-                .setParameter("motivo", "Devolución " + numero)
-                .executeUpdate();
+        Long refId = reembolsoService.crear(pagId, s.getPedId(), usrId, totalCentavos,
+                "Devolución " + numero, "devolucion_cliente");
+        reembolsoService.procesarAutomatico(refId);
     }
 
     private SolicitudDevolucionResponse toResponse(SolicitudDevolucion s, String numeroPedido) {

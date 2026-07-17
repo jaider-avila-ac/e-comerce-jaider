@@ -36,7 +36,7 @@ public class SolicitudDevolucionController {
     @PatchMapping("/{id}/aprobar")
     public SolicitudDevolucionResponse aprobar(@AuthenticationPrincipal UserDetails userDetails,
             @PathVariable Long id, @RequestBody AprobarDevolucionRequest req) {
-        return service.aprobar(id, req.direccionId(), resolverAdminId(userDetails));
+        return service.aprobar(id, req.direccionId(), req.nota(), resolverAdminId(userDetails));
     }
 
     @PatchMapping("/{id}/rechazar")
