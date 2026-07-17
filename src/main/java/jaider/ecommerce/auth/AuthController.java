@@ -15,9 +15,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,6 +34,7 @@ public class AuthController {
     private final JwtService jwtService;
     private final AdminUserRepository adminUserRepository;
     private final TenantSupport tenantSupport;
+    private final LoginRateLimiter rateLimiter;
 
     @PersistenceContext
     private EntityManager em;
@@ -44,6 +45,8 @@ public class AuthController {
     @PostMapping("/login")
     @Transactional
     public ResponseEntity<?> login(@Valid @RequestBody LoginRequest req) {
+        String identificador = "admin:" + req.email().trim().toLowerCase();
+        rateLimiter.verificarLimite(identificador);
         try {
             Authentication auth = authManager.authenticate(
                     new UsernamePasswordAuthenticationToken(req.email(), req.password())
@@ -56,11 +59,13 @@ public class AuthController {
             Long tndId = admin.getTiendaId() != null ? admin.getTiendaId() : 1L;
             String token = jwtService.generate(admin.getEmail(), admin.getRol(), tndId);
 
+            rateLimiter.registrarExito(identificador);
             return ResponseEntity.ok(new LoginResponse(
                     token, expirationMs, admin.getEmail(), admin.getNombre(), tndId, admin.getRol()
             ));
 
-        } catch (BadCredentialsException e) {
+        } catch (AuthenticationException e) {
+            rateLimiter.registrarFallo(identificador);
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("error", "Credenciales incorrectas"));
         }

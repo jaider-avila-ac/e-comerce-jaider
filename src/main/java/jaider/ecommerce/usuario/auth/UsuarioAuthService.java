@@ -3,6 +3,7 @@ package jaider.ecommerce.usuario.auth;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
 import jakarta.persistence.PersistenceContext;
+import jaider.ecommerce.auth.LoginRateLimiter;
 import jaider.ecommerce.auth.jwt.JwtService;
 import jaider.ecommerce.infra.ResendEmailService;
 import jaider.ecommerce.shared.TenantSupport;
@@ -35,6 +36,7 @@ public class UsuarioAuthService {
     private final PasswordEncoder passwordEncoder;
     private final ResendEmailService emailService;
     private final ObjectMapper objectMapper;
+    private final LoginRateLimiter rateLimiter;
 
     @PersistenceContext
     private EntityManager em;
@@ -272,10 +274,16 @@ public class UsuarioAuthService {
     public TiendaAuthResponse login(TiendaLoginRequest req, Long tndId) {
         tenantSupport.applyTenant(em);
         String email = req.email().trim().toLowerCase();
+        String identificador = "tienda:" + tndId + ":" + email;
+        rateLimiter.verificarLimite(identificador);
 
-        var usuario = usuarioRepo.findByEmail(email)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Correo o contraseña incorrectos"));
-
+        var usuario = usuarioRepo.findByEmail(email).orElse(null);
+        // GOOGLE/desactivada no cuentan como "fallo" de fuerza bruta (no es un intento de
+        // adivinar contraseña), solo la contraseña incorrecta o el correo inexistente.
+        if (usuario == null) {
+            rateLimiter.registrarFallo(identificador);
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Correo o contraseña incorrectos");
+        }
         if ("GOOGLE".equals(usuario.getProvider())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "USE_GOOGLE");
         }
@@ -283,9 +291,11 @@ public class UsuarioAuthService {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Cuenta desactivada");
         }
         if (!passwordEncoder.matches(req.password(), usuario.getPasswordHash())) {
+            rateLimiter.registrarFallo(identificador);
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Correo o contraseña incorrectos");
         }
 
+        rateLimiter.registrarExito(identificador);
         String[] perfil = getPerfil(usuario.getId());
         log.info("[LOGIN] email={} tndId={}", email, tndId);
         String token = jwtService.generate(email, "CLIENTE", tndId, usuario.getId());
