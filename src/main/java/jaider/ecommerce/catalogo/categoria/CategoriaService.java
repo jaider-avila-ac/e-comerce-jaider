@@ -61,12 +61,19 @@ public class CategoriaService {
         String tndId = TenantContext.get();
         if (tndId == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Sin contexto de tenant");
 
+        // Auto-asigna el orden al final de las categorías existentes — el usuario
+        // reordena después con los botones arriba/abajo (ver reordenar()), nunca
+        // escribiendo un número.
+        Number maxOrden = (Number) em.createNativeQuery(
+                "SELECT COALESCE(MAX(cat_orden), -1) FROM categorias").getSingleResult();
+        short nuevoOrden = (short) (maxOrden.intValue() + 1);
+
         Categoria cat = new Categoria();
         cat.setTndId(Long.parseLong(tndId));
         cat.setNombre(req.nombre());
         cat.setSlug(req.slug() != null && !req.slug().isBlank() ? req.slug() : slugify(req.nombre()));
         cat.setImagenUrl(req.imagenUrl());
-        cat.setOrden(req.orden() != null ? req.orden() : (short) 0);
+        cat.setOrden(nuevoOrden);
         cat.setActivo(req.activo() == null || req.activo());
         CategoriaResponse resp = toResponse(repo.save(cat));
         catalogCache.invalidate(TenantContext.get());
@@ -101,6 +108,20 @@ public class CategoriaService {
         repo.deleteById(id);
         catalogCache.invalidate(TenantContext.get());
         cloudinaryService.delete(cat.getImagenUrl());
+    }
+
+    /** Reordena moviendo libremente (arriba/abajo) — el frontend manda la lista completa
+     *  de ids en el nuevo orden, y cada posición en la lista se vuelve su "orden". */
+    @Transactional
+    public void reordenar(List<Long> ids) {
+        tenantSupport.applyTenant(em);
+        for (int i = 0; i < ids.size(); i++) {
+            em.createNativeQuery("UPDATE categorias SET cat_orden = :orden WHERE cat_id = :id")
+                    .setParameter("orden", (short) i)
+                    .setParameter("id", ids.get(i))
+                    .executeUpdate();
+        }
+        catalogCache.invalidate(TenantContext.get());
     }
 
     private CategoriaResponse toResponse(Categoria c) {

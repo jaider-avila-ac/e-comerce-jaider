@@ -39,4 +39,10 @@ public class SubcategoriaController {
     public void delete(@PathVariable Long id) {
         service.delete(id);
     }
+
+    @PatchMapping("/reordenar")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void reordenar(@RequestBody List<Long> ids) {
+        service.reordenar(ids);
+    }
 }
