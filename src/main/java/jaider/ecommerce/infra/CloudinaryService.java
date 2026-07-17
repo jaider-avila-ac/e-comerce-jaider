@@ -40,6 +40,10 @@ public class CloudinaryService {
         return uploadToFolder(file, tndId, "categorias", false);
     }
 
+    public String uploadColeccion(MultipartFile file, Long tndId) throws IOException {
+        return uploadToFolder(file, tndId, "colecciones", false);
+    }
+
     /** Foto de evidencia que el cliente adjunta a una solicitud de devolución. */
     public String uploadDevolucion(MultipartFile file, Long tndId, String numeroPedido) throws IOException {
         return uploadToFolder(file, tndId, "devoluciones/" + numeroPedido, false);

@@ -35,6 +35,9 @@ public class Coleccion {
     @Column(name = "col_orden", nullable = false)
     private short orden = 0;
 
+    @Column(name = "col_imagen_url", length = 500)
+    private String imagenUrl;
+
     @Column(name = "col_creado_en", nullable = false, insertable = false, updatable = false)
     private OffsetDateTime creadoEn;
 

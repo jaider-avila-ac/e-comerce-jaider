@@ -55,6 +55,19 @@ public class UploadController {
         }
     }
 
+    @PostMapping("/coleccion")
+    public Map<String, String> uploadColeccion(@RequestParam("file") MultipartFile file) {
+        String tndIdStr = TenantContext.get();
+        if (tndIdStr == null || tndIdStr.isBlank())
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Tenant no identificado");
+        try {
+            String url = cloudinaryService.uploadColeccion(file, Long.parseLong(tndIdStr));
+            return Map.of("url", url);
+        } catch (IOException e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Error al subir imagen");
+        }
+    }
+
     @PostMapping("/banner")
     public Map<String, String> uploadBanner(
             @RequestParam("file")                       MultipartFile file,

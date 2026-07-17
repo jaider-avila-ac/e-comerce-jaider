@@ -10,5 +10,5 @@ public record ColeccionResponse(
         boolean activo,
         int orden,
         List<Long> productoIds,
-        String imagenUrl    // primera imagen del primer producto activo de la colección
+        String imagenUrl    // imagen de portada/banner de la colección (col_imagen_url)
 ) {}

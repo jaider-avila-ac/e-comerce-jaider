@@ -8,5 +8,6 @@ public record ColeccionRequest(
         String descripcion,
         Boolean activo,
         Integer orden,
-        List<Long> productoIds  // Jackson SNAKE_CASE → deserializa "producto_ids"
+        List<Long> productoIds, // Jackson SNAKE_CASE → deserializa "producto_ids"
+        String imagenUrl        // imagen de portada/banner, subida vía /api/v1/upload/coleccion
 ) {}
