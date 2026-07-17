@@ -21,6 +21,7 @@ public record PublicProductoResponse(
         List<String> etiquetas,
         boolean activo,
         List<ImagenInfo> imagenes,
+        String video,   // url del video del producto, si tiene — null si no hay
         List<TiendaOpcion> tallas,      // para hasStock en ProductCard
         List<TiendaVariante> variantes, // para ProductDetailPage
         List<StockVariante> stockVariantes,

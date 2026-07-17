@@ -193,12 +193,20 @@ public class PublicCatalogService {
             etiquetas.add("mas-vendido");
         }
 
-        List<PublicProductoResponse.ImagenInfo> imagenes = imagenRepo.findByPrdIdOrderByOrdenAscIdAsc(p.getId())
-                .stream()
+        List<ProductoImagen> mediaProducto = imagenRepo.findByPrdIdOrderByOrdenAscIdAsc(p.getId());
+
+        List<PublicProductoResponse.ImagenInfo> imagenes = mediaProducto.stream()
+                .filter(img -> !"video".equals(img.getTipo()))
                 .map(img -> new PublicProductoResponse.ImagenInfo(
                         baseUrl + "/api/v1/public/media/producto/" + p.getTndId() + "/" + img.getId(),
                         img.getVarId()))
                 .toList();
+
+        String video = mediaProducto.stream()
+                .filter(img -> "video".equals(img.getTipo()))
+                .findFirst()
+                .map(img -> baseUrl + "/api/v1/public/media/producto/" + p.getTndId() + "/" + img.getId())
+                .orElse(null);
 
         List<Variante> vars = varianteRepo.findByPrdIdOrderByIdAsc(p.getId())
                 .stream().filter(Variante::isActivo).toList();
@@ -235,6 +243,7 @@ public class PublicCatalogService {
                 etiquetas,
                 p.isActivo(),
                 imagenes,
+                video,
                 tallasOpc,
                 variantes,
                 stockVariantes,
