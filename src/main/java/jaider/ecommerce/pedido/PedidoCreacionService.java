@@ -342,7 +342,7 @@ public class PedidoCreacionService {
     private Map<Long, List<Map<String, Object>>> cargarItemsPorPedido(List<Long> pedIds) {
         List<Object[]> rows = em.createNativeQuery("""
                 SELECT pi_ped_id, pi_prd_id, pi_nombre_snap, pi_imagen_snap, pi_variantes_snap::text,
-                       pi_precio_unitario_centavos, pi_cantidad
+                       pi_precio_unitario_centavos, pi_cantidad, pi_subtotal_centavos
                 FROM pedido_items WHERE pi_ped_id IN :pedIds ORDER BY pi_id ASC
                 """)
                 .setParameter("pedIds", pedIds)
@@ -358,6 +358,7 @@ public class PedidoCreacionService {
             item.put("variantes", fromJson((String) r[4]));
             item.put("precio", ((Number) r[5]).longValue() / 100L);
             item.put("cantidad", r[6]);
+            item.put("subtotal", ((Number) r[7]).longValue() / 100L);
             porPedido.computeIfAbsent(pedId, k -> new ArrayList<>()).add(item);
         }
         return porPedido;
