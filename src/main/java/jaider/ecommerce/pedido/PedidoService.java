@@ -51,6 +51,7 @@ public class PedidoService {
         put("envio_imposible", "Imposibilidad de realizar el envío");
         put("compra_duplicada", "Compra duplicada");
         put("acordado_cliente", "Solicitud acordada con el cliente");
+        put("pago_no_confirmado", "Pago no confirmado a tiempo");
         put("otro", "Otro motivo");
     }};
 
