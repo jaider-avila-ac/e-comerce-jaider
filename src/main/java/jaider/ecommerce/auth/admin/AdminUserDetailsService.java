@@ -10,6 +10,7 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
@@ -24,8 +25,14 @@ public class AdminUserDetailsService implements UserDetailsService {
     @PersistenceContext
     private EntityManager em;
 
+    // REQUIRES_NEW: AuthController.login() ya está en su propia @Transactional. Si este método
+    // se uniera a esa transacción y lanzara UsernameNotFoundException (email no encontrado), la
+    // marcaría como rollback-only — DaoAuthenticationProvider igual la convierte en
+    // BadCredentialsException y login() la maneja, pero el commit posterior fallaría con
+    // UnexpectedRollbackException (500) en vez de devolver el 401 esperado. Aislada en su propia
+    // transacción, un fallo acá nunca contamina la transacción del llamador.
     @Override
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
         // admin_users tiene RLS por tienda_id; sin esto, un admin/colaborador
         // (no superadmin) sería invisible para la consulta y el login fallaría.
