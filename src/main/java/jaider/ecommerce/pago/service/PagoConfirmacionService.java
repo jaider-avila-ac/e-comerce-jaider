@@ -3,6 +3,7 @@ package jaider.ecommerce.pago.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jaider.ecommerce.notificacion.event.AlertaStockEvent;
 import jaider.ecommerce.notificacion.event.PedidoPagadoEvent;
+import jaider.ecommerce.pago.reembolso.ReembolsoService;
 import jaider.ecommerce.pedido.PedidoRepository;
 import jaider.ecommerce.shared.TenantSupport;
 import jakarta.persistence.EntityManager;
@@ -38,10 +39,16 @@ public class PagoConfirmacionService {
     private static final Set<String> METODOS_VALIDOS =
             Set.of("CARD", "NEQUI", "PSE", "BANCOLOMBIA_TRANSFER", "EFECTIVO", "OTRO");
 
+    // Mismo set que PedidoService.ESTADOS_TERMINALES — un pago aprobado que llega tarde para un
+    // pedido ya en uno de estos estados (ej. cancelado por PedidoAbandonoScheduler tras 2h) nunca
+    // se va a preparar/enviar, así que ese dinero cobrado de más se reembolsa automáticamente.
+    private static final Set<String> ESTADOS_TERMINALES = Set.of("cancelado", "devuelto");
+
     private final TenantSupport tenantSupport;
     private final PedidoRepository pedidoRepo;
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher eventPublisher;
+    private final ReembolsoService reembolsoService;
 
     @PersistenceContext
     private EntityManager em;
@@ -89,7 +96,8 @@ public class PagoConfirmacionService {
         tenantSupport.applyTenant(em);
 
         Object[] row = (Object[]) em.createNativeQuery("""
-                SELECT p.pag_ped_id, p.pag_usr_id, ped.ped_estado::text, ped.ped_numero, ped.ped_tnd_id
+                SELECT p.pag_ped_id, p.pag_usr_id, ped.ped_estado::text, ped.ped_numero, ped.ped_tnd_id,
+                       p.pag_monto_centavos
                 FROM pagos p JOIN pedidos ped ON ped.ped_id = p.pag_ped_id
                 WHERE p.pag_id = :id
                 """)
@@ -101,9 +109,23 @@ public class PagoConfirmacionService {
         String estadoActual = (String) row[2];
         String numero = (String) row[3];
         Long tndId = ((Number) row[4]).longValue();
+        long montoCentavos = ((Number) row[5]).longValue();
 
         if (!"pendiente_pago".equals(estadoActual)) {
-            log.info("[Confirmación] Pedido {} ya estaba pagado — ignorado", pedId);
+            if (ESTADOS_TERMINALES.contains(estadoActual)) {
+                // El pago se aprobó después de que el pedido ya se canceló (ej. abandono por
+                // timeout, ver PedidoAbandonoScheduler) — el cliente sí fue cobrado por Wompi y
+                // este pedido nunca se va a preparar, así que hay que devolverle ese dinero.
+                // cancelarPorAdmin() ya no es una opción aquí: rechaza con 400 cualquier intento
+                // de "cancelar" un pedido que ya está en un estado terminal.
+                log.warn("[Confirmación] Pedido {} ya estaba {} cuando el pago {} se aprobó — " +
+                        "generando reembolso automático de {} centavos", numero, estadoActual, pagoId, montoCentavos);
+                Long refId = reembolsoService.crear(pagoId, pedId, usrId, montoCentavos,
+                        "Pago aprobado después de que el pedido ya estaba " + estadoActual, "cancelacion_admin");
+                reembolsoService.procesarAutomatico(refId);
+            } else {
+                log.info("[Confirmación] Pedido {} ya estaba {} — ignorado", numero, estadoActual);
+            }
             return;
         }
 
