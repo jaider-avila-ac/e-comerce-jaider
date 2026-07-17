@@ -73,6 +73,9 @@ public class VentaLocalService {
         List<ItemResuelto> items = resolverItems(req.items());
 
         long total = items.stream().mapToLong(i -> i.precioCentavos() * i.cantidad()).sum();
+        if (total <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El total de la venta debe ser mayor a $0");
+        }
         String numero = generarNumeroUnico();
 
         Number pedIdNum = (Number) em.createNativeQuery("""
