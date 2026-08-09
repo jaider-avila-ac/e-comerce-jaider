@@ -36,8 +36,8 @@ public class ReporteService {
         tenantSupport.applyTenant(em);
         Periodo periodo = periodo(mes);
         String pedidosWhere = (periodo.hasRange() ? " WHERE ped_creado_en >= :start AND ped_creado_en < :end " : " WHERE true ")
-                + " AND (:colaboradorId IS NULL OR ped_colaborador_id = :colaboradorId) "
-                + " AND (:sucursalId IS NULL OR ped_sucursal_id = :sucursalId) ";
+                + " AND (CAST(:colaboradorId AS BIGINT) IS NULL OR ped_colaborador_id = CAST(:colaboradorId AS BIGINT)) "
+                + " AND (CAST(:sucursalId AS BIGINT) IS NULL OR ped_sucursal_id = CAST(:sucursalId AS BIGINT)) ";
         String clientesWhere = periodo.hasRange() ? " WHERE usr_creado_en >= :start AND usr_creado_en < :end " : "";
 
         Object[] row = (Object[]) em.createNativeQuery("""
@@ -111,8 +111,8 @@ public class ReporteService {
         tenantSupport.applyTenant(em);
         Periodo periodo = periodo(mes);
         String where = (periodo.hasRange() ? "WHERE ped_creado_en >= :start AND ped_creado_en < :end " : "WHERE true ")
-                + " AND (:colaboradorId IS NULL OR ped_colaborador_id = :colaboradorId) "
-                + " AND (:sucursalId IS NULL OR ped_sucursal_id = :sucursalId) ";
+                + " AND (CAST(:colaboradorId AS BIGINT) IS NULL OR ped_colaborador_id = CAST(:colaboradorId AS BIGINT)) "
+                + " AND (CAST(:sucursalId AS BIGINT) IS NULL OR ped_sucursal_id = CAST(:sucursalId AS BIGINT)) ";
 
         List<Object[]> rows = em.createNativeQuery("""
             SELECT ped_estado::text, COUNT(*), COALESCE(SUM(ped_total_centavos), 0)
@@ -148,8 +148,8 @@ public class ReporteService {
         tenantSupport.applyTenant(em);
         Periodo periodo = periodo(mes);
         String where = (periodo.hasRange() ? "AND p.ped_creado_en >= :start AND p.ped_creado_en < :end " : "")
-                + " AND (:colaboradorId IS NULL OR p.ped_colaborador_id = :colaboradorId) "
-                + " AND (:sucursalId IS NULL OR p.ped_sucursal_id = :sucursalId) ";
+                + " AND (CAST(:colaboradorId AS BIGINT) IS NULL OR p.ped_colaborador_id = CAST(:colaboradorId AS BIGINT)) "
+                + " AND (CAST(:sucursalId AS BIGINT) IS NULL OR p.ped_sucursal_id = CAST(:sucursalId AS BIGINT)) ";
 
         List<Object[]> rows = em.createNativeQuery("""
             SELECT
@@ -195,8 +195,8 @@ public class ReporteService {
         tenantSupport.applyTenant(em);
         Periodo periodo = periodo(mes);
         String where = (periodo.hasRange() ? "AND p.ped_creado_en >= :start AND p.ped_creado_en < :end " : "")
-                + " AND (:colaboradorId IS NULL OR p.ped_colaborador_id = :colaboradorId) "
-                + " AND (:sucursalId IS NULL OR p.ped_sucursal_id = :sucursalId) ";
+                + " AND (CAST(:colaboradorId AS BIGINT) IS NULL OR p.ped_colaborador_id = CAST(:colaboradorId AS BIGINT)) "
+                + " AND (CAST(:sucursalId AS BIGINT) IS NULL OR p.ped_sucursal_id = CAST(:sucursalId AS BIGINT)) ";
 
         List<Object[]> rows = em.createNativeQuery("""
             SELECT
