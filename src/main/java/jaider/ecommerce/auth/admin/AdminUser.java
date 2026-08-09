@@ -32,6 +32,11 @@ public class AdminUser {
     @Column(name = "tienda_id")
     private Long tiendaId;
 
+    // Tienda física (mostrador) a la que pertenece este colaborador — distinta de `tiendaId`,
+    // que es el tenant. Determina a qué sucursal quedan atribuidas las ventas que gestiona.
+    @Column(name = "sucursal_id")
+    private Long sucursalId;
+
     @Column(nullable = false)
     private boolean activo = true;
 

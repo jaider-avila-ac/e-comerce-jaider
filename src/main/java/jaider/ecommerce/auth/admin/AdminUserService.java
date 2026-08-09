@@ -43,9 +43,11 @@ public class AdminUserService {
         List<Object[]> rows = em.createNativeQuery("""
                 SELECT a.id, a.email, a.nombre, a.rol::text, a.activo,
                        e.emp_apellido, e.emp_telefono, e.emp_cargo,
-                       e.emp_tipo_documento::text, e.emp_numero_documento, e.emp_fecha_nacimiento
+                       e.emp_tipo_documento::text, e.emp_numero_documento, e.emp_fecha_nacimiento,
+                       a.sucursal_id, s.suc_nombre
                 FROM admin_users a
                 LEFT JOIN empleados e ON e.emp_adm_id = a.id
+                LEFT JOIN sucursales s ON s.suc_id = a.sucursal_id
                 WHERE a.tienda_id = :tiendaId AND a.rol <> CAST('superadmin' AS rol_empleado)
                 ORDER BY a.nombre
                 """)
@@ -57,7 +59,8 @@ public class AdminUserService {
             result.add(new AdminUserResponse(
                     ((Number) row[0]).longValue(), (String) row[1], (String) row[2], (String) row[3],
                     Boolean.TRUE.equals(row[4]), (String) row[5], (String) row[6], (String) row[7],
-                    (String) row[8], (String) row[9], row[10] != null ? row[10].toString() : null
+                    (String) row[8], (String) row[9], row[10] != null ? row[10].toString() : null,
+                    row[11] != null ? ((Number) row[11]).longValue() : null, (String) row[12]
             ));
         }
         return result;
@@ -81,6 +84,7 @@ public class AdminUserService {
         }
 
         Long tiendaId = currentTiendaId();
+        Long sucursalId = validarSucursal(tiendaId, req.sucursalId());
         Tienda tienda = tiendaRepository.findById(tiendaId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Tienda no encontrada"));
         if (tienda.getDominioStaff() == null || tienda.getDominioStaff().isBlank()) {
@@ -116,8 +120,8 @@ public class AdminUserService {
         // no castea automáticamente, por eso el INSERT se hace con CAST explícito (mismo
         // patrón que usa el resto del proyecto para columnas de enums de Postgres).
         Number nuevoId = (Number) em.createNativeQuery("""
-                INSERT INTO admin_users (email, password, nombre, rol, tienda_id, activo)
-                VALUES (:email, :password, :nombre, CAST(:rol AS rol_empleado), :tiendaId, true)
+                INSERT INTO admin_users (email, password, nombre, rol, tienda_id, sucursal_id, activo)
+                VALUES (:email, :password, :nombre, CAST(:rol AS rol_empleado), :tiendaId, :sucursalId, true)
                 RETURNING id
                 """)
                 .setParameter("email", email)
@@ -125,6 +129,7 @@ public class AdminUserService {
                 .setParameter("nombre", nombre)
                 .setParameter("rol", rol)
                 .setParameter("tiendaId", tiendaId)
+                .setParameter("sucursalId", sucursalId)
                 .getSingleResult();
         Long adminId = nuevoId.longValue();
 
@@ -150,7 +155,8 @@ public class AdminUserService {
                 Map.of("rol", rol, "email", email));
 
         return new AdminUserResponse(adminId, email, nombre, rol, true,
-                apellido, telefono, cargo, tipoDocumento, numeroDocumento, fechaNacimiento);
+                apellido, telefono, cargo, tipoDocumento, numeroDocumento, fechaNacimiento,
+                sucursalId, null);
     }
 
     @Transactional
@@ -166,10 +172,12 @@ public class AdminUserService {
         if (req.nombre() == null || req.nombre().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El nombre es obligatorio");
         }
+        Long sucursalId = validarSucursal(tiendaId, req.sucursalId());
 
         String nombre = req.nombre().trim();
-        em.createNativeQuery("UPDATE admin_users SET nombre = :nombre WHERE id = :id")
+        em.createNativeQuery("UPDATE admin_users SET nombre = :nombre, sucursal_id = :sucursalId WHERE id = :id")
                 .setParameter("nombre", nombre)
+                .setParameter("sucursalId", sucursalId)
                 .setParameter("id", id)
                 .executeUpdate();
 
@@ -205,7 +213,8 @@ public class AdminUserService {
         auditoriaService.registrar(tiendaId, actor.getId(), "colaborador.editado", "admin_user", id, Map.of());
 
         return new AdminUserResponse(id, objetivo.getEmail(), nombre, objetivo.getRol(), objetivo.isActivo(),
-                apellido, telefono, cargo, tipoDocumento, numeroDocumento, fechaNacimiento);
+                apellido, telefono, cargo, tipoDocumento, numeroDocumento, fechaNacimiento,
+                sucursalId, null);
     }
 
     @Transactional
@@ -255,6 +264,23 @@ public class AdminUserService {
         return count.longValue() > 0;
     }
 
+    /** Exige una sucursal válida del tenant actual — sin esto una venta local/pedido gestionado
+     *  por este colaborador quedaría sin tienda física asociada. */
+    private Long validarSucursal(Long tiendaId, Long sucursalId) {
+        if (sucursalId == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Selecciona la tienda a la que pertenece");
+        }
+        Number count = (Number) em.createNativeQuery(
+                "SELECT COUNT(*) FROM sucursales WHERE suc_id = :id AND suc_tnd_id = :tiendaId")
+                .setParameter("id", sucursalId)
+                .setParameter("tiendaId", tiendaId)
+                .getSingleResult();
+        if (count.longValue() == 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Tienda inválida");
+        }
+        return sucursalId;
+    }
+
     private Long currentTiendaId() {
         String tndId = TenantContext.get();
         if (tndId == null) {
@@ -269,6 +295,6 @@ public class AdminUserService {
 
     private static AdminUserResponse toResponse(AdminUser a) {
         return new AdminUserResponse(a.getId(), a.getEmail(), a.getNombre(), a.getRol(), a.isActivo(),
-                null, null, null, null, null, null);
+                null, null, null, null, null, null, a.getSucursalId(), null);
     }
 }

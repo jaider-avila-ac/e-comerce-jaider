@@ -13,16 +13,19 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
     @Query("""
             SELECT p FROM Pedido p WHERE p.estado <> 'pendiente_pago'
             AND (:colaboradorId IS NULL OR p.colaboradorId = :colaboradorId)
+            AND (:sucursalId IS NULL OR p.sucursalId = :sucursalId)
             ORDER BY p.creadoEn DESC
             """)
-    List<Pedido> findAllOrdered(@Param("colaboradorId") Long colaboradorId);
+    List<Pedido> findAllOrdered(@Param("colaboradorId") Long colaboradorId, @Param("sucursalId") Long sucursalId);
 
     @Query("""
             SELECT p FROM Pedido p WHERE p.estado = :estado
             AND (:colaboradorId IS NULL OR p.colaboradorId = :colaboradorId)
+            AND (:sucursalId IS NULL OR p.sucursalId = :sucursalId)
             ORDER BY p.creadoEn DESC
             """)
-    List<Pedido> findByEstado(@Param("estado") String estado, @Param("colaboradorId") Long colaboradorId);
+    List<Pedido> findByEstado(@Param("estado") String estado, @Param("colaboradorId") Long colaboradorId,
+                               @Param("sucursalId") Long sucursalId);
 
     // clearAutomatically = true: limpia el contexto JPA tras el UPDATE nativo,
     // evitando que Hibernate intente hacer flush de la entidad dirty antes del próximo SELECT.
@@ -52,7 +55,14 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
                                @Param("motivoOtro") String motivoOtro, @Param("nota") String nota,
                                @Param("adminId") Long adminId, @Param("canceladoEn") OffsetDateTime canceladoEn);
 
+    // La tienda física del pedido se hereda del colaborador asignado — si se quita el
+    // responsable (colaboradorId null), el subselect también da null y el pedido queda
+    // sin tienda hasta que alguien más lo tome.
     @Modifying(clearAutomatically = true)
-    @Query(value = "UPDATE pedidos SET ped_colaborador_id = :colaboradorId WHERE ped_id = :id", nativeQuery = true)
+    @Query(value = """
+            UPDATE pedidos SET ped_colaborador_id = :colaboradorId,
+                                ped_sucursal_id = (SELECT sucursal_id FROM admin_users WHERE id = :colaboradorId)
+            WHERE ped_id = :id
+            """, nativeQuery = true)
     void asignarColaborador(@Param("id") Long id, @Param("colaboradorId") Long colaboradorId);
 }

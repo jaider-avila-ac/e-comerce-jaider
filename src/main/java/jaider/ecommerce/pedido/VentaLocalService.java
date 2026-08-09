@@ -71,6 +71,7 @@ public class VentaLocalService {
 
         Long usrId = resolverCliente(tndId, req);
         List<ItemResuelto> items = resolverItems(req.items());
+        Long sucursalId = resolverSucursalVendedor(adminId);
 
         long total = items.stream().mapToLong(i -> i.precioCentavos() * i.cantidad()).sum();
         if (total <= 0) {
@@ -80,8 +81,8 @@ public class VentaLocalService {
 
         Number pedIdNum = (Number) em.createNativeQuery("""
                 INSERT INTO pedidos (ped_tnd_id, ped_usr_id, ped_numero, ped_estado,
-                                      ped_subtotal_centavos, ped_total_centavos, ped_notas)
-                VALUES (:tndId, :usrId, :numero, CAST('pagado' AS estado_pedido), :subtotal, :total, :notas)
+                                      ped_subtotal_centavos, ped_total_centavos, ped_notas, ped_sucursal_id)
+                VALUES (:tndId, :usrId, :numero, CAST('pagado' AS estado_pedido), :subtotal, :total, :notas, :sucursalId)
                 RETURNING ped_id
                 """)
                 .setParameter("tndId", tndId)
@@ -90,6 +91,7 @@ public class VentaLocalService {
                 .setParameter("subtotal", total)
                 .setParameter("total", total)
                 .setParameter("notas", (req.notas() != null && !req.notas().isBlank()) ? req.notas().trim() : null)
+                .setParameter("sucursalId", sucursalId)
                 .getSingleResult();
         Long pedId = pedIdNum.longValue();
 
@@ -152,6 +154,22 @@ public class VentaLocalService {
                 pedId, numero, adminId, usrId, total);
 
         return new VentaLocalCreada(pedId, numero);
+    }
+
+    // ── Tienda física ────────────────────────────────────────────────────────
+
+    /** La venta local queda atribuida a la tienda física del colaborador que la registra —
+     *  a diferencia de un pedido online, no hay que esperar a que alguien la gestione. */
+    private Long resolverSucursalVendedor(Long adminId) {
+        Number sucursalId = (Number) em.createNativeQuery(
+                "SELECT sucursal_id FROM admin_users WHERE id = :adminId")
+                .setParameter("adminId", adminId)
+                .getSingleResult();
+        if (sucursalId == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Tu usuario no tiene una tienda asignada — pídele a un administrador que la configure en Colaboradores");
+        }
+        return sucursalId.longValue();
     }
 
     // ── Cliente ──────────────────────────────────────────────────────────────

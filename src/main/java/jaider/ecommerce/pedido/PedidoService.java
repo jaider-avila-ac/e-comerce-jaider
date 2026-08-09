@@ -91,12 +91,12 @@ public class PedidoService {
     // ─── Listado ───────────────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
-    public List<PedidoResponse> getAll(String estado, Long colaboradorId) {
+    public List<PedidoResponse> getAll(String estado, Long colaboradorId, Long sucursalId) {
         tenantSupport.applyTenant(em);
 
         List<Pedido> pedidos = (estado != null && !estado.isBlank())
-                ? pedidoRepo.findByEstado(estado, colaboradorId)
-                : pedidoRepo.findAllOrdered(colaboradorId);
+                ? pedidoRepo.findByEstado(estado, colaboradorId, sucursalId)
+                : pedidoRepo.findAllOrdered(colaboradorId, sucursalId);
 
         if (pedidos.isEmpty()) return List.of();
 
@@ -104,9 +104,12 @@ public class PedidoService {
         Map<Long, String[]> clientMap = loadClientInfo(usrIds);
         Map<Long, String> colaboradorMap = loadColaboradorInfo(pedidos.stream()
                 .map(Pedido::getColaboradorId).filter(Objects::nonNull).collect(Collectors.toSet()));
+        Map<Long, String> sucursalMap = loadSucursalInfo(pedidos.stream()
+                .map(Pedido::getSucursalId).filter(Objects::nonNull).collect(Collectors.toSet()));
 
         return pedidos.stream()
-                .map(p -> toResponse(p, clientMap.get(p.getUsrId()), null, colaboradorMap.get(p.getColaboradorId())))
+                .map(p -> toResponse(p, clientMap.get(p.getUsrId()), null,
+                        colaboradorMap.get(p.getColaboradorId()), sucursalMap.get(p.getSucursalId())))
                 .toList();
     }
 
@@ -231,6 +234,7 @@ public class PedidoService {
         if (!Objects.equals(p.getColaboradorId(), adminId)) {
             pedidoRepo.asignarColaborador(id, adminId);
             p.setColaboradorId(adminId);
+            p.setSucursalId(resolverSucursalIdDeColaborador(adminId));
             if (adminId != null) {
                 auditoriaService.registrar(p.getTndId(), adminId, "pedido.asignado", "pedido", id, Map.of());
             }
@@ -250,6 +254,7 @@ public class PedidoService {
 
         pedidoRepo.asignarColaborador(id, colaboradorId);
         p.setColaboradorId(colaboradorId);
+        p.setSucursalId(resolverSucursalIdDeColaborador(colaboradorId));
         if (adminId != null) {
             auditoriaService.registrar(p.getTndId(), adminId, "pedido.reasignado", "pedido", id,
                     Map.of("colaborador_id", String.valueOf(colaboradorId)));
@@ -519,6 +524,39 @@ public class PedidoService {
         return loadColaboradorInfo(Set.of(colaboradorId)).get(colaboradorId);
     }
 
+    /** Tienda física del colaborador — se copia al pedido al (re)asignarlo. Null si el
+     *  colaborador no existe o quitó el responsable (colaboradorId null). */
+    private Long resolverSucursalIdDeColaborador(Long colaboradorId) {
+        if (colaboradorId == null) return null;
+        try {
+            Number sucursalId = (Number) em.createNativeQuery(
+                    "SELECT sucursal_id FROM admin_users WHERE id = :id")
+                    .setParameter("id", colaboradorId)
+                    .getSingleResult();
+            return sucursalId != null ? sucursalId.longValue() : null;
+        } catch (NoResultException e) {
+            return null;
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<Long, String> loadSucursalInfo(Set<Long> sucursalIds) {
+        if (sucursalIds.isEmpty()) return new HashMap<>();
+        List<Object[]> rows = em.createNativeQuery(
+                "SELECT suc_id, suc_nombre FROM sucursales WHERE suc_id IN :ids")
+                .setParameter("ids", sucursalIds).getResultList();
+        Map<Long, String> map = new HashMap<>();
+        for (Object[] row : rows) {
+            map.put(((Number) row[0]).longValue(), (String) row[1]);
+        }
+        return map;
+    }
+
+    private String resolverSucursalNombre(Long sucursalId) {
+        if (sucursalId == null) return null;
+        return loadSucursalInfo(Set.of(sucursalId)).get(sucursalId);
+    }
+
     @SuppressWarnings("unchecked")
     private Map<Long, String[]> loadClientInfo(Set<Long> usrIds) {
         if (usrIds.isEmpty()) return Map.of();
@@ -542,10 +580,12 @@ public class PedidoService {
     }
 
     private PedidoResponse toResponse(Pedido p, String[] clientInfo, List<PedidoItem> items) {
-        return toResponse(p, clientInfo, items, resolverColaboradorNombre(p.getColaboradorId()));
+        return toResponse(p, clientInfo, items, resolverColaboradorNombre(p.getColaboradorId()),
+                resolverSucursalNombre(p.getSucursalId()));
     }
 
-    private PedidoResponse toResponse(Pedido p, String[] clientInfo, List<PedidoItem> items, String colaboradorNombre) {
+    private PedidoResponse toResponse(Pedido p, String[] clientInfo, List<PedidoItem> items,
+                                       String colaboradorNombre, String sucursalNombre) {
         String clienteEmail = clientInfo != null ? clientInfo[0] : "";
         String nombre   = clientInfo != null ? clientInfo[1] : null;
         String apellido = clientInfo != null ? clientInfo[2] : null;
@@ -590,6 +630,8 @@ public class PedidoService {
                 reembolso,
                 p.getColaboradorId(),
                 colaboradorNombre,
+                p.getSucursalId(),
+                sucursalNombre,
                 itemsList
         );
     }

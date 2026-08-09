@@ -33,5 +33,7 @@ public record PedidoResponse(
         ReembolsoResponse reembolso,
         Long colaboradorId,       // null hasta que alguien se autoasigne el pedido
         String colaboradorNombre,
+        Long sucursalId,          // tienda física que gestionó la venta — ver Pedido.sucursalId
+        String sucursalNombre,
         List<PedidoItemResponse> items   // null en el listado, poblado en el detalle
 ) {}

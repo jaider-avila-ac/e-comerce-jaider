@@ -27,8 +27,9 @@ public class PedidoController {
 
     @GetMapping
     public List<PedidoResponse> getAll(@RequestParam(required = false) String estado,
-            @RequestParam(required = false) Long colaboradorId) {
-        return pedidoService.getAll(estado, colaboradorId);
+            @RequestParam(required = false) Long colaboradorId,
+            @RequestParam(required = false) Long sucursalId) {
+        return pedidoService.getAll(estado, colaboradorId, sucursalId);
     }
 
     @GetMapping("/conteos")

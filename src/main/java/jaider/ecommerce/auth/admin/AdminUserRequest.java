@@ -5,7 +5,7 @@ package jaider.ecommerce.auth.admin;
  * por la tienda. Los campos de perfil (apellido en adelante) son opcionales.
  */
 public record AdminUserRequest(
-        String usuario, String password, String nombre, String rol,
+        String usuario, String password, String nombre, String rol, Long sucursalId,
         String apellido, String telefono, String cargo,
         String tipoDocumento, String numeroDocumento, String fechaNacimiento
 ) {

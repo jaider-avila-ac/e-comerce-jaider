@@ -109,6 +109,13 @@ public class Pedido {
     @Column(name = "ped_colaborador_id")
     private Long colaboradorId;
 
+    // Tienda física que gestionó la venta — se hereda de la sucursal del colaborador
+    // asignado (ver PedidoRepository.asignarColaborador) o, en venta local, de quien la
+    // registró (ver VentaLocalService). Null en pedidos online sin colaborador asignado
+    // todavía, y en pedidos históricos previos a este campo.
+    @Column(name = "ped_sucursal_id")
+    private Long sucursalId;
+
     @Column(name = "ped_creado_en", nullable = false, insertable = false, updatable = false)
     private OffsetDateTime creadoEn;
 

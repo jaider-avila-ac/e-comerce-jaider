@@ -32,10 +32,12 @@ public class ReporteService {
     // transición ahora también la puede disparar el cliente al confirmar recibido, y esa acción
     // no debe tener ningún efecto en las cuentas. Cancelado/devuelto quedan fuera del conteo.
     @Transactional(readOnly = true)
-    public ReporteResumenResponse resumen(String mes, boolean incluirFinanciero) {
+    public ReporteResumenResponse resumen(String mes, boolean incluirFinanciero, Long colaboradorId, Long sucursalId) {
         tenantSupport.applyTenant(em);
         Periodo periodo = periodo(mes);
-        String pedidosWhere = periodo.hasRange() ? " WHERE ped_creado_en >= :start AND ped_creado_en < :end " : "";
+        String pedidosWhere = (periodo.hasRange() ? " WHERE ped_creado_en >= :start AND ped_creado_en < :end " : " WHERE true ")
+                + " AND (:colaboradorId IS NULL OR ped_colaborador_id = :colaboradorId) "
+                + " AND (:sucursalId IS NULL OR ped_sucursal_id = :sucursalId) ";
         String clientesWhere = periodo.hasRange() ? " WHERE usr_creado_en >= :start AND usr_creado_en < :end " : "";
 
         Object[] row = (Object[]) em.createNativeQuery("""
@@ -48,6 +50,8 @@ public class ReporteService {
             """ + pedidosWhere)
             .unwrap(org.hibernate.query.NativeQuery.class)
             .setProperties(periodo.params())
+            .setParameter("colaboradorId", colaboradorId)
+            .setParameter("sucursalId", sucursalId)
             .getSingleResult();
 
         long totalIngresosCentavos = ((Number) row[0]).longValue();
@@ -103,10 +107,12 @@ public class ReporteService {
     // (no financiero) para cualquier rol.
     @Transactional(readOnly = true)
     @SuppressWarnings("unchecked")
-    public List<Map<String, Object>> pedidosPorEstado(String mes, boolean incluirFinanciero) {
+    public List<Map<String, Object>> pedidosPorEstado(String mes, boolean incluirFinanciero, Long colaboradorId, Long sucursalId) {
         tenantSupport.applyTenant(em);
         Periodo periodo = periodo(mes);
-        String where = periodo.hasRange() ? "WHERE ped_creado_en >= :start AND ped_creado_en < :end " : "";
+        String where = (periodo.hasRange() ? "WHERE ped_creado_en >= :start AND ped_creado_en < :end " : "WHERE true ")
+                + " AND (:colaboradorId IS NULL OR ped_colaborador_id = :colaboradorId) "
+                + " AND (:sucursalId IS NULL OR ped_sucursal_id = :sucursalId) ";
 
         List<Object[]> rows = em.createNativeQuery("""
             SELECT ped_estado::text, COUNT(*), COALESCE(SUM(ped_total_centavos), 0)
@@ -117,6 +123,8 @@ public class ReporteService {
             """)
             .unwrap(org.hibernate.query.NativeQuery.class)
             .setProperties(periodo.params())
+            .setParameter("colaboradorId", colaboradorId)
+            .setParameter("sucursalId", sucursalId)
             .getResultList();
 
         List<Map<String, Object>> result = new ArrayList<>();
@@ -136,12 +144,12 @@ public class ReporteService {
 
     @Transactional(readOnly = true)
     @SuppressWarnings("unchecked")
-    public List<Map<String, Object>> productosMasVendidos(String mes) {
+    public List<Map<String, Object>> productosMasVendidos(String mes, Long colaboradorId, Long sucursalId) {
         tenantSupport.applyTenant(em);
         Periodo periodo = periodo(mes);
-        String where = periodo.hasRange()
-                ? "AND p.ped_creado_en >= :start AND p.ped_creado_en < :end "
-                : "";
+        String where = (periodo.hasRange() ? "AND p.ped_creado_en >= :start AND p.ped_creado_en < :end " : "")
+                + " AND (:colaboradorId IS NULL OR p.ped_colaborador_id = :colaboradorId) "
+                + " AND (:sucursalId IS NULL OR p.ped_sucursal_id = :sucursalId) ";
 
         List<Object[]> rows = em.createNativeQuery("""
             SELECT
@@ -162,6 +170,8 @@ public class ReporteService {
             """)
             .unwrap(org.hibernate.query.NativeQuery.class)
             .setProperties(periodo.params())
+            .setParameter("colaboradorId", colaboradorId)
+            .setParameter("sucursalId", sucursalId)
             .getResultList();
 
         List<Map<String, Object>> result = new ArrayList<>();
@@ -181,12 +191,12 @@ public class ReporteService {
 
     @Transactional(readOnly = true)
     @SuppressWarnings("unchecked")
-    public List<Map<String, Object>> ventasPorCategoria(String mes) {
+    public List<Map<String, Object>> ventasPorCategoria(String mes, Long colaboradorId, Long sucursalId) {
         tenantSupport.applyTenant(em);
         Periodo periodo = periodo(mes);
-        String where = periodo.hasRange()
-                ? "AND p.ped_creado_en >= :start AND p.ped_creado_en < :end "
-                : "";
+        String where = (periodo.hasRange() ? "AND p.ped_creado_en >= :start AND p.ped_creado_en < :end " : "")
+                + " AND (:colaboradorId IS NULL OR p.ped_colaborador_id = :colaboradorId) "
+                + " AND (:sucursalId IS NULL OR p.ped_sucursal_id = :sucursalId) ";
 
         List<Object[]> rows = em.createNativeQuery("""
             SELECT
@@ -204,6 +214,8 @@ public class ReporteService {
             """)
             .unwrap(org.hibernate.query.NativeQuery.class)
             .setProperties(periodo.params())
+            .setParameter("colaboradorId", colaboradorId)
+            .setParameter("sucursalId", sucursalId)
             .getResultList();
 
         List<Map<String, Object>> result = new ArrayList<>();
