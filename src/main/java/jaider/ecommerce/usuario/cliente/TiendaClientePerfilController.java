@@ -33,6 +33,14 @@ public class TiendaClientePerfilController {
         return service.updatePerfil(ids[0], ids[1], req);
     }
 
+    @PutMapping("/password")
+    public void cambiarPassword(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestBody ClientePasswordRequest req) {
+        Long[] ids = extractIds(authHeader);
+        service.cambiarPassword(ids[0], ids[1], req);
+    }
+
     @PostMapping("/direcciones")
     public List<Map<String, Object>> addDireccion(
             @RequestHeader(value = "Authorization", required = false) String authHeader,

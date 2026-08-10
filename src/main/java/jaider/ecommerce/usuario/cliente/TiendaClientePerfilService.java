@@ -5,8 +5,11 @@ import jakarta.persistence.NoResultException;
 import jakarta.persistence.PersistenceContext;
 import jaider.ecommerce.shared.TenantSupport;
 import jaider.ecommerce.shared.interceptor.TenantContext;
+import jaider.ecommerce.usuario.Usuario;
+import jaider.ecommerce.usuario.UsuarioRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -20,6 +23,8 @@ import java.util.Map;
 public class TiendaClientePerfilService {
 
     private final TenantSupport tenantSupport;
+    private final UsuarioRepository usuarioRepository;
+    private final PasswordEncoder passwordEncoder;
 
     @PersistenceContext
     private EntityManager em;
@@ -109,6 +114,36 @@ public class TiendaClientePerfilService {
             .executeUpdate();
 
         return getPerfil(usrId, tndId);
+    }
+
+    /** Cambio de contraseña autenticado (distinto de forgot/reset-password, que son para
+     *  usuario NO logueado vía código de correo). Exige la contraseña actual. */
+    @Transactional
+    public void cambiarPassword(Long usrId, Long tndId, ClientePasswordRequest req) {
+        tenantSupport.applyTenant(em);
+        ensureTenant(tndId);
+
+        Usuario usuario = usuarioRepository.findById(usrId)
+                .filter(u -> tndId.equals(u.getTndId()))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Cliente no encontrado"));
+
+        if ("GOOGLE".equals(usuario.getProvider())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "GOOGLE_ACCOUNT");
+        }
+        if (req.passwordActual() == null || req.passwordActual().isBlank()
+                || !passwordEncoder.matches(req.passwordActual(), usuario.getPasswordHash())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Contraseña actual incorrecta");
+        }
+        if (req.passwordNueva() == null || req.passwordNueva().length() < 8) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "La nueva contraseña debe tener al menos 8 caracteres");
+        }
+
+        String hash = passwordEncoder.encode(req.passwordNueva());
+        em.createNativeQuery("UPDATE usuarios SET usr_password_hash = :hash WHERE usr_id = :id")
+                .setParameter("hash", hash)
+                .setParameter("id", usrId)
+                .executeUpdate();
     }
 
     @Transactional
