@@ -8,6 +8,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Map;
@@ -21,6 +22,15 @@ public class ApiExceptionHandler {
     public ResponseEntity<Map<String, String>> handleResponseStatus(ResponseStatusException ex) {
         String message = ex.getReason() != null ? ex.getReason() : "No se pudo procesar la solicitud";
         return ResponseEntity.status(ex.getStatusCode()).body(Map.of("message", message));
+    }
+
+    // Antes caía en el handler genérico de 500 sin decir por qué — el límite real
+    // (spring.servlet.multipart.max-file-size/max-request-size) lo ajusta application.properties,
+    // este handler solo se encarga de que el rechazo sea un mensaje claro, no un error opaco.
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<Map<String, String>> handleMaxUploadSize(MaxUploadSizeExceededException ex) {
+        return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
+                .body(Map.of("message", "El archivo es demasiado grande. Reduce su peso e intenta de nuevo."));
     }
 
     @ExceptionHandler(AccessDeniedException.class)
