@@ -86,15 +86,15 @@ public class PublicCatalogService {
 
     /**
      * Versión paginada — usada por el scroll infinito del catálogo en la tienda.
-     * Mantiene el mismo criterio de "activo" que {@link #getProductos}: sin filtro
-     * cuando se navega por categoría, solo activos cuando se ve el catálogo completo.
+     * Siempre solo productos activos, igual que {@link #getProductos} — es catálogo
+     * público, con o sin categoría seleccionada.
      */
     @Transactional(readOnly = true)
     public jaider.ecommerce.shared.dto.PageResponse<PublicProductoResponse> getProductosPaginado(
             Long catId, String q, int page, int size) {
         tenantSupport.applyTenant(em);
 
-        Boolean activo = (catId != null) ? null : true;
+        Boolean activo = true;
         String qNorm = (q == null || q.isBlank()) ? null : q.trim();
         var pageable = org.springframework.data.domain.PageRequest.of(page, size);
         var result = prodRepo.search(catId, activo, qNorm, pageable);
@@ -150,6 +150,7 @@ public class PublicCatalogService {
     public PublicProductoResponse getProductoById(Long id) {
         tenantSupport.applyTenant(em);
         Producto p = prodRepo.findById(id)
+                .filter(Producto::isActivo)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Producto no encontrado"));
         Categoria cat = catRepo.findById(p.getCatId()).orElse(null);
         Subcategoria sub = p.getSubId() != null ? subRepo.findById(p.getSubId()).orElse(null) : null;

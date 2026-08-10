@@ -53,6 +53,34 @@ public class CarritoService {
         }
         long precioCentavos = ((Number) prd[0]).longValue();
 
+        // Validación server-side de stock — sin esto, llamar el endpoint directo (sin pasar por
+        // la UI, que ya bloquea "agotado") permitía agregar cualquier cantidad de un producto
+        // sin existencias. Cuenta lo que ya está en el carrito para esta misma combinación
+        // producto+variante, porque el INSERT de abajo es un upsert que suma cantidades.
+        Number stockNum = varId != null
+                ? (Number) em.createNativeQuery("SELECT var_stock FROM variantes WHERE var_id = :varId")
+                        .setParameter("varId", varId).getSingleResult()
+                : (Number) em.createNativeQuery(
+                        "SELECT COALESCE(SUM(var_stock), 0) FROM variantes WHERE var_prd_id = :prdId AND var_activo = true")
+                        .setParameter("prdId", prdId).getSingleResult();
+        int stockDisponible = stockNum != null ? stockNum.intValue() : 0;
+
+        List<?> enCarrito = em.createNativeQuery("""
+            SELECT ci_cantidad FROM carrito_items
+            WHERE ci_car_id = :carId AND ci_prd_id = :prdId
+              AND COALESCE(ci_var_id, 0::bigint) = COALESCE(CAST(:varId AS BIGINT), 0::bigint)
+            """)
+            .setParameter("carId", carId)
+            .setParameter("prdId", prdId)
+            .setParameter("varId", varId)
+            .getResultList();
+        int yaEnCarrito = enCarrito.isEmpty() ? 0 : ((Number) enCarrito.get(0)).intValue();
+
+        if (yaEnCarrito + cantidad > stockDisponible) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "No hay suficiente stock disponible (disponible: " + stockDisponible + ")");
+        }
+
         em.createNativeQuery("""
             INSERT INTO carrito_items (ci_car_id, ci_prd_id, ci_var_id, ci_cantidad, ci_precio_snap_centavos)
             VALUES (:carId, :prdId, :varId, :cantidad, :precio)

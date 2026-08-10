@@ -13,7 +13,10 @@ public interface ProductoRepository extends JpaRepository<Producto, Long> {
     @Query("SELECT p FROM Producto p ORDER BY p.creadoEn DESC")
     List<Producto> findAllOrdered();
 
-    @Query("SELECT p FROM Producto p WHERE p.catId = :catId ORDER BY p.nombre ASC")
+    // Solo la usa el catálogo PÚBLICO (PublicCatalogService.getProductos) — por eso filtra
+    // p.activo=true directo en la query, a diferencia de search()/findAllOrdered(), que también
+    // usa el admin y necesita poder ver productos inactivos.
+    @Query("SELECT p FROM Producto p WHERE p.catId = :catId AND p.activo = true ORDER BY p.nombre ASC")
     List<Producto> findByCatId(@Param("catId") Long catId);
 
     @Query("SELECT p FROM Producto p WHERE p.activo = true ORDER BY p.creadoEn DESC")
