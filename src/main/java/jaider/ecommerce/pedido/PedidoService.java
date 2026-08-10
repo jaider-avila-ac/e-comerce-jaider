@@ -55,13 +55,21 @@ public class PedidoService {
         put("otro", "Otro motivo");
     }};
 
-    // Flujo activo del pedido, en orden. El admin puede moverse a cualquiera de estos estados
-    // desde cualquier otro (saltar hacia adelante, ej. pagado -> entregado, o retroceder si se
-    // equivocó) — ver validarTransicion(). "pendiente_pago" nunca es un destino manual: solo se
-    // asigna al crear el pedido.
-    private static final List<String> ORDEN_ACTIVO = List.of(
-            "pendiente_pago", "pagado", "preparando", "enviado", "entregado"
+    // Único paso siguiente válido por estado activo — la máquina de estados avanza de a un paso
+    // por vez desde el endpoint genérico (ver AUDITORIA_FUNCIONAL_ECOMMERCE.md, F-05). Saltar
+    // pasos o retroceder ya no es una transición "normal": requiere corregirEstado(), que exige
+    // motivo y queda auditado. "pendiente_pago" nunca es un destino manual — solo lo asigna la
+    // confirmación de pago (PagoConfirmacionService).
+    private static final Map<String, String> SIGUIENTE_PASO = Map.of(
+            "pagado", "preparando",
+            "preparando", "enviado",
+            "enviado", "entregado"
     );
+
+    // Estados que sí acepta corregirEstado() como destino de una corrección excepcional —
+    // "pendiente_pago" queda fuera (solo lo asigna el pago) y "cancelado"/"devuelto" tienen
+    // flujo propio (cancelarPorAdmin / SolicitudDevolucionService), nunca un selector genérico.
+    private static final Set<String> ESTADOS_CORREGIBLES = Set.of("pagado", "preparando", "enviado", "entregado");
 
     private static final Set<String> ESTADOS_TERMINALES = Set.of("cancelado", "devuelto");
 
@@ -150,6 +158,10 @@ public class PedidoService {
 
     // ─── Cambio de estado ──────────────────────────────────────────────────
 
+    /** Avance normal, de a un paso: pagado→preparando→enviado→entregado. Cualquier salto,
+     *  retroceso, o llegada a cancelado/devuelto se rechaza acá — esos casos van por
+     *  corregirEstado(), cancelarPorAdmin() o el flujo de devoluciones, respectivamente
+     *  (ver AUDITORIA_FUNCIONAL_ECOMMERCE.md, F-05). */
     @Transactional
     public PedidoResponse updateEstado(Long id, String estado, Long adminId) {
         tenantSupport.applyTenant(em);
@@ -163,45 +175,17 @@ public class PedidoService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pedido no encontrado"));
 
         String estadoAnterior = p.getEstado();
-        validarTransicion(estadoAnterior, estado);
+        validarSiguientePaso(estadoAnterior, estado);
 
         if (p.isAlertaStock() && "preparando".equals(estado)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Este pedido tiene un problema de stock sin resolver — revísalo antes de prepararlo");
         }
-
-        // Si el pedido ya había descontado stock (pago confirmado) y ahora se cancela o
-        // se devuelve, hay que restaurarlo — si no, esas unidades quedan perdidas del
-        // inventario para siempre aunque el pedido nunca se haya entregado.
-        boolean debeRestaurarStock = ESTADOS_CON_STOCK_DESCONTADO.contains(estadoAnterior)
-                && ("cancelado".equals(estado) || "devuelto".equals(estado));
-        if (debeRestaurarStock) {
-            restaurarStock(id);
+        if ("enviado".equals(estado)) {
+            validarSeguimientoRegistrado(p);
         }
 
-        // pedidoRepo.updateEstado usa clearAutomatically=true: a partir de aquí "p" queda
-        // detached, así que mutarlo ya no puede disparar un flush a mitad de los UPDATE nativos
-        // (el flush de una entidad Pedido managed re-escribe ped_estado sin el CAST que necesita
-        // el enum de Postgres y revienta — ver resolverAlertaStock más abajo para el mismo caso).
-        pedidoRepo.updateEstado(id, estado);
-        p.setEstado(estado);
-        if (debeRestaurarStock) {
-            p.setAlertaStock(false);
-        }
-
-        // Si se saltaron pasos hacia adelante (ej. pagado -> entregado), se dejan registrados
-        // en el historial los estados intermedios que nunca se marcaron explícitamente, para
-        // que el seguimiento del pedido (stepper del cliente y del admin) no se vea incompleto.
-        int idxActual = ORDEN_ACTIVO.indexOf(estadoAnterior);
-        int idxNuevo = ORDEN_ACTIVO.indexOf(estado);
-        if (idxActual >= 0 && idxNuevo > idxActual + 1) {
-            for (int i = idxActual + 1; i < idxNuevo; i++) {
-                insertarHistorial(id, ORDEN_ACTIVO.get(i), adminId,
-                        "Marcado automáticamente al saltar directo a \"" + estado + "\"");
-            }
-        }
-
-        insertarHistorial(id, estado, adminId, null);
+        aplicarTransicion(p, estado, adminId, null);
 
         if (adminId != null) {
             auditoriaService.registrar(p.getTndId(), adminId, "pedido.cambio_estado", "pedido", id,
@@ -214,6 +198,76 @@ public class PedidoService {
 
         Map<Long, String[]> clientMap = loadClientInfo(Set.of(p.getUsrId()));
         return toResponse(p, clientMap.get(p.getUsrId()), null);
+    }
+
+    /** Corrección excepcional (saltar o retroceder entre estados activos) — solo admin/
+     *  superadmin, exige motivo y queda auditada. No inventa etapas intermedias en el
+     *  historial: solo registra el estado real al que se corrigió y por qué. */
+    @Transactional
+    public PedidoResponse corregirEstado(Long id, String estado, String motivo, Long adminId) {
+        tenantSupport.applyTenant(em);
+
+        if (estado == null || !ESTADOS_CORREGIBLES.contains(estado)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Solo se puede corregir a uno de estos estados: " + ESTADOS_CORREGIBLES);
+        }
+        if (motivo == null || motivo.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Explica el motivo de la corrección");
+        }
+
+        Pedido p = pedidoRepo.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pedido no encontrado"));
+
+        String estadoAnterior = p.getEstado();
+        if (ESTADOS_TERMINALES.contains(estadoAnterior)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "El pedido ya está en un estado final (" + estadoAnterior + ") y no se puede corregir");
+        }
+        if (estado.equals(estadoAnterior)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El pedido ya está en ese estado");
+        }
+        if ("enviado".equals(estado)) {
+            validarSeguimientoRegistrado(p);
+        }
+
+        String motivoLimpio = motivo.trim();
+        aplicarTransicion(p, estado, adminId, "Corrección manual: " + motivoLimpio);
+
+        if (adminId != null) {
+            auditoriaService.registrar(p.getTndId(), adminId, "pedido.correccion_estado", "pedido", id,
+                    Map.of("estado_anterior", estadoAnterior, "estado_nuevo", estado, "motivo", motivoLimpio));
+        }
+
+        eventPublisher.publishEvent(new PedidoEstadoCambiadoEvent(p.getTndId(), p.getUsrId(), id, p.getNumero(), estado));
+
+        Map<Long, String[]> clientMap = loadClientInfo(Set.of(p.getUsrId()));
+        return toResponse(p, clientMap.get(p.getUsrId()), null);
+    }
+
+    /** Efecto de negocio de un cambio de estado, sin auditoría ni evento — eso lo decide cada
+     *  método llamador (updateEstado, corregirEstado, cancelarPorAdmin, transicionarPorDevolucion)
+     *  porque cada uno registra una acción de auditoría distinta. */
+    private void aplicarTransicion(Pedido p, String estadoDestino, Long adminId, String notaHistorial) {
+        // Si el pedido ya había descontado stock (pago confirmado) y ahora se cancela o
+        // se devuelve, hay que restaurarlo — si no, esas unidades quedan perdidas del
+        // inventario para siempre aunque el pedido nunca se haya entregado.
+        boolean debeRestaurarStock = ESTADOS_CON_STOCK_DESCONTADO.contains(p.getEstado())
+                && ("cancelado".equals(estadoDestino) || "devuelto".equals(estadoDestino));
+        if (debeRestaurarStock) {
+            restaurarStock(p.getId());
+        }
+
+        // pedidoRepo.updateEstado usa clearAutomatically=true: a partir de aquí "p" queda
+        // detached, así que mutarlo ya no puede disparar un flush a mitad de los UPDATE nativos
+        // (el flush de una entidad Pedido managed re-escribe ped_estado sin el CAST que necesita
+        // el enum de Postgres y revienta — ver resolverAlertaStock más abajo para el mismo caso).
+        pedidoRepo.updateEstado(p.getId(), estadoDestino);
+        p.setEstado(estadoDestino);
+        if (debeRestaurarStock) {
+            p.setAlertaStock(false);
+        }
+
+        insertarHistorial(p.getId(), estadoDestino, adminId, notaHistorial);
     }
 
     // ─── Responsable del pedido ─────────────────────────────────────────────
@@ -289,9 +343,15 @@ public class PedidoService {
                     "El pedido ya está en un estado final (" + actual.getEstado() + ") y no se puede cancelar de nuevo");
         }
 
-        // Reusa la transición normal (valida que no esté "entregado" — ahí corresponde
-        // devolución, no cancelación — y restaura stock si ya se había descontado).
-        updateEstado(id, "cancelado", adminId);
+        if ("entregado".equals(actual.getEstado())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Un pedido ya entregado no se puede cancelar — usa el flujo de devolución");
+        }
+
+        // aplicarTransicion restaura stock si ya se había descontado — no pasa por updateEstado()
+        // porque ese método ya no acepta "cancelado" como destino (ver F-05: cancelar solo por
+        // este flujo dedicado, con motivo obligatorio, nunca desde el selector genérico).
+        aplicarTransicion(actual, "cancelado", adminId, null);
 
         String motivoOtroLimpio = "otro".equals(motivo) && motivoOtro != null ? motivoOtro.trim() : null;
         String notaLimpia = (nota != null && !nota.isBlank()) ? nota.trim() : null;
@@ -318,6 +378,25 @@ public class PedidoService {
 
         Map<Long, String[]> clientMap = loadClientInfo(Set.of(p.getUsrId()));
         return toResponse(p, clientMap.get(p.getUsrId()), null);
+    }
+
+    // ─── Devolución (posventa) ──────────────────────────────────────────────
+
+    /** Único camino hacia "devuelto" — lo dispara SolicitudDevolucionService cuando el admin
+     *  confirma que el producto físico volvió, nunca un selector genérico (ver F-05 y F-03).
+     *  No-op defensivo si el pedido ya está en un estado final (no debería pasar: solo se
+     *  invoca desde una solicitud de devolución "recibida", que ya exigió "entregado" al crearse). */
+    @Transactional
+    public void transicionarPorDevolucion(Long pedId, Long adminId) {
+        tenantSupport.applyTenant(em);
+        Pedido p = pedidoRepo.findById(pedId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pedido no encontrado"));
+        if (ESTADOS_TERMINALES.contains(p.getEstado())) {
+            return;
+        }
+
+        aplicarTransicion(p, "devuelto", adminId, "Confirmado por el flujo de devoluciones");
+        eventPublisher.publishEvent(new PedidoEstadoCambiadoEvent(p.getTndId(), p.getUsrId(), pedId, p.getNumero(), "devuelto"));
     }
 
     @Transactional(readOnly = true)
@@ -468,38 +547,37 @@ public class PedidoService {
                 .executeUpdate();
     }
 
-    private void validarTransicion(String actual, String siguiente) {
-        if (Objects.equals(actual, siguiente)) return;
-
+    /** Solo permite el único paso siguiente definido en SIGUIENTE_PASO — nada de saltos,
+     *  retrocesos, ni llegar a cancelado/devuelto/pendiente_pago por acá (ver F-05). */
+    private void validarSiguientePaso(String actual, String siguiente) {
         if (ESTADOS_TERMINALES.contains(actual)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "El pedido ya está en un estado final (" + actual + ") y no se puede cambiar");
         }
-        if ("pendiente_pago".equals(siguiente)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "No se puede volver a \"pago pendiente\" manualmente");
-        }
         if ("cancelado".equals(siguiente)) {
-            if ("entregado".equals(actual)) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                        "Un pedido ya entregado no se puede cancelar — usa \"devuelto\"");
-            }
-            return;
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Para cancelar usa el botón \"Cancelar compra\" — exige motivo y gestiona el reembolso");
         }
         if ("devuelto".equals(siguiente)) {
-            if ("pendiente_pago".equals(actual)) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                        "Un pedido sin pagar no se puede devolver");
-            }
-            return;
-        }
-        if (!ORDEN_ACTIVO.contains(siguiente)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Transición de estado no permitida: " + actual + " -> " + siguiente);
+                    "\"Devuelto\" se alcanza automáticamente cuando se confirma la devolución del producto");
         }
-        // Entre estados del flujo activo (pagado, preparando, enviado, entregado) se permite
-        // avanzar saltando pasos o retroceder libremente — ver updateEstado() para el relleno
-        // automático del historial cuando se salta hacia adelante.
+        String pasoValido = SIGUIENTE_PASO.get(actual);
+        if (!Objects.equals(pasoValido, siguiente)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, pasoValido != null
+                    ? "Desde \"" + actual + "\" solo puedes avanzar a \"" + pasoValido + "\""
+                    : "El pedido no tiene un siguiente paso — usa una corrección si es necesario");
+        }
+    }
+
+    /** El seguimiento (transportadora + guía) debe registrarse antes de marcar un pedido como
+     *  enviado — si no, "enviado" no tiene con qué respaldarse. */
+    private void validarSeguimientoRegistrado(Pedido p) {
+        if (p.getTransportadora() == null || p.getTransportadora().isBlank()
+                || p.getCodigoRastreo() == null || p.getCodigoRastreo().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Registra la transportadora y el número de guía antes de marcarlo como enviado");
+        }
     }
 
     @SuppressWarnings("unchecked")

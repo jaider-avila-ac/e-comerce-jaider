@@ -3,6 +3,7 @@ package jaider.ecommerce.pedido.devolucion;
 import jaider.ecommerce.auditoria.AuditoriaService;
 import jaider.ecommerce.infra.CloudinaryService;
 import jaider.ecommerce.pago.reembolso.ReembolsoService;
+import jaider.ecommerce.pedido.PedidoService;
 import jaider.ecommerce.shared.TenantSupport;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
@@ -36,6 +37,7 @@ public class SolicitudDevolucionService {
     private final CloudinaryService cloudinaryService;
     private final AuditoriaService auditoriaService;
     private final ReembolsoService reembolsoService;
+    private final PedidoService pedidoService;
 
     @PersistenceContext
     private EntityManager em;
@@ -231,6 +233,9 @@ public class SolicitudDevolucionService {
         s.setRecibidaEn(ahora);
 
         crearReembolsoPendiente(s);
+        // Único lugar donde un pedido llega a "devuelto" — nunca desde el selector genérico
+        // de estado (ver PedidoService.transicionarPorDevolucion y F-05/F-03 de la auditoría).
+        pedidoService.transicionarPorDevolucion(s.getPedId(), adminId);
         if (adminId != null) {
             auditoriaService.registrar(s.getTndId(), adminId, "devolucion.recibida", "solicitud_devolucion", id, Map.of());
         }

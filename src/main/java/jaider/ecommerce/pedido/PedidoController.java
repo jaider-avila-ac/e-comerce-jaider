@@ -65,6 +65,15 @@ public class PedidoController {
                 .orElse(null);
     }
 
+    @PostMapping("/{id}/corregir-estado")
+    @Transactional
+    @PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN')")
+    public PedidoResponse corregirEstado(@AuthenticationPrincipal UserDetails userDetails,
+            @PathVariable Long id, @RequestBody CorregirEstadoRequest req) {
+        Long adminId = resolverAdminId(userDetails);
+        return pedidoService.corregirEstado(id, req.estado(), req.motivo(), adminId);
+    }
+
     @PostMapping("/{id}/cancelar")
     @Transactional
     @PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN')")
