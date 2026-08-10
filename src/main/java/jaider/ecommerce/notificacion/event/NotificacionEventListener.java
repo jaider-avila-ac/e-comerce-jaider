@@ -28,6 +28,7 @@ public class NotificacionEventListener {
                 "pedido", event.pedId());
 
         notificacionService.avisarNuevoPedidoPorEmail(event.tndId(), event.pedId(), event.numero());
+        notificacionService.avisarConfirmacionCompraAlCliente(event.tndId(), event.pedId(), event.numero());
     }
 
     @Async

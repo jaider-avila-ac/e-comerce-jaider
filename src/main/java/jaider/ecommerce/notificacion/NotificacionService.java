@@ -1,5 +1,7 @@
 package jaider.ecommerce.notificacion;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jaider.ecommerce.infra.ResendEmailService;
 import jaider.ecommerce.shared.TenantSupport;
 import jaider.ecommerce.shared.interceptor.TenantContext;
@@ -13,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -32,6 +35,12 @@ public class NotificacionService {
     private final SimpMessagingTemplate messagingTemplate;
     private final TiendaRepository tiendaRepo;
     private final ResendEmailService emailService;
+    private final ObjectMapper objectMapper;
+
+    private static final Map<String, String> METODO_PAGO_LABEL = Map.of(
+            "CARD", "Tarjeta", "NEQUI", "Nequi", "PSE", "PSE",
+            "BANCOLOMBIA_TRANSFER", "Transferencia Bancolombia", "EFECTIVO", "Efectivo", "OTRO", "Otro"
+    );
 
     @PersistenceContext
     private EntityManager em;
@@ -146,6 +155,83 @@ public class NotificacionService {
                     numero, tndId, e.getMessage());
         } finally {
             TenantContext.clear();
+        }
+    }
+
+    /** Confirmación transaccional al comprador cuando su pedido se paga (RF-031/F-08 de la
+     *  auditoría) — resumen congelado (ítems, dirección si aplica, método, total). Se dispara
+     *  desde el mismo evento que ya usa avisarNuevoPedidoPorEmail (PedidoPagadoEvent), que solo
+     *  se publica una vez por pedido, así que esta confirmación queda naturalmente idempotente. */
+    @SuppressWarnings("unchecked")
+    @Transactional(readOnly = true)
+    public void avisarConfirmacionCompraAlCliente(Long tndId, Long pedId, String numero) {
+        try {
+            TenantContext.set(tndId.toString());
+            tenantSupport.applyTenant(em);
+
+            Object[] pedidoRow;
+            try {
+                pedidoRow = (Object[]) em.createNativeQuery("""
+                        SELECT u.usr_email, COALESCE(cp.cp_nombre, u.usr_email),
+                               p.ped_dir_snapshot::text, p.ped_total_centavos
+                        FROM pedidos p
+                        JOIN usuarios u ON u.usr_id = p.ped_usr_id
+                        LEFT JOIN clientes_perfil cp ON cp.cp_usr_id = u.usr_id
+                        WHERE p.ped_id = :pedId
+                        """)
+                        .setParameter("pedId", pedId)
+                        .getSingleResult();
+            } catch (jakarta.persistence.NoResultException e) {
+                return;
+            }
+            String email = (String) pedidoRow[0];
+            if (email == null || email.isBlank()) return;
+            String nombre = (String) pedidoRow[1];
+            Map<String, Object> direccion = parseDireccion((String) pedidoRow[2]);
+            long totalPesos = ((Number) pedidoRow[3]).longValue() / 100L;
+
+            List<Object[]> itemRows = em.createNativeQuery("""
+                    SELECT pi_nombre_snap, pi_cantidad, pi_precio_unitario_centavos
+                    FROM pedido_items WHERE pi_ped_id = :pedId ORDER BY pi_id ASC
+                    """)
+                    .setParameter("pedId", pedId)
+                    .getResultList();
+            List<ResendEmailService.ItemResumenEmail> items = new ArrayList<>();
+            for (Object[] row : itemRows) {
+                items.add(new ResendEmailService.ItemResumenEmail(
+                        (String) row[0], ((Number) row[1]).intValue(), ((Number) row[2]).longValue() / 100L));
+            }
+
+            String metodoPago = null;
+            try {
+                metodoPago = (String) em.createNativeQuery("""
+                        SELECT pag_metodo::text FROM pagos
+                        WHERE pag_ped_id = :pedId AND pag_estado = CAST('APPROVED' AS estado_pago)
+                        ORDER BY pag_id DESC LIMIT 1
+                        """)
+                        .setParameter("pedId", pedId)
+                        .getSingleResult();
+            } catch (jakarta.persistence.NoResultException e) {
+                // sin pago aprobado registrado (no debería pasar si ya llegamos a "pagado") — se
+                // envía igual el correo, solo sin la línea de método de pago.
+            }
+            String metodoPagoLabel = metodoPago != null ? METODO_PAGO_LABEL.getOrDefault(metodoPago, metodoPago) : null;
+
+            emailService.sendConfirmacionCompra(email, nombre, numero, items, direccion, metodoPagoLabel, totalPesos);
+        } catch (Exception e) {
+            log.warn("[Notificaciones] No se pudo enviar la confirmación de compra del pedido {} en tienda {}: {}",
+                    numero, tndId, e.getMessage());
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    private Map<String, Object> parseDireccion(String json) {
+        if (json == null || json.isBlank()) return Map.of();
+        try {
+            return objectMapper.readValue(json, new TypeReference<Map<String, Object>>() {});
+        } catch (Exception e) {
+            return Map.of();
         }
     }
 

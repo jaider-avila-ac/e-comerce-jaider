@@ -47,6 +47,84 @@ public class ResendEmailService {
         send(recipient, "Restablecer contraseña — Calzacaribe", html);
     }
 
+    /** Resumen de un ítem del pedido, ya en pesos (no centavos), para el correo de confirmación. */
+    public record ItemResumenEmail(String nombre, int cantidad, long precioPesos) {}
+
+    /** Confirmación transaccional al comprador — se dispara una sola vez por pedido, justo cuando
+     *  el pago queda aprobado (ver PagoConfirmacionService.confirmarPedido → PedidoPagadoEvent,
+     *  que solo se publica la primera vez que el pedido pasa de pendiente_pago a pagado). Incluye
+     *  el resumen congelado del pedido — ítems, dirección (si aplica), método y total — para que
+     *  el cliente tenga constancia sin depender de volver a entrar a la app (RF-031).
+     *  direccion puede venir vacío (ventas locales no pasan por acá, pero por si acaso). */
+    public void sendConfirmacionCompra(String to, String nombre, String numero,
+                                        List<ItemResumenEmail> items, Map<String, Object> direccion,
+                                        String metodoPagoLabel, long totalPesos) {
+        String recipient = override(to);
+
+        String itemsHtml = items.stream().map(i -> """
+                <tr>
+                  <td style="padding:6px 0;color:#333;font-size:14px">%s <span style="color:#999">x%d</span></td>
+                  <td style="padding:6px 0;color:#333;font-size:14px;text-align:right;white-space:nowrap">%s</td>
+                </tr>
+                """.formatted(i.nombre(), i.cantidad(), formatPesos(i.precioPesos() * i.cantidad())))
+                .reduce("", String::concat);
+
+        String direccionTexto = direccionTexto(direccion);
+        String direccionHtml = direccionTexto.isBlank() ? "" : """
+                <p style="color:#555;font-size:14px;margin:20px 0 4px"><strong>Dirección de envío</strong></p>
+                <p style="color:#555;font-size:14px;margin:0">%s</p>
+                """.formatted(direccionTexto);
+
+        String html = """
+                <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#fff">
+                  <h2 style="margin:0 0 8px;color:#111;font-size:20px">¡Gracias por tu compra%s!</h2>
+                  <p style="color:#555;font-size:15px;margin:0 0 20px">Confirmamos tu pedido <strong>#%s</strong>. Aquí el resumen:</p>
+                  <table style="width:100%%;border-collapse:collapse">
+                    %s
+                    <tr><td colspan="2" style="border-top:1px solid #eee;padding-top:8px"></td></tr>
+                    <tr>
+                      <td style="padding:6px 0;color:#111;font-size:15px;font-weight:700">Total</td>
+                      <td style="padding:6px 0;color:#111;font-size:15px;font-weight:700;text-align:right">%s</td>
+                    </tr>
+                  </table>
+                  <p style="color:#555;font-size:14px;margin:16px 0 0"><strong>Método de pago:</strong> %s</p>
+                  %s
+                  <p style="color:#888;font-size:13px;margin-top:24px">Te avisaremos por aquí y dentro de tu cuenta cuando tu pedido sea despachado.</p>
+                </div>
+                """.formatted(
+                        nombre != null && !nombre.isBlank() ? ", " + nombre : "",
+                        numero, itemsHtml, formatPesos(totalPesos),
+                        metodoPagoLabel != null ? metodoPagoLabel : "No especificado",
+                        direccionHtml);
+
+        send(recipient, "Confirmamos tu pedido " + numero + " — Calzacaribe", html);
+    }
+
+    private String direccionTexto(Map<String, Object> direccion) {
+        if (direccion == null) return "";
+        String linea1 = strOf(direccion.get("direccion"));
+        if (linea1.isBlank()) return "";
+        String complemento = strOf(direccion.get("complemento"));
+        String barrio = strOf(direccion.get("barrio"));
+        String municipio = strOf(direccion.get("municipio"));
+        String departamento = strOf(direccion.get("departamento"));
+
+        StringBuilder sb = new StringBuilder(linea1);
+        if (!complemento.isBlank()) sb.append(", ").append(complemento);
+        if (!barrio.isBlank()) sb.append(" — ").append(barrio);
+        if (!municipio.isBlank()) sb.append(", ").append(municipio);
+        if (!departamento.isBlank()) sb.append(" (").append(departamento).append(")");
+        return sb.toString();
+    }
+
+    private String strOf(Object o) {
+        return o instanceof String s ? s : "";
+    }
+
+    private String formatPesos(long pesos) {
+        return "$" + String.format("%,d", pesos).replace(',', '.');
+    }
+
     /** Aviso al correo que el admin configuró en Ajustes — no usa override() a propósito:
      *  ese correo lo eligió el propio admin, no es un dato de un cliente de prueba. */
     public void sendNuevoPedido(String to, String numero, String clienteNombre, long totalPesos) {
