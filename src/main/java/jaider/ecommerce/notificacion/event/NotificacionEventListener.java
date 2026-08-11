@@ -31,13 +31,16 @@ public class NotificacionEventListener {
         notificacionService.avisarConfirmacionCompraAlCliente(event.tndId(), event.pedId(), event.numero());
     }
 
+    // Aviso informativo — desde que confirmarPedido() cancela y reembolsa automáticamente cuando
+    // falta stock (ver PagoConfirmacionService, F-09 de la auditoría), ya no requiere acción
+    // manual: el admin solo necesita enterarse de que pasó, para reabastecer si aplica.
     @Async
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onAlertaStock(AlertaStockEvent event) {
         notificacionService.notificarAdmin(
                 event.tndId(), "alerta_stock",
-                "Alerta de stock — pedido " + event.numero(),
-                "El pedido " + event.numero() + " se pagó pero no hay stock suficiente para uno o más artículos. Revísalo antes de prepararlo.",
+                "Pedido cancelado por falta de stock — " + event.numero(),
+                "El pedido " + event.numero() + " se pagó, pero no había stock suficiente para uno o más artículos. Se canceló y reembolsó automáticamente.",
                 "pedido", event.pedId());
     }
 

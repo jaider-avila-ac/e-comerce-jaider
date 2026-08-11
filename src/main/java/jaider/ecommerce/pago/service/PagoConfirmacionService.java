@@ -5,6 +5,7 @@ import jaider.ecommerce.notificacion.event.AlertaStockEvent;
 import jaider.ecommerce.notificacion.event.PedidoPagadoEvent;
 import jaider.ecommerce.pago.reembolso.ReembolsoService;
 import jaider.ecommerce.pedido.PedidoRepository;
+import jaider.ecommerce.pedido.PedidoService;
 import jaider.ecommerce.shared.TenantSupport;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -49,6 +50,7 @@ public class PagoConfirmacionService {
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher eventPublisher;
     private final ReembolsoService reembolsoService;
+    private final PedidoService pedidoService;
 
     @PersistenceContext
     private EntityManager em;
@@ -139,14 +141,27 @@ public class PagoConfirmacionService {
 
         boolean huboFaltante = descontarStock(pedId);
         limpiarCarrito(usrId);
+
+        if (huboFaltante) {
+            // El pago ya se aprobó pero no había stock para uno o más artículos — en vez de dejarlo
+            // "pagado" con una alerta a la espera de que un admin lo revise manualmente (riesgo
+            // comercial: el cliente ya pagó algo que no se le puede entregar), se cancela y
+            // reembolsa automáticamente. Reusa cancelarPorAdmin (motivo fijo "producto_agotado",
+            // adminId null porque lo dispara el sistema) — ya restaura el stock de los ítems que sí
+            // se alcanzaron a descontar, crea el reembolso, y notifica al cliente (F-09 auditoría).
+            log.warn("[Confirmación] Pedido {} sin stock suficiente para uno o más artículos — " +
+                    "se cancela y reembolsa automáticamente", pedId);
+            pedidoService.cancelarPorAdmin(pedId, "producto_agotado", null,
+                    "Cancelado automáticamente: no había stock suficiente para completar el pedido.", null);
+            eventPublisher.publishEvent(new AlertaStockEvent(tndId, pedId, numero));
+            return;
+        }
+
         log.info("[Confirmación] Pedido {} confirmado como pagado", pedId);
 
         // Canal lateral: la notificación se publica recién después de que esta transacción haga
         // commit (ver NotificacionEventListener), así que nunca puede afectar este flujo de pago.
         eventPublisher.publishEvent(new PedidoPagadoEvent(tndId, pedId, numero));
-        if (huboFaltante) {
-            eventPublisher.publishEvent(new AlertaStockEvent(tndId, pedId, numero));
-        }
     }
 
     @Transactional
@@ -207,18 +222,15 @@ public class PagoConfirmacionService {
 
             if (updated == 0) {
                 log.error("[Stock] Variante {} sin stock suficiente al confirmar pedido {} — pago ya aprobado, " +
-                        "se marca el pedido para revisión manual del admin", varId, pedId);
+                        "el pedido se cancelará y reembolsará automáticamente", varId, pedId);
+                // pi_stock_insuficiente queda marcado para que restaurarStock (disparado por la
+                // cancelación automática que sigue) no le devuelva stock a un ítem que nunca
+                // llegó a descontarse.
                 em.createNativeQuery("UPDATE pedido_items SET pi_stock_insuficiente = true WHERE pi_id = :itemId")
                         .setParameter("itemId", itemId)
                         .executeUpdate();
                 huboFaltante = true;
             }
-        }
-
-        if (huboFaltante) {
-            em.createNativeQuery("UPDATE pedidos SET ped_alerta_stock = true WHERE ped_id = :pedId")
-                    .setParameter("pedId", pedId)
-                    .executeUpdate();
         }
 
         return huboFaltante;
