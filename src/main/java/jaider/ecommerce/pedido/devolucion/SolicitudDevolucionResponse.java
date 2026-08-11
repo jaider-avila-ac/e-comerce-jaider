@@ -8,6 +8,7 @@ public record SolicitudDevolucionResponse(
         Long pedidoId,
         String numeroPedido,
         String estado,
+        String tipo,
         String motivo,
         DireccionDevolucionResponse direccion,
         String codigoRastreo,

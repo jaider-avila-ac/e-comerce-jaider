@@ -18,6 +18,7 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Solicitudes de devolución de producto (RMA), a nivel de todo el pedido (no por ítem).
@@ -28,7 +29,15 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class SolicitudDevolucionService {
 
-    private static final int DIAS_PLAZO_DEVOLUCION = 30;
+    private static final Set<String> TIPOS_VALIDOS = Set.of("retracto", "defecto");
+
+    // Derecho de retracto: plazo legal de 5 días hábiles desde la entrega (art. 47 Ley 1480/2011).
+    private static final int DIAS_HABILES_RETRACTO = 5;
+
+    // Cambio por defecto de fábrica: la política no fija un número de días exacto ("dentro del
+    // periodo de garantía legal estipulado para el tipo de producto") — se usa este plazo como
+    // tope operativo razonable para no dejarlo indefinido, no es un límite que imponga la ley.
+    private static final int DIAS_PLAZO_DEFECTO = 30;
 
     private final SolicitudDevolucionRepository repo;
     private final SolicitudDevolucionFotoRepository fotoRepo;
@@ -51,6 +60,11 @@ public class SolicitudDevolucionService {
         if (req.motivo() == null || req.motivo().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Indica el motivo de la devolución");
         }
+        String tipo = req.tipo() == null ? "" : req.tipo().trim();
+        if (!TIPOS_VALIDOS.contains(tipo)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Indica el tipo de solicitud: \"retracto\" (cambié de opinión) o \"defecto\" (defecto de fábrica)");
+        }
 
         Object[] row = buscarPedido(numero, usrId, tndId);
         Long pedId = ((Number) row[0]).longValue();
@@ -61,9 +75,17 @@ public class SolicitudDevolucionService {
                     "Solo se puede solicitar devolución de un pedido ya entregado");
         }
 
-        if (!dentroDePlazoDevolucion(pedId)) {
+        if ("retracto".equals(tipo)) {
+            if (diasHabilesDesdeEntrega(pedId) >= DIAS_HABILES_RETRACTO) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "El plazo legal de " + DIAS_HABILES_RETRACTO + " días hábiles para ejercer el derecho " +
+                        "de retracto ya venció. Si el producto tiene un defecto de fábrica, solicita el cambio " +
+                        "por esa vía.");
+            }
+        } else if (!dentroDePlazoDevolucion(pedId, DIAS_PLAZO_DEFECTO)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "El plazo de " + DIAS_PLAZO_DEVOLUCION + " días para solicitar devolución ya venció");
+                    "El plazo de " + DIAS_PLAZO_DEFECTO + " días para solicitar el cambio ya venció. " +
+                    "Contáctanos directamente si tu producto sigue en garantía.");
         }
 
         if (repo.findActivaByPedId(pedId).isPresent()) {
@@ -76,12 +98,13 @@ public class SolicitudDevolucionService {
         // encima se mutara el campo en memoria después sobre la entidad managed, Hibernate
         // intentaría un UPDATE del enum sin CAST en el siguiente flush.
         Number idNum = (Number) em.createNativeQuery("""
-                INSERT INTO solicitudes_devolucion (sod_tnd_id, sod_ped_id, sod_motivo)
-                VALUES (:tndId, :pedId, :motivo)
+                INSERT INTO solicitudes_devolucion (sod_tnd_id, sod_ped_id, sod_tipo, sod_motivo)
+                VALUES (:tndId, :pedId, :tipo, :motivo)
                 RETURNING sod_id
                 """)
                 .setParameter("tndId", tndId)
                 .setParameter("pedId", pedId)
+                .setParameter("tipo", tipo)
                 .setParameter("motivo", req.motivo().trim())
                 .getSingleResult();
         Long solicitudId = idNum.longValue();
@@ -264,20 +287,42 @@ public class SolicitudDevolucionService {
                 .setParameter("id", pedId).getSingleResult();
     }
 
-    /** Si la transición más reciente a "entregado" ocurrió dentro del plazo — la comparación
-     *  de fechas se hace en SQL (evita traer el timestamp a Java, donde MAX() sobre una
-     *  columna timestamptz vuelve como Instant en vez de OffsetDateTime y revienta el cast).
+    /** Si la transición más reciente a "entregado" ocurrió dentro del plazo (días calendario) —
+     *  la comparación de fechas se hace en SQL (evita traer el timestamp a Java, donde MAX() sobre
+     *  una columna timestamptz vuelve como Instant en vez de OffsetDateTime y revienta el cast).
      *  Mismo criterio que PedidoAutoConfirmacionService: el historial, nunca ped_actualizado_en. */
-    private boolean dentroDePlazoDevolucion(Long pedId) {
+    private boolean dentroDePlazoDevolucion(Long pedId, int dias) {
         Number count = (Number) em.createNativeQuery("""
                 SELECT COUNT(*) FROM pedido_historial_estados
                 WHERE phe_ped_id = :pedId AND phe_estado = 'entregado'
                   AND phe_creado_en >= now() - (INTERVAL '1 day' * :dias)
                 """)
                 .setParameter("pedId", pedId)
-                .setParameter("dias", DIAS_PLAZO_DEVOLUCION)
+                .setParameter("dias", dias)
                 .getSingleResult();
         return count.longValue() > 0;
+    }
+
+    /** Cuenta los días hábiles (lunes a viernes) transcurridos desde el día de la entrega hasta
+     *  hoy, sin contar el propio día de entrega — así "5 días hábiles contados a partir de la
+     *  entrega" (art. 47 Ley 1480/2011) se cumple exactamente. No descuenta festivos colombianos
+     *  (no hay calendario de festivos en el sistema); en la práctica da al cliente 1-2 días de
+     *  margen adicional en semanas con festivo, nunca menos de los 5 hábiles que exige la ley. */
+    private int diasHabilesDesdeEntrega(Long pedId) {
+        Number dias = (Number) em.createNativeQuery("""
+                SELECT COUNT(*) FROM generate_series(
+                    date_trunc('day', (
+                        SELECT MAX(phe_creado_en) FROM pedido_historial_estados
+                        WHERE phe_ped_id = :pedId AND phe_estado = 'entregado'
+                    )) + INTERVAL '1 day',
+                    date_trunc('day', now()),
+                    INTERVAL '1 day'
+                ) d
+                WHERE EXTRACT(ISODOW FROM d) < 6
+                """)
+                .setParameter("pedId", pedId)
+                .getSingleResult();
+        return dias.intValue();
     }
 
     private void guardarFotos(Long solicitudId, List<String> urls) {
@@ -342,7 +387,7 @@ public class SolicitudDevolucionService {
                 .stream().map(SolicitudDevolucionFoto::getUrl).toList();
 
         return new SolicitudDevolucionResponse(
-                s.getId(), s.getPedId(), numeroPedido, s.getEstado(), s.getMotivo(), direccion,
+                s.getId(), s.getPedId(), numeroPedido, s.getEstado(), s.getTipo(), s.getMotivo(), direccion,
                 s.getCodigoRastreo(), s.getAdminNota(), s.getCreadoEn(), s.getRevisadoEn(), s.getRecibidaEn(), fotos
         );
     }

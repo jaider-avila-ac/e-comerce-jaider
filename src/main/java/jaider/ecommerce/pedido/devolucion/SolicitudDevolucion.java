@@ -34,6 +34,12 @@ public class SolicitudDevolucion {
     @Column(name = "sod_motivo", nullable = false, columnDefinition = "text")
     private String motivo;
 
+    // "retracto" (cualquier motivo, plazo legal corto — art. 47 Ley 1480/2011) o "defecto"
+    // (defecto de fábrica, sin el plazo corto del retracto, requiere inspección de calidad).
+    // Ver SolicitudDevolucionService — cada tipo tiene su propia regla de plazo.
+    @Column(name = "sod_tipo", nullable = false, length = 20)
+    private String tipo;
+
     @Column(name = "sod_dvd_id")
     private Long dvdId;
 
