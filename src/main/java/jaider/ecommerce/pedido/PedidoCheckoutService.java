@@ -4,13 +4,14 @@ import jaider.ecommerce.pago.dto.CobroTarjetaResultado;
 import jaider.ecommerce.pago.service.PagoConfirmacionService;
 import jaider.ecommerce.pago.service.PaymentGateway;
 import jaider.ecommerce.pedido.PedidoCreacionService.PedidoCreado;
+import jaider.ecommerce.shared.idempotencia.IdempotenciaGuard;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.http.HttpStatus;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -20,6 +21,13 @@ import java.util.Map;
  *   - iniciarCheckoutHospedado: crea el pedido y devuelve la URL de la ventana de Wompi;
  *     la confirmación llega después, de forma asíncrona, por PagoWebhookService.
  *   - pagarConTarjeta: cobra de inmediato con una tarjeta tokenizada, sin ventana de Wompi.
+ *
+ * Ambos métodos están envueltos en IdempotenciaGuard.ejecutar() (ver REAUDITORIA_FUNCIONAL_E_
+ * IDEMPOTENCIA.md, P0): el cliente manda un header Idempotency-Key por cada intento de compra;
+ * mientras no reciba un resultado definitivo, reenvía la MISMA clave en cualquier reintento
+ * (doble clic, timeout, reenvío de proxy). El guard garantiza que la lógica de abajo corre como
+ * máximo una vez por clave — solicitudes repetidas reciben la misma respuesta ya calculada, sin
+ * crear un segundo pedido ni un segundo cobro.
  *
  * pagarConTarjeta() es deliberadamente NO transaccional a nivel de método: crea el pedido y el
  * pago (que sí se confirman en su propia transacción antes de continuar) y solo después llama a
@@ -34,26 +42,35 @@ public class PedidoCheckoutService {
     private final PedidoCreacionService pedidoCreacionService;
     private final PaymentGateway paymentGateway;
     private final PagoConfirmacionService confirmacionService;
+    private final IdempotenciaGuard idempotenciaGuard;
 
     @Value("${frontend.tienda-url}")
     private String frontendTiendaUrl;
 
     @Transactional
-    public CheckoutResponse iniciarCheckoutHospedado(Long usrId, Long tndId, CheckoutRequest req) {
-        PedidoCreado pedido = pedidoCreacionService.crearDesdeCarrito(
-                usrId, tndId, req.direccionId(), req.direccionInline(), req.notas());
+    public CheckoutResponse iniciarCheckoutHospedado(Long usrId, Long tndId, CheckoutRequest req, String idempotencyKey) {
+        return idempotenciaGuard.ejecutar(tndId, usrId, "checkout_hospedado", idempotencyKey, req,
+                CheckoutResponse.class, () -> {
+                    PedidoCreado pedido = pedidoCreacionService.crearDesdeCarrito(
+                            usrId, tndId, req.direccionId(), req.direccionInline(), req.notas());
 
-        String referencia = paymentGateway.generarReferencia(tndId, pedido.pedId());
-        pedidoCreacionService.crearPago(pedido.pedId(), usrId, referencia, pedido.totalCentavos(), null);
+                    String referencia = paymentGateway.generarReferencia(tndId, pedido.pedId());
+                    pedidoCreacionService.crearPago(pedido.pedId(), usrId, referencia, pedido.totalCentavos(), null);
 
-        String redirectUrl = frontendTiendaUrl + "/pedido/resultado?numero=" + pedido.numero();
-        String checkoutUrl = paymentGateway.buildCheckoutUrl(referencia, pedido.totalCentavos(), "COP", redirectUrl);
+                    String redirectUrl = frontendTiendaUrl + "/pedido/resultado?numero=" + pedido.numero();
+                    String checkoutUrl = paymentGateway.buildCheckoutUrl(referencia, pedido.totalCentavos(), "COP", redirectUrl);
 
-        return new CheckoutResponse(pedido.pedId(), pedido.numero(), referencia, checkoutUrl,
-                pedido.totalCentavos(), "COP");
+                    return new CheckoutResponse(pedido.pedId(), pedido.numero(), referencia, checkoutUrl,
+                            pedido.totalCentavos(), "COP");
+                });
     }
 
-    public PagoTarjetaResponse pagarConTarjeta(Long usrId, Long tndId, CheckoutTarjetaRequest req) {
+    public PagoTarjetaResponse pagarConTarjeta(Long usrId, Long tndId, CheckoutTarjetaRequest req, String idempotencyKey) {
+        return idempotenciaGuard.ejecutar(tndId, usrId, "checkout_tarjeta", idempotencyKey, req,
+                PagoTarjetaResponse.class, () -> pagarConTarjetaReal(usrId, tndId, req));
+    }
+
+    private PagoTarjetaResponse pagarConTarjetaReal(Long usrId, Long tndId, CheckoutTarjetaRequest req) {
         PedidoCreado pedido = pedidoCreacionService.crearDesdeCarrito(
                 usrId, tndId, req.direccionId(), req.direccionInline(), req.notas());
 
@@ -61,6 +78,9 @@ public class PedidoCheckoutService {
         Long pagoId = pedidoCreacionService.crearPago(pedido.pedId(), usrId, referencia, pedido.totalCentavos(), "CARD");
         String email = pedidoCreacionService.obtenerEmail(usrId);
 
+        // Fallo acá es seguro de liberar (ver catch en IdempotenciaGuard.ejecutar): crearFuentePago
+        // solo tokeniza/valida la tarjeta, no llega a cobrar nada — un reintento con la misma
+        // clave no arriesga un doble cobro.
         Long fuentePagoId;
         try {
             fuentePagoId = paymentGateway.crearFuentePago(
@@ -75,9 +95,17 @@ public class PedidoCheckoutService {
         try {
             resultado = paymentGateway.cobrarFuentePago(fuentePagoId, email, pedido.totalCentavos(), referencia);
         } catch (Exception e) {
-            log.error("[Checkout Tarjeta] Error cobrando pedido {}: {}", pedido.pedId(), e.getMessage());
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
-                    "Error al procesar el pago. Por favor intenta de nuevo.");
+            // A diferencia del catch de arriba, ESTE fallo es ambiguo: no sabemos si Wompi sí
+            // procesó el cobro antes de que la llamada fallara (timeout de red, etc.). Por eso NO
+            // se relanza como excepción (eso liberaría la clave de idempotencia y dejaría que un
+            // reintento vuelva a llamar a Wompi, arriesgando un doble cobro real) — se devuelve
+            // como respuesta normal, que el guard cachea igual que cualquier resultado definitivo.
+            // Un reintento con la MISMA clave recibe este mismo mensaje, nunca un segundo cobro.
+            log.error("[Checkout Tarjeta] Error ambiguo cobrando pedido {} (pago {}) — requiere revisión manual, NO se reintenta automáticamente: {}",
+                    pedido.pedId(), pagoId, e.getMessage());
+            return new PagoTarjetaResponse(null, "ERROR",
+                    "No pudimos confirmar el resultado de tu pago. No vuelvas a intentar con la misma tarjeta — contáctanos con tu número de pedido " + pedido.numero() + " antes de hacer un nuevo intento.",
+                    pedido.pedId(), pedido.numero());
         }
 
         Map<String, Object> resumen = new LinkedHashMap<>();

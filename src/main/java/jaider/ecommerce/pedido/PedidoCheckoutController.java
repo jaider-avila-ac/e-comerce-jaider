@@ -25,22 +25,27 @@ public class PedidoCheckoutController {
     private final SolicitudDevolucionService devolucionService;
     private final JwtService jwtService;
 
-    /** Checkout hospedado: crea el pedido y devuelve la URL de la ventana de pago de Wompi. */
+    /** Checkout hospedado: crea el pedido y devuelve la URL de la ventana de pago de Wompi.
+     *  Idempotency-Key obligatorio: la tienda genera un UUID por intento de compra y lo reenvía
+     *  tal cual en cualquier reintento (doble clic, timeout) — ver IdempotenciaGuard. */
     @PostMapping("/checkout")
     public CheckoutResponse checkout(
             @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @RequestBody CheckoutRequest req) {
         Long[] ids = extractIds(authHeader);
-        return checkoutService.iniciarCheckoutHospedado(ids[0], ids[1], req);
+        return checkoutService.iniciarCheckoutHospedado(ids[0], ids[1], req, idempotencyKey);
     }
 
-    /** Checkout con tarjeta tokenizada: cobra de inmediato, sin ventana de Wompi. */
+    /** Checkout con tarjeta tokenizada: cobra de inmediato, sin ventana de Wompi.
+     *  Idempotency-Key obligatorio — ver IdempotenciaGuard. */
     @PostMapping("/checkout/tarjeta")
     public PagoTarjetaResponse checkoutTarjeta(
             @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @RequestBody CheckoutTarjetaRequest req) {
         Long[] ids = extractIds(authHeader);
-        return checkoutService.pagarConTarjeta(ids[0], ids[1], req);
+        return checkoutService.pagarConTarjeta(ids[0], ids[1], req, idempotencyKey);
     }
 
     /** Estado del pedido y su último pago — para hacer polling tras el checkout. */
