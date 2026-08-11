@@ -10,31 +10,40 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.time.Duration;
-import java.time.OffsetDateTime;
 import java.util.HexFormat;
-import java.util.function.Supplier;
+import java.util.Optional;
+import java.util.function.Function;
+import java.util.regex.Pattern;
 
 /**
  * Envuelve cualquier operación transaccional (checkout, cobro, venta local, etc.) para que la
  * misma "intención" — identificada por una Idempotency-Key que el cliente genera y conserva
  * hasta recibir un resultado definitivo — produzca EXACTAMENTE un efecto de negocio sin importar
- * cuántas veces se reciba la solicitud (doble clic, reintento por timeout, reenvío de proxy).
- * Ver REAUDITORIA_FUNCIONAL_E_IDEMPOTENCIA.md sección 5.1.
+ * cuántas veces se reciba la solicitud (doble clic, reintento por timeout, reenvío de proxy,
+ * respuesta perdida, recarga de página).
+ *
+ * Ver REAUDITORIA_FUNCIONAL_E_IDEMPOTENCIA.md sección 5.1 y, sobre todo,
+ * TERCERA_AUDITORIA_FUNCIONAL_E_IDEMPOTENCIA.md — esta clase corrige específicamente:
+ *   I-03: la reclamación de una clave abandonada ya no es un UPDATE incondicional (dos
+ *         reclamantes podían "ganar" a la vez) — ahora usa reclamarAtomico(), un compare-and-set
+ *         real que solo uno puede ganar.
+ *   I-05: antes de re-ejecutar una operación reclamada, SIEMPRE se intenta reconciliar primero
+ *         (parámetro `reconciliar`) consultando el estado real ya persistido — nunca se re-ejecuta
+ *         a ciegas una operación cuyo efecto externo (ej. cobro a Wompi) es desconocido.
+ *   I-08: la clave se valida como UUID de formato estándar antes de usarla.
  *
  * Bean separado de IdempotenciaService a propósito: así las llamadas a intentarCrear/
- * buscarPorClave/completar/liberar pasan siempre por el proxy de Spring y sus @Transactional
- * (REQUIRES_NEW en particular) se respetan — auto-invocarlos desde el mismo bean no funcionaría.
+ * buscarPorClave/completar/reclamarAtomico/liberar pasan siempre por el proxy de Spring y sus
+ * @Transactional (REQUIRES_NEW en particular) se respetan — auto-invocarlos desde el mismo bean
+ * no funcionaría.
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class IdempotenciaGuard {
 
-    // Si una fila lleva más de esto en 'procesando', se asume que el proceso que la creó murió
-    // a medias (crash, timeout de red hacia Wompi, etc.) y se permite reclamarla para reintentar
-    // — evita que una clave quede bloqueada para siempre por una falla real del servidor.
-    private static final Duration TIMEOUT_PROCESANDO = Duration.ofSeconds(90);
+    private static final Pattern FORMATO_CLAVE = Pattern.compile(
+            "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
 
     private final IdempotenciaService idempotenciaService;
     private final ObjectMapper objectMapper;
@@ -43,18 +52,37 @@ public class IdempotenciaGuard {
      * @param tndId, usrId  dueño de la operación (por tenant y por usuario — la misma clave de
      *                      otro usuario no colisiona).
      * @param operacion     nombre corto y estable del tipo de operación (ej. "checkout_hospedado").
-     * @param clave         la Idempotency-Key que mandó el cliente.
-     * @param requestBody   se hashea para detectar "misma clave, cuerpo distinto" (error del
-     *                      cliente reusando una clave para una intención distinta).
+     * @param clave         la Idempotency-Key que mandó el cliente — debe ser un UUID.
+     * @param hashBasis     objeto a serializar y hashear para detectar "misma clave, cuerpo
+     *                      distinto". A propósito NO es siempre el request completo — para
+     *                      operaciones con credenciales efímeras (ej. token de tarjeta, que
+     *                      cambia en cada retokenización de la MISMA tarjeta), el llamador debe
+     *                      pasar solo los campos que identifican la intención real (ver I-06).
      * @param responseType  clase concreta de la respuesta, para reconstruirla desde JSON en un replay.
-     * @param logica        la operación real — se ejecuta como mucho UNA vez por clave.
+     * @param reconciliar   dado el registro existente (con su idm_ped_id, si ya se alcanzó a
+     *                      crear), intenta reconstruir un resultado definitivo consultando el
+     *                      estado real ya persistido (BD y, si aplica, el gateway) — SIN volver a
+     *                      ejecutar ningún efecto. Se llama siempre antes de reclamar una
+     *                      operación abandonada. Si devuelve Optional.empty() y ya hay
+     *                      idm_ped_id (efectos persistentes conocidos), NO se re-ejecuta la
+     *                      lógica — se rechaza pidiendo conciliación manual, porque re-ejecutar
+     *                      podría repetir un cobro cuyo resultado real se desconoce.
+     * @param logica        la operación real — se ejecuta como mucho UNA vez por clave. Recibe el
+     *                      id de la fila de idempotencia para que el llamador pueda registrar el
+     *                      pedido/pago apenas se creen (ver IdempotenciaService.registrarPedido),
+     *                      antes de intentar cualquier cobro.
      */
-    public <T> T ejecutar(Long tndId, Long usrId, String operacion, String clave, Object requestBody,
-                           Class<T> responseType, Supplier<T> logica) {
+    public <T> T ejecutar(Long tndId, Long usrId, String operacion, String clave, Object hashBasis,
+                           Class<T> responseType, Function<Registro, Optional<T>> reconciliar,
+                           Function<Long, T> logica) {
         if (clave == null || clave.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Falta el encabezado Idempotency-Key");
         }
-        String hash = hash(requestBody);
+        if (!FORMATO_CLAVE.matcher(clave.trim()).matches()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Idempotency-Key inválida — debe ser un UUID (ej. generado con crypto.randomUUID())");
+        }
+        String hash = hash(hashBasis);
 
         Long idmId;
         try {
@@ -62,8 +90,6 @@ public class IdempotenciaGuard {
         } catch (ClaveDuplicadaException e) {
             Registro reg = idempotenciaService.buscarPorClave(tndId, usrId, operacion, clave);
             if (reg == null) {
-                // Fila desapareció entre el INSERT fallido y esta consulta (no debería pasar) —
-                // pedir al cliente que reintente con una clave nueva en vez de dejarlo colgado.
                 throw new ResponseStatusException(HttpStatus.CONFLICT,
                         "No se pudo procesar la solicitud, intenta de nuevo.");
             }
@@ -76,19 +102,43 @@ public class IdempotenciaGuard {
                 // a ejecutar nada. Esto es lo que hace que 20 reintentos produzcan un solo efecto.
                 return fromJson(reg.respuestaJson(), responseType);
             }
-            // 'procesando'
-            if (reg.actualizadoEn().isBefore(OffsetDateTime.now().minusSeconds(TIMEOUT_PROCESANDO.toSeconds()))) {
-                idempotenciaService.reclamar(reg.idmId());
-                idmId = reg.idmId();
-            } else {
+
+            // 'procesando' — I-03: reclamación por compare-and-set real, no un UPDATE incondicional.
+            if (!reg.leaseVencido()) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT,
                         "Ya estamos procesando esta solicitud, espera un momento antes de reintentar.");
             }
+            if (!idempotenciaService.reclamarAtomico(reg.idmId())) {
+                // Otro proceso reclamó la fila una fracción de segundo antes — no soy el dueño.
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "Ya estamos procesando esta solicitud, espera un momento antes de reintentar.");
+            }
+
+            // I-05: gané la reclamación, pero antes de re-ejecutar CUALQUIER lógica, intento
+            // reconciliar consultando el estado real ya persistido.
+            Optional<T> conciliado = reconciliar.apply(reg);
+            if (conciliado.isPresent()) {
+                idempotenciaService.completar(reg.idmId(), toJson(conciliado.get()));
+                return conciliado.get();
+            }
+            if (reg.pedId() != null) {
+                // Ya hay efectos persistentes (pedido/pago creados) pero no se pudo reconstruir
+                // un resultado definitivo — NO es seguro re-ejecutar (podría repetir un cobro
+                // cuyo resultado real todavía no se conoce). Requiere conciliación manual.
+                log.error("[Idempotencia] Operación {} (clave {}) reclamada con idm_ped_id={} pero sin poder " +
+                        "reconciliar un resultado definitivo — se bloquea el reintento automático.",
+                        operacion, clave, reg.pedId());
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "No pudimos confirmar el resultado de tu intento anterior. Contáctanos con el número " +
+                        "de pedido más reciente antes de volver a intentarlo.");
+            }
+            // Sin efectos persistentes conocidos (murió antes de crear nada) — seguro re-ejecutar.
+            idmId = reg.idmId();
         }
 
         T resultado;
         try {
-            resultado = logica.get();
+            resultado = logica.apply(idmId);
         } catch (RuntimeException e) {
             // La operación real no llegó a producir un efecto de negocio persistente (contrato:
             // solo se libera desde puntos donde eso está garantizado — ver comentarios en cada
@@ -98,7 +148,7 @@ public class IdempotenciaGuard {
             throw e;
         }
 
-        idempotenciaService.completar(idmId, toJson(resultado), extraerPedId(resultado));
+        idempotenciaService.completar(idmId, toJson(resultado));
         return resultado;
     }
 
@@ -127,21 +177,5 @@ public class IdempotenciaGuard {
         } catch (Exception e) {
             throw new IllegalStateException("No se pudo reconstruir la respuesta cacheada de idempotencia", e);
         }
-    }
-
-    /** Si la respuesta trae un campo pedId/pedidoId numérico, lo guarda en idm_ped_id (solo
-     *  informativo, para poder auditar qué pedido generó cada clave). Best-effort: si el tipo de
-     *  respuesta no lo tiene, no pasa nada. */
-    private Long extraerPedId(Object resultado) {
-        try {
-            for (var c : resultado.getClass().getRecordComponents()) {
-                if (("pedId".equals(c.getName()) || "pedidoId".equals(c.getName())) && c.getType() == Long.class) {
-                    return (Long) c.getAccessor().invoke(resultado);
-                }
-            }
-        } catch (Exception ignored) {
-            // best-effort, no crítico
-        }
-        return null;
     }
 }

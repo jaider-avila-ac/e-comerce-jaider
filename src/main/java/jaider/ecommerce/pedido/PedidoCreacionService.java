@@ -21,6 +21,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Crea el pedido y sus ítems como snapshot congelado del carrito en el momento del checkout.
@@ -46,6 +47,14 @@ public class PedidoCreacionService {
     }
 
     public record PedidoCreado(Long pedId, String numero, long totalCentavos) {
+    }
+
+    /** Snapshot del pago más reciente de un pedido — usado por IdempotenciaGuard para reconciliar
+     *  una operación reclamada (ver TERCERA_AUDITORIA_FUNCIONAL_E_IDEMPOTENCIA.md I-05) sin volver
+     *  a ejecutar ningún efecto: primero se mira qué quedó persistido antes de decidir si hace
+     *  falta consultar al gateway. */
+    public record PagoInfo(Long pagoId, String estado, String referencia, String gatewayTxId,
+                            String motivoRechazo, long montoCentavos, String numeroPedido) {
     }
 
     @Transactional
@@ -132,6 +141,28 @@ public class PedidoCreacionService {
                 .setParameter("monto", montoCentavos)
                 .getSingleResult();
         return pagIdNum.longValue();
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<PagoInfo> obtenerUltimoPago(Long pedId) {
+        tenantSupport.applyTenant(em);
+        try {
+            Object[] row = (Object[]) em.createNativeQuery("""
+                    SELECT p.pag_id, p.pag_estado::text, p.pag_referencia, p.pag_gateway_tx_id,
+                           p.pag_motivo_rechazo, p.pag_monto_centavos, ped.ped_numero
+                    FROM pagos p JOIN pedidos ped ON ped.ped_id = p.pag_ped_id
+                    WHERE p.pag_ped_id = :pedId
+                    ORDER BY p.pag_id DESC LIMIT 1
+                    """)
+                    .setParameter("pedId", pedId)
+                    .getSingleResult();
+            return Optional.of(new PagoInfo(
+                    ((Number) row[0]).longValue(), (String) row[1], (String) row[2], (String) row[3],
+                    (String) row[4], ((Number) row[5]).longValue(), (String) row[6]
+            ));
+        } catch (NoResultException e) {
+            return Optional.empty();
+        }
     }
 
     @Transactional(readOnly = true)

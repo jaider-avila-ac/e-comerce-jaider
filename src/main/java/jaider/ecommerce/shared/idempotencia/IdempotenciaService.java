@@ -15,16 +15,17 @@ import java.time.OffsetDateTime;
 
 /**
  * Primitivas de BD para el patrón "adquirir clave de idempotencia" (ver REAUDITORIA_FUNCIONAL_
- * E_IDEMPOTENCIA.md, sección 5.1). El constraint único `uq_idm_operacion_clave` es la única
- * garantía real contra dos solicitudes concurrentes con la misma intención — todo lo demás
- * (estado visual, chequeo previo) puede perder la carrera.
+ * E_IDEMPOTENCIA.md sección 5.1 y TERCERA_AUDITORIA_FUNCIONAL_E_IDEMPOTENCIA.md I-02 a I-08). El
+ * constraint único `uq_idm_operacion_clave` es la única garantía real contra dos solicitudes
+ * concurrentes con la misma intención — todo lo demás (estado visual, chequeo previo) puede
+ * perder la carrera.
  *
- * Métodos separados en vez de uno solo orquestador: intentarCrear() necesita su propia
- * transacción (REQUIRES_NEW) porque un INSERT que choca contra el constraint único dentro de una
- * transacción PostgreSQL la deja abortada — cualquier sentencia posterior en esa MISMA
- * transacción (incluido un SELECT) fallaría con "current transaction is aborted". Al aislarlo en
- * su propia transacción, un fallo ahí no contamina nada más. La orquestación completa vive en
- * IdempotenciaGuard (bean distinto, evita el problema de auto-invocación de @Transactional).
+ * Métodos separados en vez de uno solo orquestador: intentarCrear() y reclamarAtomico() necesitan
+ * su propia transacción (REQUIRES_NEW) — un INSERT que choca contra el constraint único, o un
+ * UPDATE que no afecta ninguna fila, dentro de una transacción PostgreSQL más larga podría quedar
+ * enmascarado o (en el caso del INSERT) dejar la transacción abortada. Al aislarlos, un fallo ahí
+ * no contamina nada más. La orquestación completa vive en IdempotenciaGuard (bean distinto, evita
+ * el problema de auto-invocación de @Transactional).
  */
 @Service
 @RequiredArgsConstructor
@@ -35,8 +36,13 @@ public class IdempotenciaService {
     @PersistenceContext
     private EntityManager em;
 
+    private static final int LEASE_SEGUNDOS = 90;
+
     public record Registro(Long idmId, String estado, String requestHash, String respuestaJson,
-                            OffsetDateTime actualizadoEn) {
+                            Long pedId, OffsetDateTime leaseHasta) {
+        boolean leaseVencido() {
+            return leaseHasta.isBefore(OffsetDateTime.now());
+        }
     }
 
     /** @throws ClaveDuplicadaException si ya existe una fila para esta clave (constraint único) —
@@ -47,8 +53,8 @@ public class IdempotenciaService {
         try {
             Number idNum = (Number) em.createNativeQuery("""
                     INSERT INTO idempotencia_operaciones
-                        (idm_tnd_id, idm_usr_id, idm_operacion, idm_clave, idm_request_hash)
-                    VALUES (:tndId, :usrId, :operacion, :clave, :hash)
+                        (idm_tnd_id, idm_usr_id, idm_operacion, idm_clave, idm_request_hash, idm_lease_hasta)
+                    VALUES (:tndId, :usrId, :operacion, :clave, :hash, now() + (:leaseSeg * INTERVAL '1 second'))
                     RETURNING idm_id
                     """)
                     .setParameter("tndId", tndId)
@@ -56,6 +62,7 @@ public class IdempotenciaService {
                     .setParameter("operacion", operacion)
                     .setParameter("clave", clave)
                     .setParameter("hash", requestHash)
+                    .setParameter("leaseSeg", LEASE_SEGUNDOS)
                     .getSingleResult();
             return idNum.longValue();
         } catch (PersistenceException e) {
@@ -71,7 +78,7 @@ public class IdempotenciaService {
         tenantSupport.applyTenant(em);
         try {
             Object[] row = (Object[]) em.createNativeQuery("""
-                    SELECT idm_id, idm_estado, idm_request_hash, idm_respuesta_json::text, idm_actualizado_en
+                    SELECT idm_id, idm_estado, idm_request_hash, idm_respuesta_json::text, idm_ped_id, idm_lease_hasta
                     FROM idempotencia_operaciones
                     WHERE idm_tnd_id = :tndId AND idm_usr_id = :usrId
                       AND idm_operacion = :operacion AND idm_clave = :clave
@@ -86,7 +93,8 @@ public class IdempotenciaService {
                     (String) row[1],
                     (String) row[2],
                     (String) row[3],
-                    row[4] instanceof OffsetDateTime odt ? odt : OffsetDateTime.parse(row[4].toString())
+                    row[4] == null ? null : ((Number) row[4]).longValue(),
+                    row[5] instanceof OffsetDateTime odt ? odt : OffsetDateTime.parse(row[5].toString())
             );
         } catch (NoResultException e) {
             // Carrera extrema: intentarCrear() falló por duplicado pero para cuando llegamos
@@ -96,37 +104,58 @@ public class IdempotenciaService {
         }
     }
 
-    /** Marca la fila como completada y guarda la respuesta para que cualquier reintento futuro
-     *  con la misma clave la reciba tal cual, sin volver a ejecutar la operación real. */
+    /** Se llama apenas se crea el pedido/pago real, ANTES de intentar cualquier cobro — así, si
+     *  el proceso muere después de esto, una reclamación posterior sabe (por idm_ped_id) que ya
+     *  hay efectos persistentes y puede consultarlos en vez de repetir el cobro a ciegas
+     *  (ver TERCERA_AUDITORIA... I-04/I-05). */
     @Transactional
-    public void completar(Long idmId, String respuestaJson, Long pedId) {
+    public void registrarPedido(Long idmId, Long pedId) {
         tenantSupport.applyTenant(em);
-        em.createNativeQuery("""
-                UPDATE idempotencia_operaciones
-                SET idm_estado = 'completado', idm_respuesta_json = CAST(:json AS jsonb), idm_ped_id = :pedId
-                WHERE idm_id = :id
-                """)
-                .setParameter("json", respuestaJson)
+        em.createNativeQuery("UPDATE idempotencia_operaciones SET idm_ped_id = :pedId WHERE idm_id = :id")
                 .setParameter("pedId", pedId)
                 .setParameter("id", idmId)
                 .executeUpdate();
     }
 
-    /** "Reclama" una fila abandonada (quedó en 'procesando' más del timeout — el proceso que la
-     *  creó murió antes de completar) para que un reintento la use como si fuera nueva. */
+    /** Marca la fila como completada y guarda la respuesta para que cualquier reintento futuro
+     *  con la misma clave la reciba tal cual, sin volver a ejecutar la operación real. */
     @Transactional
-    public void reclamar(Long idmId) {
+    public void completar(Long idmId, String respuestaJson) {
         tenantSupport.applyTenant(em);
-        em.createNativeQuery("UPDATE idempotencia_operaciones SET idm_actualizado_en = now() WHERE idm_id = :id")
+        em.createNativeQuery("""
+                UPDATE idempotencia_operaciones
+                SET idm_estado = 'completado', idm_respuesta_json = CAST(:json AS jsonb)
+                WHERE idm_id = :id
+                """)
+                .setParameter("json", respuestaJson)
                 .setParameter("id", idmId)
                 .executeUpdate();
+    }
+
+    /** Reclamación por compare-and-set REAL (no un simple UPDATE incondicional): solo extiende el
+     *  lease si en ESE MOMENTO seguía vencido. Si dos procesos intentan reclamar la misma fila a
+     *  la vez, Postgres serializa el UPDATE (bloqueo de fila) — el segundo, al re-evaluar el WHERE
+     *  después de esperar al primero, ve el lease ya extendido por el ganador y no actualiza nada.
+     *  @return true si ESTA llamada ganó la reclamación (0 filas afectadas = perdió la carrera). */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public boolean reclamarAtomico(Long idmId) {
+        tenantSupport.applyTenant(em);
+        int actualizadas = em.createNativeQuery("""
+                UPDATE idempotencia_operaciones
+                SET idm_lease_hasta = now() + (:leaseSeg * INTERVAL '1 second')
+                WHERE idm_id = :id AND idm_estado = 'procesando' AND idm_lease_hasta < now()
+                """)
+                .setParameter("id", idmId)
+                .setParameter("leaseSeg", LEASE_SEGUNDOS)
+                .executeUpdate();
+        return actualizadas > 0;
     }
 
     /** Libera la clave (borra la fila) cuando la operación real lanzó una excepción ANTES de
      *  producir ningún efecto de negocio persistente — así el cliente puede corregir el problema
      *  y reintentar con la MISMA clave sin esperar el timeout completo. Solo debe llamarse desde
-     *  puntos donde se sabe con certeza que no quedó nada a medias (ver comentarios en cada
-     *  llamador — ej. PedidoCheckoutService, antes de cualquier cobro real a la pasarela). */
+     *  puntos donde se sabe con certeza que no quedó nada a medias, o después de haber limpiado
+     *  explícitamente lo que sí se alcanzó a crear (ver comentarios en cada llamador). */
     @Transactional
     public void liberar(Long idmId) {
         tenantSupport.applyTenant(em);
