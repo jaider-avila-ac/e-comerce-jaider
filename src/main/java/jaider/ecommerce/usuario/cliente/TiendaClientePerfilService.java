@@ -52,7 +52,8 @@ public class TiendaClientePerfilService {
                        cp.cp_apellido,
                        cp.cp_telefono,
                        COALESCE(cp.cp_tipo_documento, 'CC') AS tipo_documento,
-                       cp.cp_numero_documento
+                       cp.cp_numero_documento,
+                       COALESCE(cp.cp_acepta_promo, true) AS acepta_promo
                 FROM usuarios u
                 LEFT JOIN clientes_perfil cp ON cp.cp_usr_id = u.usr_id
                 WHERE u.usr_id = :usrId
@@ -75,6 +76,7 @@ public class TiendaClientePerfilService {
         perfil.put("telefono", value(row[4]));
         perfil.put("tipo_documento", value(row[5]).isBlank() ? "CC" : value(row[5]));
         perfil.put("numero_documento", value(row[6]));
+        perfil.put("acepta_promo", (Boolean) row[7]);
         perfil.put("direcciones", getDirecciones(usrId, tndId));
         return perfil;
     }
@@ -92,17 +94,23 @@ public class TiendaClientePerfilService {
         String tipoDocumentoFinal = numeroDocumentoFinal == null ? null
                 : (clean(req.tipoDocumento()).isBlank() ? "CC" : clean(req.tipoDocumento()));
 
+        // aceptaPromo puede venir null (formularios que no tocan esta preferencia, ej. datos
+        // personales) — COALESCE conserva el valor ya guardado en ese caso, tanto al insertar
+        // (si la fila no existe aún, cae al DEFAULT true de la columna) como al actualizar.
         em.createNativeQuery("""
             INSERT INTO clientes_perfil (
-                cp_usr_id, cp_tnd_id, cp_nombre, cp_apellido, cp_telefono, cp_tipo_documento, cp_numero_documento
+                cp_usr_id, cp_tnd_id, cp_nombre, cp_apellido, cp_telefono, cp_tipo_documento, cp_numero_documento,
+                cp_acepta_promo
             )
-            VALUES (:usrId, :tndId, :nombre, :apellido, :telefono, CAST(:tipoDocumento AS tipo_documento), :numeroDocumento)
+            VALUES (:usrId, :tndId, :nombre, :apellido, :telefono, CAST(:tipoDocumento AS tipo_documento), :numeroDocumento,
+                COALESCE(CAST(:aceptaPromo AS BOOLEAN), true))
             ON CONFLICT (cp_usr_id) DO UPDATE SET
                 cp_nombre = EXCLUDED.cp_nombre,
                 cp_apellido = EXCLUDED.cp_apellido,
                 cp_telefono = EXCLUDED.cp_telefono,
                 cp_tipo_documento = EXCLUDED.cp_tipo_documento,
-                cp_numero_documento = EXCLUDED.cp_numero_documento
+                cp_numero_documento = EXCLUDED.cp_numero_documento,
+                cp_acepta_promo = COALESCE(CAST(:aceptaPromo AS BOOLEAN), clientes_perfil.cp_acepta_promo)
             """)
             .setParameter("usrId", usrId)
             .setParameter("tndId", tndId)
@@ -111,6 +119,7 @@ public class TiendaClientePerfilService {
             .setParameter("telefono", clean(req.telefono()))
             .setParameter("tipoDocumento", tipoDocumentoFinal)
             .setParameter("numeroDocumento", numeroDocumentoFinal)
+            .setParameter("aceptaPromo", req.aceptaPromo())
             .executeUpdate();
 
         return getPerfil(usrId, tndId);

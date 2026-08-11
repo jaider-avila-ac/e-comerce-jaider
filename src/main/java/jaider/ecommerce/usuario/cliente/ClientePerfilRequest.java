@@ -5,6 +5,7 @@ public record ClientePerfilRequest(
         String apellido,
         String telefono,
         String tipoDocumento,
-        String numeroDocumento
+        String numeroDocumento,
+        Boolean aceptaPromo // null = no tocar la preferencia actual (ver updatePerfil)
 ) {
 }

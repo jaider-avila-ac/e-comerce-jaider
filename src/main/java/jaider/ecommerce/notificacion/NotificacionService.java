@@ -269,8 +269,15 @@ public class NotificacionService {
         try {
             TenantContext.set(tndId.toString());
             tenantSupport.applyTenant(em);
-            usrIds = em.createNativeQuery(
-                    "SELECT usr_id FROM usuarios WHERE usr_tnd_id = :tndId AND usr_activo = true")
+            // Solo a quienes no rechazaron promociones (F-07 de la auditoría) — antes se le
+            // avisaba una oferta a todo activo sin excepción, sin importar su preferencia.
+            // COALESCE trata "sin fila de perfil" como el DEFAULT real de la columna (true).
+            usrIds = em.createNativeQuery("""
+                    SELECT u.usr_id FROM usuarios u
+                    LEFT JOIN clientes_perfil cp ON cp.cp_usr_id = u.usr_id
+                    WHERE u.usr_tnd_id = :tndId AND u.usr_activo = true
+                      AND COALESCE(cp.cp_acepta_promo, true) = true
+                    """)
                     .setParameter("tndId", tndId)
                     .getResultList()
                     .stream().map(r -> ((Number) r).longValue()).toList();

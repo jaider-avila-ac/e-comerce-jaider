@@ -46,12 +46,24 @@ public class UsuarioAuthService {
 
     private static final SecureRandom RANDOM = new SecureRandom();
 
+    // Versión de los Términos y Condiciones / Política de privacidad vigentes al momento del
+    // registro — misma fecha que "Última actualización" en TerminosPage/PrivacidadPage del
+    // sitio-web. Cambiar este valor cuando se publique una versión nueva de esos documentos.
+    private static final String TERMINOS_VERSION = "2026-08";
+
     // ── Registro paso 1: guardar pendiente y enviar código ──────────────────
 
     @Transactional
-    public void preRegister(TiendaRegisterRequest req, Long tndId) {
+    public void preRegister(TiendaRegisterRequest req, Long tndId, String ip) {
         tenantSupport.applyTenant(em);
         String email = req.email().trim().toLowerCase();
+
+        // Aceptación de términos: obligatoria y bloqueante (F-07 de la auditoría) — el checkbox
+        // del formulario ya lo exige en el frontend, esto es la validación de servidor.
+        if (!req.aceptaTerminos()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Debes aceptar los Términos y Condiciones y la Política de privacidad");
+        }
 
         long existeUsuario = ((Number) em.createNativeQuery(
                 "SELECT COUNT(*) FROM usuarios WHERE usr_email = :email AND usr_tnd_id = :tndId")
@@ -76,10 +88,17 @@ public class UsuarioAuthService {
         String apellido = req.apellido() != null ? req.apellido().trim() : "";
         String tipoDocumento = req.tipoDocumento() != null ? req.tipoDocumento().trim().toUpperCase() : "";
         String numeroDocumento = req.numeroDocumento() != null ? req.numeroDocumento().trim() : "";
+        // El consentimiento de marketing y la IP quedan capturados aquí (paso 1, cuando el
+        // cliente realmente marcó el checkbox) y viajan en el pendiente hasta que el correo se
+        // verifique y se cree la cuenta — nunca se persiste nada en "usuarios" antes de eso.
+        // acepta_promo va como string "true"/"false" (no boolean JSON) porque parseDatos()
+        // deserializa todo el bloque como Map<String,String> — un boolean crudo revienta ese cast.
         String datosJson = ("{\"nombre\":\"%s\",\"apellido\":\"%s\",\"password_hash\":\"%s\"," +
-                "\"tipo_documento\":\"%s\",\"numero_documento\":\"%s\"}")
+                "\"tipo_documento\":\"%s\",\"numero_documento\":\"%s\",\"acepta_promo\":\"%s\"," +
+                "\"ip\":\"%s\"}")
                 .formatted(escapeJson(nombre), escapeJson(apellido), escapeJson(hash),
-                        escapeJson(tipoDocumento), escapeJson(numeroDocumento));
+                        escapeJson(tipoDocumento), escapeJson(numeroDocumento),
+                        req.aceptaPromo(), escapeJson(ip == null ? "" : ip));
 
         em.createNativeQuery(
                 "INSERT INTO registros_pendientes (rp_email, rp_codigo, rp_datos, rp_expira_en, rp_tnd_id) " +
@@ -133,11 +152,13 @@ public class UsuarioAuthService {
         String passwordHash    = datos.getOrDefault("password_hash", "");
         String tipoDocumento   = datos.getOrDefault("tipo_documento", "");
         String numeroDocumento = datos.getOrDefault("numero_documento", "");
+        boolean aceptaPromo    = "true".equals(datos.getOrDefault("acepta_promo", "true"));
+        String ip               = datos.getOrDefault("ip", "");
 
         Long usrId = numeroDocumento.isBlank()
-                ? crearUsuarioNuevo(email, passwordHash, tndId, nombre, apellido, null, null)
+                ? crearUsuarioNuevo(email, passwordHash, tndId, nombre, apellido, null, null, aceptaPromo, ip)
                 : ascenderOCrear(email, passwordHash, tndId, nombre, apellido,
-                        tipoDocumento.isBlank() ? "CC" : tipoDocumento, numeroDocumento);
+                        tipoDocumento.isBlank() ? "CC" : tipoDocumento, numeroDocumento, aceptaPromo, ip);
 
         // Eliminar pendiente
         em.createNativeQuery(
@@ -158,7 +179,7 @@ public class UsuarioAuthService {
      * un usuario nuevo normal, guardando también su documento.
      */
     private Long ascenderOCrear(String email, String passwordHash, Long tndId, String nombre, String apellido,
-                                 String tipoDocumento, String numeroDocumento) {
+                                 String tipoDocumento, String numeroDocumento, boolean aceptaPromo, String ip) {
         @SuppressWarnings("unchecked")
         List<Number> existentes = em.createNativeQuery("""
                 SELECT u.usr_id FROM usuarios u
@@ -173,26 +194,32 @@ public class UsuarioAuthService {
                 .getResultList();
 
         if (existentes.isEmpty()) {
-            return crearUsuarioNuevo(email, passwordHash, tndId, nombre, apellido, tipoDocumento, numeroDocumento);
+            return crearUsuarioNuevo(email, passwordHash, tndId, nombre, apellido, tipoDocumento, numeroDocumento,
+                    aceptaPromo, ip);
         }
 
         Long usrId = existentes.get(0).longValue();
         em.createNativeQuery("""
                 UPDATE usuarios SET usr_email = :email, usr_provider = CAST('EMAIL' AS auth_provider),
-                       usr_password_hash = :hash, usr_acepto_terminos = true
+                       usr_password_hash = :hash, usr_acepto_terminos = true,
+                       usr_terminos_version = :version, usr_terminos_aceptado_en = now(),
+                       usr_terminos_ip = :ip
                 WHERE usr_id = :usrId
                 """)
                 .setParameter("email", email)
                 .setParameter("hash", passwordHash)
+                .setParameter("version", TERMINOS_VERSION)
+                .setParameter("ip", ip == null || ip.isBlank() ? null : ip)
                 .setParameter("usrId", usrId)
                 .executeUpdate();
 
         em.createNativeQuery("""
-                UPDATE clientes_perfil SET cp_nombre = :nombre, cp_apellido = :apellido
+                UPDATE clientes_perfil SET cp_nombre = :nombre, cp_apellido = :apellido, cp_acepta_promo = :aceptaPromo
                 WHERE cp_usr_id = :usrId
                 """)
                 .setParameter("nombre", nombre.isBlank() ? null : nombre)
                 .setParameter("apellido", apellido.isBlank() ? null : apellido)
+                .setParameter("aceptaPromo", aceptaPromo)
                 .setParameter("usrId", usrId)
                 .executeUpdate();
 
@@ -201,18 +228,26 @@ public class UsuarioAuthService {
     }
 
     private Long crearUsuarioNuevo(String email, String passwordHash, Long tndId, String nombre, String apellido,
-                                    String tipoDocumento, String numeroDocumento) {
-        Long usrId = ((Number) em.createNativeQuery(
-                "INSERT INTO usuarios (usr_email, usr_provider, usr_password_hash, usr_tnd_id) " +
-                "VALUES (:email, CAST('EMAIL' AS auth_provider), :hash, :tndId) RETURNING usr_id")
+                                    String tipoDocumento, String numeroDocumento, boolean aceptaPromo, String ip) {
+        Long usrId = ((Number) em.createNativeQuery("""
+                INSERT INTO usuarios (usr_email, usr_provider, usr_password_hash, usr_tnd_id,
+                    usr_acepto_terminos, usr_terminos_version, usr_terminos_aceptado_en, usr_terminos_ip)
+                VALUES (:email, CAST('EMAIL' AS auth_provider), :hash, :tndId,
+                    true, :version, now(), :ip)
+                RETURNING usr_id
+                """)
                 .setParameter("email", email)
                 .setParameter("hash", passwordHash)
                 .setParameter("tndId", tndId)
+                .setParameter("version", TERMINOS_VERSION)
+                .setParameter("ip", ip == null || ip.isBlank() ? null : ip)
                 .getSingleResult()).longValue();
 
         em.createNativeQuery("""
-                INSERT INTO clientes_perfil (cp_usr_id, cp_tnd_id, cp_nombre, cp_apellido, cp_tipo_documento, cp_numero_documento)
-                VALUES (:usrId, :tndId, :nombre, :apellido, CAST(:tipoDocumento AS tipo_documento), :numeroDocumento)
+                INSERT INTO clientes_perfil (cp_usr_id, cp_tnd_id, cp_nombre, cp_apellido, cp_tipo_documento,
+                    cp_numero_documento, cp_acepta_promo)
+                VALUES (:usrId, :tndId, :nombre, :apellido, CAST(:tipoDocumento AS tipo_documento), :numeroDocumento,
+                    :aceptaPromo)
                 """)
                 .setParameter("usrId", usrId)
                 .setParameter("tndId", tndId)
@@ -220,6 +255,7 @@ public class UsuarioAuthService {
                 .setParameter("apellido", apellido.isBlank() ? null : apellido)
                 .setParameter("tipoDocumento", tipoDocumento)
                 .setParameter("numeroDocumento", numeroDocumento)
+                .setParameter("aceptaPromo", aceptaPromo)
                 .executeUpdate();
 
         return usrId;

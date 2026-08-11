@@ -10,5 +10,7 @@ public record TiendaRegisterRequest(
         @NotBlank String nombre,
         String apellido,
         String tipoDocumento,   // opcional — si coincide con un cliente de venta local ya
-        String numeroDocumento  // creado en esta tienda, se reutiliza esa misma cuenta
+        String numeroDocumento, // creado en esta tienda, se reutiliza esa misma cuenta
+        boolean aceptaTerminos, // obligatorio — checkbox bloqueante (F-07 de la auditoría)
+        boolean aceptaPromo     // opcional — consentimiento de marketing, separado del anterior
 ) {}

@@ -1,5 +1,6 @@
 package jaider.ecommerce.usuario.auth;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jaider.ecommerce.auth.jwt.JwtService;
 import jaider.ecommerce.shared.interceptor.TenantContext;
@@ -29,9 +30,21 @@ public class UsuarioAuthController {
     }
 
     @PostMapping("/register")
-    public ResponseEntity<Map<String, String>> register(@Valid @RequestBody TiendaRegisterRequest req) {
-        service.preRegister(req, currentTnd());
+    public ResponseEntity<Map<String, String>> register(@Valid @RequestBody TiendaRegisterRequest req,
+                                                          HttpServletRequest httpReq) {
+        service.preRegister(req, currentTnd(), clientIp(httpReq));
         return ResponseEntity.accepted().body(Map.of("message", "Código enviado al correo"));
+    }
+
+    /** IP real del cliente — detrás del proxy de Coolify, la dirección de conexión TCP siempre es
+     *  la del proxy, así que hay que leerla de X-Forwarded-For cuando está presente (puede traer
+     *  varias IPs separadas por coma si hay más de un proxy; la primera es la del cliente real). */
+    private String clientIp(HttpServletRequest req) {
+        String forwarded = req.getHeader("X-Forwarded-For");
+        if (forwarded != null && !forwarded.isBlank()) {
+            return forwarded.split(",")[0].trim();
+        }
+        return req.getRemoteAddr();
     }
 
     @PostMapping("/verify")
