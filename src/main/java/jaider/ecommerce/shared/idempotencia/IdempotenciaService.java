@@ -218,8 +218,17 @@ public class IdempotenciaService {
      *  y reintentar con la MISMA clave sin esperar el timeout completo. Solo debe llamarse desde
      *  puntos donde se sabe con certeza que no quedó nada a medias, o después de haber limpiado
      *  explícitamente lo que sí se alcanzó a crear (ver comentarios en cada llamador). Condicionado
-     *  al owner (Q-07) por la misma razón que completar(). */
-    @Transactional
+     *  al owner (Q-07) por la misma razón que completar().
+     *
+     *  REQUIRES_NEW (encontrado con una prueba real, no solo revisión de código): IdempotenciaGuard
+     *  llama a este método desde el catch de una excepción que se sigue relanzando — si el
+     *  llamador público (ej. VentaLocalService.crear, iniciarCheckoutHospedado) es @Transactional,
+     *  esa excepción marca esa transacción como rollback-only, y un DELETE con propagación
+     *  normal (que se uniría a esa misma transacción) se revertiría junto con todo lo demás al
+     *  hacer rollback — dejando la fila atascada en 'procesando' hasta que venza el lease, en vez
+     *  de liberarse al instante como se pretende. Aislado en su propia transacción, el DELETE
+     *  sobrevive sin importar qué le pase a la transacción del llamador. */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void liberar(Long idmId, String owner) {
         tenantSupport.applyTenant(em);
         em.createNativeQuery("""
