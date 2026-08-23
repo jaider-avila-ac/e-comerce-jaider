@@ -31,12 +31,17 @@ public interface ReembolsoRepository extends JpaRepository<Reembolso, Long> {
                                   @Param("errorMensaje") String errorMensaje,
                                   @Param("confirmadoEn") OffsetDateTime confirmadoEn);
 
+    /** Compare-and-set: solo cierra el reembolso si TODAVÍA no está cerrado — dos admins
+     *  confirmando el mismo reembolso manual casi a la vez no deben poder pisarse el estado final
+     *  el uno al otro (CUARTA_AUDITORIA_FUNCIONAL_E_IDEMPOTENCIA.md §4, mismo patrón que
+     *  PedidoRepository.updateEstadoSi / SolicitudDevolucionRepository.confirmarRecibida).
+     *  @return filas afectadas; 0 = alguien más ya lo cerró primero. */
     @Modifying(clearAutomatically = true)
     @Query(value = """
             UPDATE reembolsos
             SET ref_estado = CAST(:estado AS estado_reembolso), ref_error_mensaje = :nota, ref_confirmado_en = :confirmadoEn
-            WHERE ref_id = :id
+            WHERE ref_id = :id AND ref_estado NOT IN (CAST('completado' AS estado_reembolso), CAST('rechazado' AS estado_reembolso))
             """, nativeQuery = true)
-    void confirmarManual(@Param("id") Long id, @Param("estado") String estado, @Param("nota") String nota,
-                          @Param("confirmadoEn") OffsetDateTime confirmadoEn);
+    int confirmarManual(@Param("id") Long id, @Param("estado") String estado, @Param("nota") String nota,
+                         @Param("confirmadoEn") OffsetDateTime confirmadoEn);
 }

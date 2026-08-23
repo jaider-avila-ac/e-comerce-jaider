@@ -31,14 +31,18 @@ public interface SolicitudDevolucionRepository extends JpaRepository<SolicitudDe
            nativeQuery = true)
     void updateEstado(@Param("id") Long id, @Param("estado") String estado);
 
+    /** Compare-and-set: solo aprueba/rechaza si TODAVÍA está "pendiente" — dos admins revisando
+     *  la misma solicitud casi a la vez no deben poder pisarse la decisión el uno al otro (mismo
+     *  patrón que confirmarRecibida, CUARTA_AUDITORIA_FUNCIONAL_E_IDEMPOTENCIA.md §4).
+     *  @return filas afectadas; 0 = alguien más ya la aprobó/rechazó primero. */
     @Modifying(clearAutomatically = true)
     @Query(value = """
             UPDATE solicitudes_devolucion
             SET sod_estado = CAST(:estado AS estado_devolucion), sod_dvd_id = :dvdId,
                 sod_admin_nota = :adminNota, sod_revisado_en = :revisadoEn
-            WHERE sod_id = :id
+            WHERE sod_id = :id AND sod_estado = CAST('pendiente' AS estado_devolucion)
             """, nativeQuery = true)
-    void aprobarORechazar(@Param("id") Long id, @Param("estado") String estado, @Param("dvdId") Long dvdId,
+    int aprobarORechazar(@Param("id") Long id, @Param("estado") String estado, @Param("dvdId") Long dvdId,
                           @Param("adminNota") String adminNota, @Param("revisadoEn") OffsetDateTime revisadoEn);
 
     @Modifying(clearAutomatically = true)

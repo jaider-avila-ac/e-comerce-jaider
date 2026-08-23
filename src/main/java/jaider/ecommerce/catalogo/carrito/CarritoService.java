@@ -109,7 +109,36 @@ public class CarritoService {
                 .setParameter("carId", carId)
                 .executeUpdate();
         } else {
-            int updated = em.createNativeQuery("""
+            // El PUT era absoluto (así que un reintento literal converge solo) pero no revalidaba
+            // stock — se podía poner cualquier cantidad vía API directa aunque superara lo
+            // disponible (señalado en CUARTA_AUDITORIA_FUNCIONAL_E_IDEMPOTENCIA.md §4). Mismo
+            // chequeo que ya hace addItem, aplicado también aquí antes del UPDATE.
+            List<?> item = em.createNativeQuery("""
+                SELECT ci_prd_id, ci_var_id FROM carrito_items WHERE ci_id = :id AND ci_car_id = :carId
+                """)
+                .setParameter("id", itemId)
+                .setParameter("carId", carId)
+                .getResultList();
+            if (item.isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Ítem no encontrado");
+            }
+            Object[] row = (Object[]) item.get(0);
+            Long prdId = ((Number) row[0]).longValue();
+            Long varId = row[1] != null ? ((Number) row[1]).longValue() : null;
+
+            Number stockNum = varId != null
+                    ? (Number) em.createNativeQuery("SELECT var_stock FROM variantes WHERE var_id = :varId")
+                            .setParameter("varId", varId).getSingleResult()
+                    : (Number) em.createNativeQuery(
+                            "SELECT COALESCE(SUM(var_stock), 0) FROM variantes WHERE var_prd_id = :prdId AND var_activo = true")
+                            .setParameter("prdId", prdId).getSingleResult();
+            int stockDisponible = stockNum != null ? stockNum.intValue() : 0;
+            if (cantidad > stockDisponible) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "No hay suficiente stock disponible (disponible: " + stockDisponible + ")");
+            }
+
+            em.createNativeQuery("""
                 UPDATE carrito_items SET ci_cantidad = :cantidad
                 WHERE ci_id = :id AND ci_car_id = :carId
                 """)
@@ -117,9 +146,6 @@ public class CarritoService {
                 .setParameter("id", itemId)
                 .setParameter("carId", carId)
                 .executeUpdate();
-            if (updated == 0) {
-                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Ítem no encontrado");
-            }
         }
         return buildCarrito(carId, tndId);
     }

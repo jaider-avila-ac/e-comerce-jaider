@@ -201,7 +201,10 @@ public class SolicitudDevolucionService {
 
         String notaLimpia = (nota != null && !nota.isBlank()) ? nota.trim() : null;
         OffsetDateTime ahora = OffsetDateTime.now();
-        repo.aprobarORechazar(id, "aprobada", direccionId, notaLimpia, ahora);
+        if (repo.aprobarORechazar(id, "aprobada", direccionId, notaLimpia, ahora) == 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Esta solicitud ya fue revisada por otra acción — recarga la página e intenta de nuevo.");
+        }
         s.setEstado("aprobada");
         s.setDvdId(direccionId);
         s.setAdminNota(notaLimpia);
@@ -227,7 +230,10 @@ public class SolicitudDevolucionService {
         }
 
         OffsetDateTime ahora = OffsetDateTime.now();
-        repo.aprobarORechazar(id, "rechazada", null, nota.trim(), ahora);
+        if (repo.aprobarORechazar(id, "rechazada", null, nota.trim(), ahora) == 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Esta solicitud ya fue revisada por otra acción — recarga la página e intenta de nuevo.");
+        }
         s.setEstado("rechazada");
         s.setAdminNota(nota.trim());
         s.setRevisadoEn(ahora);

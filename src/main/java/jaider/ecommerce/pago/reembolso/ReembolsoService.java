@@ -109,7 +109,12 @@ public class ReembolsoService {
         }
 
         OffsetDateTime ahora = OffsetDateTime.now();
-        repo.confirmarManual(refId, nuevoEstado, nota, ahora);
+        // Compare-and-set real (además del chequeo de arriba, que solo mira la lectura inicial):
+        // si otro admin cerró este mismo reembolso entre esa lectura y este UPDATE, 0 filas.
+        if (repo.confirmarManual(refId, nuevoEstado, nota, ahora) == 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Este reembolso ya fue cerrado por otra acción — recarga la página e intenta de nuevo.");
+        }
 
         if (adminId != null) {
             Long tndId = ((Number) em.createNativeQuery("SELECT ped_tnd_id FROM pedidos WHERE ped_id = :id")
