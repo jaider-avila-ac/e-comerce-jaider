@@ -8,6 +8,7 @@ import jaider.ecommerce.shared.interceptor.TenantContext;
 import jaider.ecommerce.usuario.Usuario;
 import jaider.ecommerce.usuario.UsuarioRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -18,6 +19,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class TiendaClientePerfilService {
@@ -94,6 +96,14 @@ public class TiendaClientePerfilService {
         String tipoDocumentoFinal = numeroDocumentoFinal == null ? null
                 : (clean(req.tipoDocumento()).isBlank() ? "CC" : clean(req.tipoDocumento()));
 
+        // Si esta cédula ya es de un cliente de mostrador (venta local, sin cuenta propia — ver
+        // VentaLocalService), se absorbe ANTES del upsert: si no, el UNIQUE(tnd, tipo, numero) de
+        // clientes_perfil rechazaría este guardado (esa cédula "ya está tomada" por la fila de
+        // mostrador), dejando a un cliente real de Google/email sin poder guardar su documento.
+        if (numeroDocumentoFinal != null) {
+            fusionarClienteMostrador(usrId, tndId, tipoDocumentoFinal, numeroDocumentoFinal);
+        }
+
         // aceptaPromo puede venir null (formularios que no tocan esta preferencia, ej. datos
         // personales) — COALESCE conserva el valor ya guardado en ese caso, tanto al insertar
         // (si la fila no existe aún, cae al DEFAULT true de la columna) como al actualizar.
@@ -123,6 +133,42 @@ public class TiendaClientePerfilService {
             .executeUpdate();
 
         return getPerfil(usrId, tndId);
+    }
+
+    /** Si esta cédula ya pertenece a un cliente de mostrador (usr_provider=LOCAL, sin cuenta
+     *  propia — ver VentaLocalService.resolverCliente), sus pedidos pasan al usuario real que
+     *  se está actualizando (mismo historial de compras que si siempre hubiera comprado
+     *  logueado) y esa fila de mostrador se elimina. Mismo criterio de "ascender" que ya existe
+     *  para registro por email (ver UsuarioAuthService.ascenderOCrear) — acá hace falta aparte
+     *  porque Google no pide cédula al iniciar sesión, así que ese cruce solo puede pasar
+     *  después, cuando el cliente completa su documento en el perfil. */
+    private void fusionarClienteMostrador(Long usrId, Long tndId, String tipoDocumento, String numeroDocumento) {
+        @SuppressWarnings("unchecked")
+        List<Number> existentes = em.createNativeQuery("""
+                SELECT u.usr_id FROM usuarios u
+                JOIN clientes_perfil cp ON cp.cp_usr_id = u.usr_id
+                WHERE u.usr_tnd_id = :tndId AND u.usr_provider = CAST('LOCAL' AS auth_provider)
+                  AND cp.cp_tipo_documento = CAST(:tipoDocumento AS tipo_documento)
+                  AND cp.cp_numero_documento = :numeroDocumento
+                  AND u.usr_id <> :usrId
+                """)
+                .setParameter("tndId", tndId)
+                .setParameter("tipoDocumento", tipoDocumento)
+                .setParameter("numeroDocumento", numeroDocumento)
+                .setParameter("usrId", usrId)
+                .getResultList();
+        if (existentes.isEmpty()) return;
+
+        Long viejoUsrId = existentes.get(0).longValue();
+        em.createNativeQuery("UPDATE pedidos SET ped_usr_id = :nuevo WHERE ped_usr_id = :viejo")
+                .setParameter("nuevo", usrId).setParameter("viejo", viejoUsrId).executeUpdate();
+        em.createNativeQuery("DELETE FROM clientes_perfil WHERE cp_usr_id = :id")
+                .setParameter("id", viejoUsrId).executeUpdate();
+        em.createNativeQuery("DELETE FROM usuarios WHERE usr_id = :id")
+                .setParameter("id", viejoUsrId).executeUpdate();
+
+        log.info("[FusionClienteMostrador] usuario {} absorbió al cliente de mostrador {} (documento {} {})",
+                usrId, viejoUsrId, tipoDocumento, numeroDocumento);
     }
 
     /** Cambio de contraseña autenticado (distinto de forgot/reset-password, que son para
