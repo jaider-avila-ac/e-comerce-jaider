@@ -763,6 +763,7 @@ public class PedidoService {
                 colaboradorNombre,
                 p.getSucursalId(),
                 sucursalNombre,
+                p.getCanal(),
                 itemsList
         );
     }

@@ -36,5 +36,6 @@ public record PedidoResponse(
         String colaboradorNombre,
         Long sucursalId,          // tienda física que gestionó la venta — ver Pedido.sucursalId
         String sucursalNombre,
+        String canal,             // "online" | "local" — ver Pedido.canal
         List<PedidoItemResponse> items   // null en el listado, poblado en el detalle
 ) {}

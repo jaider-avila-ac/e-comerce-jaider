@@ -40,7 +40,7 @@ public class ReporteService {
         // alguna razón no se pudo resolver quién es, nunca se cae a "sin filtrar" (que mostraría
         // la tienda completa) — se responde vacío en vez de arriesgar una fuga de datos.
         if (!esAdmin && colaboradorId == null) {
-            return new ReporteResumenResponse(0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L);
+            return new ReporteResumenResponse(0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L);
         }
 
         Periodo periodo = periodo(mes);
@@ -55,6 +55,8 @@ public class ReporteService {
                                  THEN ped_total_centavos END), 0)                                AS total_ingresos,
               COALESCE(SUM(CASE WHEN ped_estado IN ('preparando', 'enviado', 'entregado')
                                  THEN ped_envio_centavos END), 0)                                AS ingresos_envio,
+              COALESCE(SUM(CASE WHEN ped_estado IN ('preparando', 'enviado', 'entregado')
+                                 THEN ped_descuento_centavos END), 0)                             AS total_descuentos,
               COUNT(*)                                                                          AS total_pedidos,
               COUNT(*) FILTER (WHERE ped_estado IN ('pagado', 'preparando', 'enviado')) AS en_proceso
             FROM pedidos
@@ -70,8 +72,9 @@ public class ReporteService {
         // ver Tienda.envioModo/Pedido.envioContraEntrega); el resto es venta real de producto.
         long ingresosEnvioCentavos = ((Number) row[1]).longValue();
         long ingresosProductosCentavos = totalIngresosCentavos - ingresosEnvioCentavos;
-        long totalPedidos          = ((Number) row[2]).longValue();
-        long pedidosEnProceso      = ((Number) row[3]).longValue();
+        long totalDescuentosCentavos = ((Number) row[2]).longValue();
+        long totalPedidos          = ((Number) row[3]).longValue();
+        long pedidosEnProceso      = ((Number) row[4]).longValue();
 
         Number rowClientes = (Number) em.createNativeQuery("""
             SELECT
@@ -102,6 +105,7 @@ public class ReporteService {
                 totalIngresosCentavos / 100L,
                 ingresosProductosCentavos / 100L,
                 ingresosEnvioCentavos / 100L,
+                totalDescuentosCentavos / 100L,
                 totalPedidos,
                 totalPedidos,
                 pedidosEnProceso,
@@ -240,6 +244,51 @@ public class ReporteService {
                     "total",     ((Number) r[1]).longValue() / 100L,
                     "unidades",  ((Number) r[2]).longValue(),
                     "porcentaje_grafica", ((Number) r[1]).longValue() * 100L / maxTotal
+            ));
+        }
+        return result;
+    }
+
+    // ─── Ventas por canal (online vs. mostrador) ─────────────────────────────
+
+    @Transactional(readOnly = true)
+    @SuppressWarnings("unchecked")
+    public List<Map<String, Object>> ventasPorCanal(String mes, Long colaboradorId, Long sucursalId) {
+        tenantSupport.applyTenant(em);
+        Periodo periodo = periodo(mes);
+        String where = (periodo.hasRange() ? "AND p.ped_creado_en >= :start AND p.ped_creado_en < :end " : "")
+                + " AND (CAST(:colaboradorId AS BIGINT) IS NULL OR p.ped_colaborador_id = CAST(:colaboradorId AS BIGINT)) "
+                + " AND (CAST(:sucursalId AS BIGINT) IS NULL OR p.ped_sucursal_id = CAST(:sucursalId AS BIGINT)) ";
+
+        // La subconsulta correlacionada de unidades (en vez de un JOIN directo a pedido_items)
+        // evita el "fan-out": un JOIN normal multiplicaría ped_total_centavos por cada ítem del
+        // pedido antes de sumarlo, inflando el total.
+        List<Object[]> rows = em.createNativeQuery("""
+            SELECT
+              p.ped_canal::text,
+              COUNT(*)                                AS pedidos,
+              COALESCE(SUM(p.ped_total_centavos), 0)  AS total_centavos,
+              COALESCE(SUM((SELECT SUM(pi.pi_cantidad) FROM pedido_items pi
+                             WHERE pi.pi_ped_id = p.ped_id)), 0) AS unidades
+            FROM pedidos p
+            WHERE p.ped_estado IN ('preparando', 'enviado', 'entregado')
+            """ + where + """
+            GROUP BY p.ped_canal
+            ORDER BY total_centavos DESC
+            """)
+            .unwrap(org.hibernate.query.NativeQuery.class)
+            .setProperties(periodo.params())
+            .setParameter("colaboradorId", colaboradorId)
+            .setParameter("sucursalId", sucursalId)
+            .getResultList();
+
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Object[] r : rows) {
+            result.add(Map.of(
+                    "canal",    r[0],
+                    "pedidos",  ((Number) r[1]).longValue(),
+                    "total",    ((Number) r[2]).longValue() / 100L,
+                    "unidades", ((Number) r[3]).longValue()
             ));
         }
         return result;

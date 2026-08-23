@@ -42,22 +42,34 @@ public class VentaLocalService {
 
     public record VentaLocalCreada(Long pedidoId, String numero) {}
 
+    // precio/subtotal: lo realmente cobrado (con el descuento manual ya aplicado, si lo hay) —
+    // mismo significado que antes, para no romper el frontend existente. precioCatalogo/
+    // descuentoUnitario son nuevos y aditivos, para mostrar el descuento en pantalla antes de
+    // confirmar la venta.
     public record ItemCotizado(Long prdId, Long varId, Integer cantidad, Long precio, Long subtotal,
-                               String nombre) {}
-    public record CotizacionVentaLocal(List<ItemCotizado> items, Long total) {}
+                               String nombre, Long precioCatalogo, Long descuentoUnitario) {}
+    // total: lo realmente cobrado (subtotal - descuento), igual que antes. subtotal/descuento son
+    // nuevos — desglosan qué parte de "total" es precio de catálogo y qué parte es descuento
+    // manual del vendedor.
+    public record CotizacionVentaLocal(List<ItemCotizado> items, Long total, Long subtotal, Long descuento) {}
 
-    private record ItemResuelto(Long prdId, Long varId, int cantidad, long precioCentavos, String nombre, String imagen) {}
+    private record ItemResuelto(Long prdId, Long varId, int cantidad, long precioCentavos, String nombre,
+                                 String imagen, long precioCatalogoCentavos) {
+        long descuentoUnitarioCentavos() { return precioCatalogoCentavos - precioCentavos; }
+    }
 
     @Transactional(readOnly = true)
     public CotizacionVentaLocal cotizar(List<VentaLocalRequest.ItemVentaLocal> pedidos) {
         tenantSupport.applyTenant(em);
-        if (pedidos == null || pedidos.isEmpty()) return new CotizacionVentaLocal(List.of(), 0L);
+        if (pedidos == null || pedidos.isEmpty()) return new CotizacionVentaLocal(List.of(), 0L, 0L, 0L);
         List<ItemResuelto> resueltos = resolverItems(pedidos);
         List<ItemCotizado> items = resueltos.stream().map(item -> new ItemCotizado(
                 item.prdId(), item.varId(), item.cantidad(), item.precioCentavos() / 100L,
-                item.precioCentavos() * item.cantidad() / 100L, item.nombre())).toList();
+                item.precioCentavos() * item.cantidad() / 100L, item.nombre(),
+                item.precioCatalogoCentavos() / 100L, item.descuentoUnitarioCentavos() / 100L)).toList();
         long total = items.stream().mapToLong(ItemCotizado::subtotal).sum();
-        return new CotizacionVentaLocal(items, total);
+        long subtotal = resueltos.stream().mapToLong(i -> i.precioCatalogoCentavos() * i.cantidad()).sum() / 100L;
+        return new CotizacionVentaLocal(items, total, subtotal, subtotal - total);
     }
 
     /** Envuelto en IdempotenciaGuard (ver riesgo "Crítico operativo" señalado en las auditorías de
@@ -93,21 +105,30 @@ public class VentaLocalService {
         if (total <= 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El total de la venta debe ser mayor a $0");
         }
+        long subtotalCatalogo = items.stream().mapToLong(i -> i.precioCatalogoCentavos() * i.cantidad()).sum();
+        long descuento = subtotalCatalogo - total;
         String numero = generarNumeroUnico();
 
+        // La venta local queda directamente "entregado" — el cliente se la lleva de una vez en el
+        // mostrador, no hay envío/preparación que gestionar — y con ped_colaborador_id = quien la
+        // registra: es automáticamente el responsable, no hace falta que alguien se autoasigne.
         Number pedIdNum = (Number) em.createNativeQuery("""
-                INSERT INTO pedidos (ped_tnd_id, ped_usr_id, ped_numero, ped_estado,
-                                      ped_subtotal_centavos, ped_total_centavos, ped_notas, ped_sucursal_id)
-                VALUES (:tndId, :usrId, :numero, CAST('pagado' AS estado_pedido), :subtotal, :total, :notas, :sucursalId)
+                INSERT INTO pedidos (ped_tnd_id, ped_usr_id, ped_numero, ped_estado, ped_canal,
+                                      ped_subtotal_centavos, ped_descuento_centavos, ped_total_centavos,
+                                      ped_notas, ped_sucursal_id, ped_colaborador_id)
+                VALUES (:tndId, :usrId, :numero, CAST('entregado' AS estado_pedido), CAST('local' AS canal_pedido),
+                        :subtotal, :descuento, :total, :notas, :sucursalId, :adminId)
                 RETURNING ped_id
                 """)
                 .setParameter("tndId", tndId)
                 .setParameter("usrId", usrId)
                 .setParameter("numero", numero)
-                .setParameter("subtotal", total)
+                .setParameter("subtotal", subtotalCatalogo)
+                .setParameter("descuento", descuento)
                 .setParameter("total", total)
                 .setParameter("notas", (req.notas() != null && !req.notas().isBlank()) ? req.notas().trim() : null)
                 .setParameter("sucursalId", sucursalId)
+                .setParameter("adminId", adminId)
                 .getSingleResult();
         Long pedId = pedIdNum.longValue();
 
@@ -157,14 +178,14 @@ public class VentaLocalService {
 
         em.createNativeQuery("""
                 INSERT INTO pedido_historial_estados (phe_ped_id, phe_estado, phe_admin_id)
-                VALUES (:pedId, CAST('pagado' AS estado_pedido), :adminId)
+                VALUES (:pedId, CAST('entregado' AS estado_pedido), :adminId)
                 """)
                 .setParameter("pedId", pedId)
                 .setParameter("adminId", adminId)
                 .executeUpdate();
 
         auditoriaService.registrar(tndId, adminId, "venta_local.creada", "pedido", pedId,
-                Map.of("numero", numero, "total", total / 100L, "usr_id", usrId));
+                Map.of("numero", numero, "total", total / 100L, "descuento", descuento / 100L, "usr_id", usrId));
 
         log.info("[VentaLocal] Pedido {} ({}) creado por admin {} — cliente usrId={} total={}",
                 pedId, numero, adminId, usrId, total);
@@ -308,9 +329,25 @@ public class VentaLocalService {
 
             boolean ofertaVigente = precioDescuento != null && precioDescuento > 0
                     && (ofertaHasta == null || ofertaHasta.isAfter(OffsetDateTime.now()));
-            long precioFinal = ofertaVigente ? precioDescuento : precioBase;
+            long precioCatalogo = ofertaVigente ? precioDescuento : precioBase;
 
-            resueltos.add(new ItemResuelto(item.prdId(), item.varId(), item.cantidad(), precioFinal, nombre, imagen));
+            // precioVenta (opcional): precio negociado en mostrador — nunca puede ser mayor al de
+            // catálogo (esto es un descuento, no un recargo) ni menor o igual a $0.
+            long precioFinal = precioCatalogo;
+            if (item.precioVenta() != null) {
+                long precioVentaCentavos = item.precioVenta() * 100L;
+                if (precioVentaCentavos <= 0) {
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                            "El precio de venta de \"" + nombre + "\" debe ser mayor a $0");
+                }
+                if (precioVentaCentavos > precioCatalogo) {
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                            "El precio de venta de \"" + nombre + "\" no puede ser mayor al de catálogo");
+                }
+                precioFinal = precioVentaCentavos;
+            }
+
+            resueltos.add(new ItemResuelto(item.prdId(), item.varId(), item.cantidad(), precioFinal, nombre, imagen, precioCatalogo));
         }
         return resueltos;
     }

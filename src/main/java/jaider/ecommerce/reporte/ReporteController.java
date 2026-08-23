@@ -88,6 +88,13 @@ public class ReporteController {
         return service.ventasPorCategoria(mes, colaboradorId, sucursalId);
     }
 
+    @GetMapping("/ventas-por-canal")
+    @PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN')")
+    public List<Map<String, Object>> ventasPorCanal(@RequestParam(required = false) String mes,
+            @RequestParam(required = false) Long colaboradorId, @RequestParam(required = false) Long sucursalId) {
+        return service.ventasPorCanal(mes, colaboradorId, sucursalId);
+    }
+
     private boolean esAdmin(Authentication auth) {
         if (auth == null) return false;
         return auth.getAuthorities().stream()

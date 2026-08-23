@@ -123,6 +123,12 @@ public class Pedido {
     @Column(name = "ped_sucursal_id")
     private Long sucursalId;
 
+    // "online" (checkout de la tienda) o "local" (mostrador, ver VentaLocalService) — se fija al
+    // crear el pedido y nunca cambia después. columnDefinition porque es un enum de Postgres
+    // (canal_pedido), no un tipo nativo de JPA.
+    @Column(name = "ped_canal", columnDefinition = "canal_pedido", insertable = false, updatable = false)
+    private String canal;
+
     @Column(name = "ped_creado_en", nullable = false, insertable = false, updatable = false)
     private OffsetDateTime creadoEn;
 

@@ -9,6 +9,10 @@ public record ReporteResumenResponse(
         // ese envío nunca pasa por la tienda. Mismo criterio de redacción por rol que totalIngresos.
         Long ingresosProductos,
         Long ingresosEnvio,
+        // Descuentos manuales (venta local, precio negociado en mostrador) sobre pedidos
+        // entregados/en camino — hoy solo lo genera VentaLocalService; los pedidos online no lo
+        // tocan, así que siempre da 0 para ese canal (ver ped_descuento_centavos).
+        Long totalDescuentos,
         Long totalPedidos,
         Long pedidosEsteMes,
         Long pedidosEnProceso,     // pagado + preparando + enviado

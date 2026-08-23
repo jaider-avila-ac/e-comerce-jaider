@@ -16,5 +16,9 @@ public record VentaLocalRequest(
         String metodoPago,
         String notas
 ) {
-    public record ItemVentaLocal(Long prdId, Long varId, Integer cantidad) {}
+    /** precioVenta (pesos, opcional): precio realmente cobrado por el vendedor en mostrador, si
+     *  es distinto del precio de catálogo — ej. catálogo $75.000, se lo vende en $70.000 por
+     *  regateo. null = se cobra el precio de catálogo (con oferta vigente si aplica) tal cual.
+     *  Debe ser mayor a $0 y nunca mayor al de catálogo (esto es un descuento, no un recargo). */
+    public record ItemVentaLocal(Long prdId, Long varId, Integer cantidad, Long precioVenta) {}
 }
