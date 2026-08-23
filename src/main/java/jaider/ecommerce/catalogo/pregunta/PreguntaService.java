@@ -118,6 +118,10 @@ public class PreguntaService {
         if (pregunta.isEliminada()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Esta pregunta ya fue eliminada");
         }
+        if (pregunta.getRespuestaTexto() != null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Esta pregunta ya fue respondida, no se puede editar");
+        }
         String texto = blankToNull(req.texto());
         if (texto == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Escribe tu pregunta");
