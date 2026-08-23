@@ -34,6 +34,20 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
            nativeQuery = true)
     void updateEstado(@Param("id") Long id, @Param("estado") String estado);
 
+    /** Compare-and-set real: solo cambia el estado si TODAVÍA está en el estado que el llamador
+     *  leyó antes de decidir la transición — el UPDATE nunca "gana una carrera silenciosa". Ver
+     *  PedidoService.aplicarTransicion(), que la usa en vez de updateEstado() precisamente para
+     *  esto (riesgo de doble reembolso/doble historial con dos solicitudes concurrentes sobre el
+     *  mismo pedido, señalado en las auditorías de idempotencia).
+     *  @return filas afectadas — 0 significa que otra solicitud ya cambió el estado primero. */
+    @Modifying(clearAutomatically = true)
+    @Query(value = """
+            UPDATE pedidos SET ped_estado = CAST(:estadoNuevo AS estado_pedido)
+            WHERE ped_id = :id AND ped_estado = CAST(:estadoEsperado AS estado_pedido)
+            """, nativeQuery = true)
+    int updateEstadoSi(@Param("id") Long id, @Param("estadoNuevo") String estadoNuevo,
+                        @Param("estadoEsperado") String estadoEsperado);
+
     @Modifying(clearAutomatically = true)
     @Query(value = """
             UPDATE pedidos SET ped_transportadora = :transportadora, ped_codigo_rastreo = :codigo,

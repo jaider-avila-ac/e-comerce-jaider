@@ -246,8 +246,22 @@ public class PedidoService {
 
     /** Efecto de negocio de un cambio de estado, sin auditoría ni evento — eso lo decide cada
      *  método llamador (updateEstado, corregirEstado, cancelarPorAdmin, transicionarPorDevolucion)
-     *  porque cada uno registra una acción de auditoría distinta. */
+     *  porque cada uno registra una acción de auditoría distinta.
+     *
+     *  Compare-and-set (updateEstadoSi en vez de updateEstado): el llamador siempre lee el pedido
+     *  antes de decidir la transición, pero entre esa lectura y este UPDATE puede haber pasado
+     *  otra solicitud concurrente sobre el MISMO pedido (doble clic en "cancelar", dos admins
+     *  gestionando la misma devolución a la vez). Sin esto, ambas pasarían la validación con el
+     *  estado viejo y ambas seguirían adelante — en cancelarPorAdmin() eso significa crear DOS
+     *  reembolsos por el mismo pedido. Si el UPDATE no afecta ninguna fila, alguien más ya ganó
+     *  la carrera y se rechaza con 409 en vez de continuar a ciegas. */
     private void aplicarTransicion(Pedido p, String estadoDestino, Long adminId, String notaHistorial) {
+        int actualizadas = pedidoRepo.updateEstadoSi(p.getId(), estadoDestino, p.getEstado());
+        if (actualizadas == 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Este pedido ya fue modificado por otra acción — recarga la página e intenta de nuevo.");
+        }
+
         // Si el pedido ya había descontado stock (pago confirmado) y ahora se cancela o
         // se devuelve, hay que restaurarlo — si no, esas unidades quedan perdidas del
         // inventario para siempre aunque el pedido nunca se haya entregado.
@@ -257,11 +271,10 @@ public class PedidoService {
             restaurarStock(p.getId());
         }
 
-        // pedidoRepo.updateEstado usa clearAutomatically=true: a partir de aquí "p" queda
-        // detached, así que mutarlo ya no puede disparar un flush a mitad de los UPDATE nativos
-        // (el flush de una entidad Pedido managed re-escribe ped_estado sin el CAST que necesita
-        // el enum de Postgres y revienta — ver resolverAlertaStock más abajo para el mismo caso).
-        pedidoRepo.updateEstado(p.getId(), estadoDestino);
+        // updateEstadoSi usa clearAutomatically=true: a partir de aquí "p" queda detached, así
+        // que mutarlo ya no puede disparar un flush a mitad de los UPDATE nativos (el flush de
+        // una entidad Pedido managed re-escribe ped_estado sin el CAST que necesita el enum de
+        // Postgres y revienta — ver resolverAlertaStock más abajo para el mismo caso).
         p.setEstado(estadoDestino);
         if (debeRestaurarStock) {
             p.setAlertaStock(false);
