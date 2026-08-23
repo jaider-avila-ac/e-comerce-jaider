@@ -2,6 +2,7 @@ package jaider.ecommerce.pedido;
 
 import jaider.ecommerce.auditoria.AuditoriaService;
 import jaider.ecommerce.shared.TenantSupport;
+import jaider.ecommerce.shared.idempotencia.IdempotenciaGuard;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
 import jakarta.persistence.PersistenceContext;
@@ -32,6 +33,7 @@ public class VentaLocalService {
 
     private final TenantSupport tenantSupport;
     private final AuditoriaService auditoriaService;
+    private final IdempotenciaGuard idempotenciaGuard;
 
     @PersistenceContext
     private EntityManager em;
@@ -58,8 +60,22 @@ public class VentaLocalService {
         return new CotizacionVentaLocal(items, total);
     }
 
+    /** Envuelto en IdempotenciaGuard (ver riesgo "Crítico operativo" señalado en las auditorías de
+     *  idempotencia): sin esto, un doble tap en "confirmar venta" en el mostrador — muy común
+     *  cuando la pantalla tarda un momento en responder — crea dos pedidos, aprueba dos pagos y
+     *  descuenta el stock dos veces por la misma venta real. Todo el método es @Transactional
+     *  (atómico): si el proceso muere a medias, o persiste completo o no persiste nada más que la
+     *  fila de idempotencia — por eso la reconciliación puede ser trivial (no hay cobro externo
+     *  ambiguo que conciliar, a diferencia de la tarjeta online). */
     @Transactional
-    public VentaLocalCreada crear(Long tndId, Long adminId, VentaLocalRequest req) {
+    public VentaLocalCreada crear(Long tndId, Long adminId, VentaLocalRequest req, String idempotencyKey) {
+        return idempotenciaGuard.ejecutar(tndId, adminId, "venta_local", idempotencyKey, req,
+                VentaLocalCreada.class,
+                reg -> java.util.Optional.empty(),
+                idmId -> crearReal(tndId, adminId, req));
+    }
+
+    private VentaLocalCreada crearReal(Long tndId, Long adminId, VentaLocalRequest req) {
         tenantSupport.applyTenant(em);
 
         if (req.items() == null || req.items().isEmpty()) {

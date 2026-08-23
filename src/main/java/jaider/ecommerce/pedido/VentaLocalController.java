@@ -25,17 +25,20 @@ public class VentaLocalController {
     @PersistenceContext
     private EntityManager em;
 
+    /** Idempotency-Key obligatorio — ver IdempotenciaGuard y VentaLocalService.crear(). */
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     @Transactional
     public VentaLocalService.VentaLocalCreada crear(
-            @AuthenticationPrincipal UserDetails userDetails, @RequestBody VentaLocalRequest req) {
+            @AuthenticationPrincipal UserDetails userDetails,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestBody VentaLocalRequest req) {
         tenantSupport.applyTenant(em);
         Long adminId = adminUserRepository.findByEmail(userDetails.getUsername())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Usuario no encontrado"))
                 .getId();
         Long tndId = Long.parseLong(TenantContext.get());
-        return service.crear(tndId, adminId, req);
+        return service.crear(tndId, adminId, req, idempotencyKey);
     }
 
     @PostMapping("/cotizacion")
