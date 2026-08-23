@@ -131,7 +131,17 @@ public class PagoConfirmacionService {
             return;
         }
 
-        pedidoRepo.updateEstado(pedId, "pagado");
+        // Compare-and-set (riesgo "Alta" de las auditorías de idempotencia: webhooks simultáneos):
+        // Wompi puede entregar el mismo webhook dos veces casi a la vez, o esta llamada puede
+        // coincidir con el cobro síncrono de pagarConTarjeta confirmando el mismo pago. Sin esto,
+        // dos hilos podían leer "pendiente_pago" antes de que cualquiera de los dos escribiera, y
+        // ambos seguir adelante — descontando el stock DOS veces por el mismo pedido. Si el UPDATE
+        // no afecta ninguna fila, alguien más ya ganó la carrera; se trata igual que el caso
+        // "ya estaba X" de arriba, no es un error.
+        if (pedidoRepo.updateEstadoSi(pedId, "pagado", "pendiente_pago") == 0) {
+            log.info("[Confirmación] Pedido {} — otra solicitud concurrente ya lo confirmó primero, se ignora esta", numero);
+            return;
+        }
         em.createNativeQuery("""
                 INSERT INTO pedido_historial_estados (phe_ped_id, phe_estado)
                 VALUES (:pedId, CAST('pagado' AS estado_pedido))
