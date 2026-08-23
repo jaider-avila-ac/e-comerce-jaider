@@ -16,6 +16,7 @@ public record PedidoResponse(
         Long subtotal,
         Long descuento,
         Long envio,
+        Boolean envioContraEntrega,
         Long total,
         String notas,
         OffsetDateTime creadoEn,

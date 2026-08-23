@@ -43,6 +43,15 @@ public class Tienda {
     @Column(name = "tnd_whatsapp_la_paz", length = 20)
     private String whatsappLaPaz;
 
+    // 'contra_entrega' (default — el cliente paga el envío directo al transportador al recibir,
+    // no se cobra nada de envío en el checkout online) | 'fijo' (se cobra tnd_envio_costo_centavos
+    // en el checkout, con la excepción de envío gratis por monto mínimo de abajo). El precio real
+    // del envío varía mucho y no hay integración con transportadoras que lo calcule automático,
+    // así que "contra entrega" es el modo seguro por defecto — el admin activa "fijo" cuando
+    // quiera controlar/cobrar un costo de envío específico.
+    @Column(name = "tnd_envio_modo", nullable = false, length = 20)
+    private String envioModo = "contra_entrega";
+
     @Column(name = "tnd_envio_gratis_activo", nullable = false)
     private boolean envioGratisActivo = true;
 

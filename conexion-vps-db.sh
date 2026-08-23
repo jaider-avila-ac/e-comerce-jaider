@@ -11,7 +11,11 @@
 SSH_KEY="C:/Users/jaide/Videos/hello/zampy_vps"
 VPS_HOST="2.25.178.224"
 VPS_PORT=22
-CONTAINER_IP="172.16.1.10"   # IP interna del contenedor calzacaribe-postgresql-database en la red 'coolify'
+CONTAINER_IP="172.16.1.11"   # IP interna del contenedor calzacaribe-postgresql-database en la red 'coolify'
+                              # (Nota: esta IP interna de Docker puede cambiar si Coolify recrea el
+                              # contenedor — si el túnel deja de conectar, verificar con
+                              # `docker inspect <id> --format '{{.NetworkSettings.Networks}}'` en el VPS
+                              # cuál de los contenedores postgres:18-alpine responde con calzacaribe_usr/calzacaribe_db)
 LOCAL_PORT=5433
 
 echo "Abriendo túnel localhost:$LOCAL_PORT -> $CONTAINER_IP:5432 (vía $VPS_HOST)..."

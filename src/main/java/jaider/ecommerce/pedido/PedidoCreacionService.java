@@ -67,19 +67,26 @@ public class PedidoCreacionService {
 
         long subtotal = items.stream().mapToLong(i -> i.precioCentavos() * i.cantidad()).sum();
         Object[] envioConfig = (Object[]) em.createNativeQuery("""
-                SELECT tnd_envio_gratis_activo, tnd_envio_gratis_desde_centavos, tnd_envio_costo_centavos
+                SELECT tnd_envio_modo, tnd_envio_gratis_activo, tnd_envio_gratis_desde_centavos, tnd_envio_costo_centavos
                 FROM tiendas WHERE tnd_id = :tndId
                 """).setParameter("tndId", tndId).getSingleResult();
-        boolean envioGratis = Boolean.TRUE.equals(envioConfig[0])
-                && subtotal >= ((Number) envioConfig[1]).longValue();
-        long envio = envioGratis ? 0L : ((Number) envioConfig[2]).longValue();
+        // "contra entrega" (default — ver Tienda.envioModo): el envío no se cobra en el checkout
+        // online, el cliente le paga al transportador al recibir. Se guarda el modo vigente al
+        // momento de la compra en el propio pedido (ped_envio_contra_entrega) para que quede fijo
+        // en el historial aunque el admin cambie la configuración después.
+        boolean envioContraEntrega = "contra_entrega".equals(envioConfig[0]);
+        boolean envioGratis = !envioContraEntrega && Boolean.TRUE.equals(envioConfig[1])
+                && subtotal >= ((Number) envioConfig[2]).longValue();
+        long envio = envioContraEntrega || envioGratis ? 0L : ((Number) envioConfig[3]).longValue();
         long total = subtotal + envio;
         String numero = generarNumeroUnico();
 
         Number pedIdNum = (Number) em.createNativeQuery("""
                 INSERT INTO pedidos (ped_tnd_id, ped_usr_id, ped_numero, ped_dir_snapshot,
-                                      ped_subtotal_centavos, ped_envio_centavos, ped_total_centavos, ped_notas)
-                VALUES (:tndId, :usrId, :numero, CAST(:dirSnapshot AS jsonb), :subtotal, :envio, :total, :notas)
+                                      ped_subtotal_centavos, ped_envio_centavos, ped_total_centavos, ped_notas,
+                                      ped_envio_contra_entrega)
+                VALUES (:tndId, :usrId, :numero, CAST(:dirSnapshot AS jsonb), :subtotal, :envio, :total, :notas,
+                        :envioContraEntrega)
                 RETURNING ped_id
                 """)
                 .setParameter("tndId", tndId)
@@ -90,6 +97,7 @@ public class PedidoCreacionService {
                 .setParameter("envio", envio)
                 .setParameter("total", total)
                 .setParameter("notas", (notas != null && !notas.isBlank()) ? notas.trim() : null)
+                .setParameter("envioContraEntrega", envioContraEntrega)
                 .getSingleResult();
         Long pedId = pedIdNum.longValue();
 
@@ -306,7 +314,8 @@ public class PedidoCreacionService {
                        p.ped_dir_snapshot::text, p.ped_notas, p.ped_alerta_stock, p.ped_link_seguimiento,
                        p.ped_creado_en, p.ped_confirmado_cliente_en,
                        p.ped_transportadora, p.ped_codigo_rastreo, p.ped_mostrar_seguimiento,
-                       p.ped_cancel_motivo, p.ped_cancel_motivo_otro, p.ped_cancel_nota, p.ped_cancelado_en
+                       p.ped_cancel_motivo, p.ped_cancel_motivo_otro, p.ped_cancel_nota, p.ped_cancelado_en,
+                       p.ped_envio_contra_entrega
                 FROM pedidos p
                 JOIN pagos pg ON pg.pag_ped_id = p.ped_id AND pg.pag_estado = CAST('APPROVED' AS estado_pago)
                 WHERE p.ped_usr_id = :usrId AND p.ped_tnd_id = :tndId
@@ -347,6 +356,7 @@ public class PedidoCreacionService {
             compra.put("cancel_motivo_otro", row[17]);
             compra.put("cancel_nota", row[18]);
             compra.put("cancelado_en", row[19]);
+            compra.put("envio_contra_entrega", row[20]);
             compra.put("metodo_pago", metodoPorPedido.get(pedId));
             compra.put("reembolso", reembolsoPorPedido.get(pedId));
             compra.put("items", itemsPorPedido.getOrDefault(pedId, List.of()));

@@ -46,6 +46,13 @@ public class Pedido {
     @Column(name = "ped_envio_centavos", nullable = false)
     private Long envioCentavos = 0L;
 
+    // Snapshot de Tienda.envioModo al momento de la compra — true cuando el cliente paga el
+    // envío directo al transportador al recibir (no se cobró nada de envío en el checkout). Se
+    // guarda en el propio pedido para que el historial no cambie si el admin cambia el modo
+    // de envío después.
+    @Column(name = "ped_envio_contra_entrega", nullable = false)
+    private boolean envioContraEntrega = false;
+
     @Column(name = "ped_total_centavos", nullable = false)
     private Long totalCentavos;
 

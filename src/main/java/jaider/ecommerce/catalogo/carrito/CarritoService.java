@@ -272,21 +272,27 @@ public class CarritoService {
         result.put("count", count);
         result.put("total", total);
         Object[] envioConfig = (Object[]) em.createNativeQuery("""
-                SELECT tnd_envio_gratis_activo, tnd_envio_gratis_desde_centavos, tnd_envio_costo_centavos
+                SELECT tnd_envio_modo, tnd_envio_gratis_activo, tnd_envio_gratis_desde_centavos, tnd_envio_costo_centavos
                 FROM tiendas WHERE tnd_id = :tndId
                 """)
                 .setParameter("tndId", tndId)
                 .getSingleResult();
-        boolean envioGratisActivo = Boolean.TRUE.equals(envioConfig[0]);
-        long envioGratisDesde = ((Number) envioConfig[1]).longValue() / 100L;
-        long envioCosto = ((Number) envioConfig[2]).longValue() / 100L;
-        long envio = envioGratisActivo && total >= envioGratisDesde ? 0L : envioCosto;
+        boolean envioContraEntrega = "contra_entrega".equals(envioConfig[0]);
+        // En "contra entrega" el envío no se cobra en el checkout online (el cliente le paga al
+        // transportador al recibir) — el envío gratis por monto mínimo solo tiene sentido cuando
+        // sí se cobra envío en el checkout (modo "fijo"), así que se fuerza a false para que la
+        // barra de progreso "te faltan $X para envío gratis" no se muestre en ese modo.
+        boolean envioGratisActivo = !envioContraEntrega && Boolean.TRUE.equals(envioConfig[1]);
+        long envioGratisDesde = ((Number) envioConfig[2]).longValue() / 100L;
+        long envioCosto = ((Number) envioConfig[3]).longValue() / 100L;
+        long envio = envioContraEntrega || (envioGratisActivo && total >= envioGratisDesde) ? 0L : envioCosto;
         long faltanteEnvioGratis = envioGratisActivo ? Math.max(0L, envioGratisDesde - total) : 0L;
         int progresoEnvioGratis = envioGratisActivo && envioGratisDesde > 0
                 ? (int) Math.min(100L, total * 100L / envioGratisDesde)
                 : 0;
         result.put("envio", envio);
         result.put("total_con_envio", total + envio);
+        result.put("envio_contra_entrega", envioContraEntrega);
         result.put("envio_gratis_activo", envioGratisActivo);
         result.put("envio_gratis_desde", envioGratisDesde);
         result.put("envio_gratis_alcanzado", envioGratisActivo && total >= envioGratisDesde);

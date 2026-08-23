@@ -1,6 +1,7 @@
 package jaider.ecommerce.tienda;
 
 public record TiendaConfigRequest(
+        String envioModo,       // "contra_entrega" | "fijo"
         Boolean envioGratisActivo,
         Long envioGratisDesde, // pesos COP
         Long envioCosto,       // pesos COP — costo de envío estándar cuando no aplica envío gratis

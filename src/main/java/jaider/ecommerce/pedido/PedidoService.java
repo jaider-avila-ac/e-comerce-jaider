@@ -704,6 +704,7 @@ public class PedidoService {
                 p.getSubtotalCentavos() / 100L,
                 p.getDescuentoCentavos() / 100L,
                 p.getEnvioCentavos() / 100L,
+                p.isEnvioContraEntrega(),
                 p.getTotalCentavos() / 100L,
                 p.getNotas(),
                 p.getCreadoEn(),

@@ -11,6 +11,8 @@ import org.springframework.web.server.ResponseStatusException;
 @RequiredArgsConstructor
 public class TiendaConfigService {
 
+    private static final java.util.Set<String> MODOS_ENVIO_VALIDOS = java.util.Set.of("contra_entrega", "fijo");
+
     private final TiendaRepository repo;
 
     @Transactional(readOnly = true)
@@ -22,6 +24,14 @@ public class TiendaConfigService {
     public TiendaConfigResponse updateConfig(TiendaConfigRequest req) {
         Tienda tienda = currentTienda();
 
+        if (req.envioModo() != null) {
+            String modo = req.envioModo().trim();
+            if (!MODOS_ENVIO_VALIDOS.contains(modo)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Modo de envío inválido: " + modo);
+            }
+            tienda.setEnvioModo(modo);
+        }
         if (req.envioGratisActivo() != null) {
             tienda.setEnvioGratisActivo(req.envioGratisActivo());
         }
@@ -65,6 +75,7 @@ public class TiendaConfigService {
 
     private TiendaConfigResponse toResponse(Tienda tienda) {
         return new TiendaConfigResponse(
+                tienda.getEnvioModo(),
                 tienda.isEnvioGratisActivo(),
                 tienda.getEnvioGratisDesdeCentavos() / 100L,
                 tienda.getEnvioCostoCentavos() / 100L,
