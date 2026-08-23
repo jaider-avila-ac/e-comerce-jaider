@@ -44,6 +44,8 @@ public class ReporteService {
             SELECT
               COALESCE(SUM(CASE WHEN ped_estado IN ('preparando', 'enviado', 'entregado')
                                  THEN ped_total_centavos END), 0)                                AS total_ingresos,
+              COALESCE(SUM(CASE WHEN ped_estado IN ('preparando', 'enviado', 'entregado')
+                                 THEN ped_envio_centavos END), 0)                                AS ingresos_envio,
               COUNT(*)                                                                          AS total_pedidos,
               COUNT(*) FILTER (WHERE ped_estado IN ('pagado', 'preparando', 'enviado')) AS en_proceso
             FROM pedidos
@@ -55,8 +57,12 @@ public class ReporteService {
             .getSingleResult();
 
         long totalIngresosCentavos = ((Number) row[0]).longValue();
-        long totalPedidos          = ((Number) row[1]).longValue();
-        long pedidosEnProceso      = ((Number) row[2]).longValue();
+        // "Envío" cobrado dentro de esos ingresos (siempre 0 si el pedido fue "contra entrega" —
+        // ver Tienda.envioModo/Pedido.envioContraEntrega); el resto es venta real de producto.
+        long ingresosEnvioCentavos = ((Number) row[1]).longValue();
+        long ingresosProductosCentavos = totalIngresosCentavos - ingresosEnvioCentavos;
+        long totalPedidos          = ((Number) row[2]).longValue();
+        long pedidosEnProceso      = ((Number) row[3]).longValue();
 
         Number rowClientes = (Number) em.createNativeQuery("""
             SELECT
@@ -83,11 +89,15 @@ public class ReporteService {
         // backend), no solo ocultando la tarjeta en el frontend, para que no quede expuesto
         // igual llamando al endpoint directamente.
         Long ingresos = incluirFinanciero ? totalIngresosCentavos / 100L : null;
+        Long ingresosProductos = incluirFinanciero ? ingresosProductosCentavos / 100L : null;
+        Long ingresosEnvio     = incluirFinanciero ? ingresosEnvioCentavos / 100L : null;
         Long ticket    = incluirFinanciero ? ticketPromedio : null;
 
         return new ReporteResumenResponse(
                 ingresos,
                 ingresos,
+                ingresosProductos,
+                ingresosEnvio,
                 totalPedidos,
                 totalPedidos,
                 pedidosEnProceso,
