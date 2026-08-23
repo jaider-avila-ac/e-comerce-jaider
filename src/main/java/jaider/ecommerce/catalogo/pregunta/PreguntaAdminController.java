@@ -5,6 +5,7 @@ import jaider.ecommerce.shared.TenantSupport;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,6 +39,7 @@ public class PreguntaAdminController {
 
     @PutMapping("/{id}/responder")
     @Transactional
+    @ResponseStatus(HttpStatus.NO_CONTENT)
     public void responder(@AuthenticationPrincipal UserDetails userDetails,
             @PathVariable Long id, @RequestBody ResponderPreguntaRequest req) {
         Long adminId = resolverAdminId(userDetails);
@@ -45,6 +47,7 @@ public class PreguntaAdminController {
     }
 
     @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
     public void eliminar(@PathVariable Long id) {
         preguntaService.eliminarAdmin(id);
     }

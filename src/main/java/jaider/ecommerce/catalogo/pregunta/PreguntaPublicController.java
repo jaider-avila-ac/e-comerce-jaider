@@ -38,6 +38,7 @@ public class PreguntaPublicController {
     }
 
     @PutMapping("/{pregId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
     public void editar(
             @RequestHeader(value = "Authorization", required = false) String authHeader,
             @PathVariable Long prdId, @PathVariable Long pregId,
@@ -47,6 +48,7 @@ public class PreguntaPublicController {
     }
 
     @DeleteMapping("/{pregId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
     public void eliminar(
             @RequestHeader(value = "Authorization", required = false) String authHeader,
             @PathVariable Long prdId, @PathVariable Long pregId) {
