@@ -32,8 +32,17 @@ public class ReporteService {
     // transición ahora también la puede disparar el cliente al confirmar recibido, y esa acción
     // no debe tener ningún efecto en las cuentas. Cancelado/devuelto quedan fuera del conteo.
     @Transactional(readOnly = true)
-    public ReporteResumenResponse resumen(String mes, boolean incluirFinanciero, Long colaboradorId, Long sucursalId) {
+    public ReporteResumenResponse resumen(String mes, boolean esAdmin, Long colaboradorId, Long sucursalId) {
         tenantSupport.applyTenant(em);
+
+        // Un colaborador SOLO puede ver sus propias cifras — el controller ya le pasa acá su
+        // propio id en vez del que haya pedido (ver ReporteController.resolverAdminId). Si por
+        // alguna razón no se pudo resolver quién es, nunca se cae a "sin filtrar" (que mostraría
+        // la tienda completa) — se responde vacío en vez de arriesgar una fuga de datos.
+        if (!esAdmin && colaboradorId == null) {
+            return new ReporteResumenResponse(0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L);
+        }
+
         Periodo periodo = periodo(mes);
         String pedidosWhere = (periodo.hasRange() ? " WHERE ped_creado_en >= :start AND ped_creado_en < :end " : " WHERE true ")
                 + " AND (CAST(:colaboradorId AS BIGINT) IS NULL OR ped_colaborador_id = CAST(:colaboradorId AS BIGINT)) "
@@ -85,23 +94,18 @@ public class ReporteService {
 
         long ticketPromedio = totalPedidos > 0 ? (totalIngresosCentavos / 100L) / totalPedidos : 0L;
 
-        // Colaborador/bodega no ven cifras de ingresos de la empresa — se redacta acá (en el
-        // backend), no solo ocultando la tarjeta en el frontend, para que no quede expuesto
-        // igual llamando al endpoint directamente.
-        Long ingresos = incluirFinanciero ? totalIngresosCentavos / 100L : null;
-        Long ingresosProductos = incluirFinanciero ? ingresosProductosCentavos / 100L : null;
-        Long ingresosEnvio     = incluirFinanciero ? ingresosEnvioCentavos / 100L : null;
-        Long ticket    = incluirFinanciero ? ticketPromedio : null;
-
+        // Ya no se redacta el dinero: si llegamos hasta acá, o es admin (ve lo que haya pedido
+        // filtrar, incluida la tienda completa) o es un colaborador viendo EXCLUSIVAMENTE lo
+        // suyo (colaboradorId ya viene forzado a su propio id) — en ningún caso es dinero ajeno.
         return new ReporteResumenResponse(
-                ingresos,
-                ingresos,
-                ingresosProductos,
-                ingresosEnvio,
+                totalIngresosCentavos / 100L,
+                totalIngresosCentavos / 100L,
+                ingresosProductosCentavos / 100L,
+                ingresosEnvioCentavos / 100L,
                 totalPedidos,
                 totalPedidos,
                 pedidosEnProceso,
-                ticket,
+                ticketPromedio,
                 totalClientes,
                 totalClientes,
                 totalProductos,
@@ -112,13 +116,13 @@ public class ReporteService {
     // ─── Pedidos por estado ───────────────────────────────────────────────────
 
     // El Dashboard (todo el staff) y Reportes (solo admin) comparten este endpoint — igual que en
-    // resumen(), se redacta "total" (ingresos por estado) para quien no sea admin/superadmin, en
-    // vez de bloquear todo el endpoint, porque el Dashboard necesita el conteo por estado
-    // (no financiero) para cualquier rol.
+    // resumen(), un colaborador solo ve el desglose de SUS propios pedidos (colaboradorId ya
+    // viene forzado a su propio id desde el controller cuando no es admin).
     @Transactional(readOnly = true)
     @SuppressWarnings("unchecked")
-    public List<Map<String, Object>> pedidosPorEstado(String mes, boolean incluirFinanciero, Long colaboradorId, Long sucursalId) {
+    public List<Map<String, Object>> pedidosPorEstado(String mes, boolean esAdmin, Long colaboradorId, Long sucursalId) {
         tenantSupport.applyTenant(em);
+        if (!esAdmin && colaboradorId == null) return List.of();
         Periodo periodo = periodo(mes);
         String where = (periodo.hasRange() ? "WHERE ped_creado_en >= :start AND ped_creado_en < :end " : "WHERE true ")
                 + " AND (CAST(:colaboradorId AS BIGINT) IS NULL OR ped_colaborador_id = CAST(:colaboradorId AS BIGINT)) "
@@ -143,7 +147,7 @@ public class ReporteService {
             Map<String, Object> item = new java.util.HashMap<>();
             item.put("estado", r[0]);
             item.put("cantidad", ((Number) r[1]).longValue());
-            item.put("total", incluirFinanciero ? ((Number) r[2]).longValue() / 100L : null);
+            item.put("total", ((Number) r[2]).longValue() / 100L);
             item.put("porcentaje_grafica", ((Number) r[1]).longValue() * 100L / maxCantidad);
             result.add(item);
         }

@@ -1,9 +1,15 @@
 package jaider.ecommerce.reporte;
 
+import jaider.ecommerce.auth.admin.AdminUserRepository;
+import jaider.ecommerce.shared.TenantSupport;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -18,24 +24,54 @@ import java.util.Map;
 public class ReporteController {
 
     private final ReporteService service;
+    private final AdminUserRepository adminUserRepository;
+    private final TenantSupport tenantSupport;
 
-    // El resumen lo usa tanto el Dashboard (todo el staff) como Reportes (solo admin) — en vez
-    // de bloquear todo el endpoint, el propio servicio redacta las cifras de ingresos cuando
-    // quien llama no es admin/superadmin (ver ReporteService.resumen).
+    @PersistenceContext
+    private EntityManager em;
+
+    // El resumen lo usa tanto el Dashboard (todo el staff) como Reportes (solo admin). Un
+    // colaborador nunca ve cifras de otro ni de la tienda completa — el servicio ignora
+    // cualquier colaboradorId que mande y lo fuerza al suyo propio (ver ReporteService.resumen),
+    // así que acá solo hace falta resolver quién es. Los clientes nunca se filtran por
+    // colaborador (un cliente no es "de" nadie en particular — su próximo pedido lo puede
+    // gestionar cualquiera), eso queda igual para todos los roles.
     @GetMapping("/resumen")
+    @Transactional
     public ReporteResumenResponse resumen(@RequestParam(required = false) String mes,
             @RequestParam(required = false) Long colaboradorId, @RequestParam(required = false) Long sucursalId,
             Authentication auth) {
-        return service.resumen(mes, esAdmin(auth), colaboradorId, sucursalId);
+        boolean esAdmin = esAdmin(auth);
+        return service.resumen(mes, esAdmin, esAdmin ? colaboradorId : resolverAdminId(auth), sucursalId);
     }
 
-    // Igual que resumen(): lo usa tanto el Dashboard (todo el staff) como Reportes (solo admin),
-    // así que no se bloquea el endpoint completo — el servicio redacta el campo "total" por rol.
+    // Igual que resumen(): un colaborador solo ve el desglose por estado de SUS propios pedidos.
     @GetMapping("/pedidos-por-estado")
+    @Transactional
     public List<Map<String, Object>> pedidosPorEstado(@RequestParam(required = false) String mes,
             @RequestParam(required = false) Long colaboradorId, @RequestParam(required = false) Long sucursalId,
             Authentication auth) {
-        return service.pedidosPorEstado(mes, esAdmin(auth), colaboradorId, sucursalId);
+        boolean esAdmin = esAdmin(auth);
+        return service.pedidosPorEstado(mes, esAdmin, esAdmin ? colaboradorId : resolverAdminId(auth), sucursalId);
+    }
+
+    /** Solo se llama cuando quien pide el reporte NO es admin — resuelve su propio admin_user.id
+     *  para que el servicio nunca pueda mostrarle datos de otro colaborador ni de la tienda
+     *  completa. Null si no resuelve (no debería pasar): el servicio lo trata como "sin datos"
+     *  en vez de caer, por error, en un reporte sin filtrar.
+     *  Tiene que ejecutarse DENTRO de la misma transacción que el resto (por eso @Transactional
+     *  quedó en el método del controller, no aquí) — set_config(..., true) de applyTenant es un
+     *  SET LOCAL, solo dura la transacción actual; sin una transacción común, el tenant se perdía
+     *  entre este SELECT y la consulta de resumen(), y el RLS de admin_users no encontraba a
+     *  nadie (encontrado probando en vivo: un colaborador real siempre veía el reporte en cero). */
+    private Long resolverAdminId(Authentication auth) {
+        if (auth == null || auth.getPrincipal() == null) return null;
+        Object principal = auth.getPrincipal();
+        if (!(principal instanceof UserDetails userDetails)) return null;
+        tenantSupport.applyTenant(em);
+        return adminUserRepository.findByEmail(userDetails.getUsername())
+                .map(a -> a.getId())
+                .orElse(null);
     }
 
     @GetMapping("/productos-mas-vendidos")
