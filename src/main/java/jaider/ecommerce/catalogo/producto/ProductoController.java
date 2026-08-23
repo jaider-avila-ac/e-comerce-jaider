@@ -38,6 +38,15 @@ public class ProductoController {
         return service.update(id, req);
     }
 
+    // Se consulta antes de confirmar el borrado — el admin panel muestra un aviso con estos
+    // números para que quien borra sea consciente de qué más se va (reseñas y preguntas se
+    // borran en cascada junto con el producto; los pedidos NUNCA se ven afectados, ver
+    // ProductoService.impactoEliminacion).
+    @GetMapping("/{id}/impacto-eliminacion")
+    public ImpactoEliminacionResponse impactoEliminacion(@PathVariable Long id) {
+        return service.impactoEliminacion(id);
+    }
+
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable Long id) {

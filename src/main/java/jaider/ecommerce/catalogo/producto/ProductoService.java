@@ -122,6 +122,20 @@ public class ProductoService {
         return toResponse(p);
     }
 
+    // Los pedidos NUNCA aparecen acá: pedido_items sobrevive el borrado del producto (ON DELETE
+    // SET NULL + snapshot de nombre/precio) porque es dato contable — reseñas y preguntas en
+    // cambio se borran en cascada junto con el producto (son contenido del producto, no plata),
+    // así que el admin debe saber de antemano que se van a perder antes de confirmar.
+    @Transactional(readOnly = true)
+    public ImpactoEliminacionResponse impactoEliminacion(Long id) {
+        tenantSupport.applyTenant(em);
+        long resenas = ((Number) em.createNativeQuery("SELECT COUNT(*) FROM reseñas WHERE res_prd_id = :id")
+                .setParameter("id", id).getSingleResult()).longValue();
+        long preguntas = ((Number) em.createNativeQuery("SELECT COUNT(*) FROM producto_preguntas WHERE preg_prd_id = :id")
+                .setParameter("id", id).getSingleResult()).longValue();
+        return new ImpactoEliminacionResponse(resenas, preguntas);
+    }
+
     @Transactional
     public void delete(Long id) {
         tenantSupport.applyTenant(em);

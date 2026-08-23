@@ -99,4 +99,24 @@ public class NotificacionEventListener {
         notificacionService.notificarOfertaATodos(
                 event.tndId(), event.titulo(), event.cuerpo(), event.entidadTipo(), event.entidadId());
     }
+
+    @Async
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void onPreguntaCreada(PreguntaCreadaEvent event) {
+        notificacionService.notificarAdmin(
+                event.tndId(), "pregunta_nueva",
+                "Nueva pregunta sobre " + event.prdNombre(),
+                event.clienteNombre() + " preguntó por \"" + event.prdNombre() + "\".",
+                "pregunta", event.pregId());
+    }
+
+    @Async
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void onPreguntaRespondida(PreguntaRespondidaEvent event) {
+        notificacionService.notificarCliente(
+                event.tndId(), event.usrId(), "pregunta_respondida",
+                "Respondimos tu pregunta",
+                "Ya respondimos tu pregunta sobre \"" + event.prdNombre() + "\".",
+                "producto", event.prdId());
+    }
 }
