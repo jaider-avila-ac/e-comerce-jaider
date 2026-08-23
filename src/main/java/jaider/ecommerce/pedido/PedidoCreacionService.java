@@ -143,6 +143,31 @@ public class PedidoCreacionService {
         return pagIdNum.longValue();
     }
 
+    /** Snapshot estable del carrito actual del usuario (producto/variante/cantidad/precio),
+     *  ordenado de forma determinística — para incluir en la firma de idempotencia del checkout
+     *  (ver TERCERA/CUARTA_AUDITORIA..., Q-04): el DTO del request (dirección, notas) no dice QUÉ
+     *  se está comprando, así que dos carritos distintos con la misma dirección podían tratarse
+     *  como la misma intención. Con esto, si el carrito cambia entre un intento y otro, la firma
+     *  cambia y el backend ya no confunde ambos intentos. */
+    @Transactional(readOnly = true)
+    public List<String> firmarCarrito(Long usrId) {
+        tenantSupport.applyTenant(em);
+        @SuppressWarnings("unchecked")
+        List<Object[]> rows = em.createNativeQuery("""
+                SELECT ci.ci_prd_id, ci.ci_var_id, ci.ci_cantidad, ci.ci_precio_snap_centavos
+                FROM carrito_items ci
+                JOIN carritos c ON c.car_id = ci.ci_car_id
+                WHERE c.car_usr_id = :usrId
+                """)
+                .setParameter("usrId", usrId)
+                .getResultList();
+
+        return rows.stream()
+                .map(r -> "%s:%s:%s:%s".formatted(r[0], r[1] == null ? "-" : r[1], r[2], r[3]))
+                .sorted()
+                .toList();
+    }
+
     @Transactional(readOnly = true)
     public Optional<PagoInfo> obtenerUltimoPago(Long pedId) {
         tenantSupport.applyTenant(em);

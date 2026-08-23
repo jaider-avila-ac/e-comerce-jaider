@@ -56,11 +56,21 @@ public class PedidoCheckoutService {
 
     @Transactional
     public CheckoutResponse iniciarCheckoutHospedado(Long usrId, Long tndId, CheckoutRequest req, String idempotencyKey) {
+        // Q-04 (cuarta auditoría): el DTO solo, sin el contenido real del carrito, no identifica
+        // "qué se está comprando" — dos carritos distintos con la misma dirección/notas se
+        // hubieran tratado como la misma intención. firmarCarrito() lee el carrito ACTUAL del
+        // usuario (server-side, no lo que mande el cliente) y lo mete en el hash.
+        Map<String, Object> hashBasis = new LinkedHashMap<>();
+        hashBasis.put("direccionId", req.direccionId());
+        hashBasis.put("direccionInline", req.direccionInline());
+        hashBasis.put("notas", req.notas());
+        hashBasis.put("carrito", pedidoCreacionService.firmarCarrito(usrId));
+
         // Todo el flujo hospedado es una sola transacción (@Transactional a nivel de método): o
         // persiste completo (pedido + pago + idempotencia "completado") o no persiste nada de eso
         // — por eso reconciliar() acá solo necesita reconstruir desde lo ya guardado, nunca hace
         // falta consultar a Wompi (el cobro real ocurre después, en su ventana, no acá).
-        return idempotenciaGuard.ejecutar(tndId, usrId, "checkout_hospedado", idempotencyKey, req,
+        return idempotenciaGuard.ejecutar(tndId, usrId, "checkout_hospedado", idempotencyKey, hashBasis,
                 CheckoutResponse.class,
                 this::reconciliarHospedado,
                 idmId -> {
@@ -91,6 +101,7 @@ public class PedidoCheckoutService {
         hashBasis.put("direccionId", req.direccionId());
         hashBasis.put("direccionInline", req.direccionInline());
         hashBasis.put("notas", req.notas());
+        hashBasis.put("carrito", pedidoCreacionService.firmarCarrito(usrId)); // Q-04
 
         return idempotenciaGuard.ejecutar(tndId, usrId, "checkout_tarjeta", idempotencyKey, hashBasis,
                 PagoTarjetaResponse.class,
