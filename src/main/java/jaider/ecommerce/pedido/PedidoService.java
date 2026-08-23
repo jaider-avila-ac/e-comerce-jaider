@@ -114,10 +114,13 @@ public class PedidoService {
                 .map(Pedido::getColaboradorId).filter(Objects::nonNull).collect(Collectors.toSet()));
         Map<Long, String> sucursalMap = loadSucursalInfo(pedidos.stream()
                 .map(Pedido::getSucursalId).filter(Objects::nonNull).collect(Collectors.toSet()));
+        Map<Long, String> metodoPagoMap = loadMetodoPagoInfo(pedidos.stream()
+                .map(Pedido::getId).collect(Collectors.toSet()));
 
         return pedidos.stream()
                 .map(p -> toResponse(p, clientMap.get(p.getUsrId()), null,
-                        colaboradorMap.get(p.getColaboradorId()), sucursalMap.get(p.getSucursalId())))
+                        colaboradorMap.get(p.getColaboradorId()), sucursalMap.get(p.getSucursalId()),
+                        metodoPagoMap.get(p.getId())))
                 .toList();
     }
 
@@ -651,6 +654,25 @@ public class PedidoService {
         return map;
     }
 
+    /** Último pago APPROVED de cada pedido, en batch — misma idea que loadColaboradorInfo/
+     *  loadSucursalInfo, para no lanzar una query por fila (obtenerMetodoPago) al listar. */
+    @SuppressWarnings("unchecked")
+    private Map<Long, String> loadMetodoPagoInfo(Set<Long> pedidoIds) {
+        if (pedidoIds.isEmpty()) return new HashMap<>();
+        List<Object[]> rows = em.createNativeQuery("""
+                SELECT DISTINCT ON (pag_ped_id) pag_ped_id, pag_metodo::text
+                FROM pagos
+                WHERE pag_ped_id IN :ids AND pag_estado = CAST('APPROVED' AS estado_pago)
+                ORDER BY pag_ped_id, pag_id DESC
+                """)
+                .setParameter("ids", pedidoIds).getResultList();
+        Map<Long, String> map = new HashMap<>();
+        for (Object[] row : rows) {
+            map.put(((Number) row[0]).longValue(), (String) row[1]);
+        }
+        return map;
+    }
+
     private String resolverSucursalNombre(Long sucursalId) {
         if (sucursalId == null) return null;
         return loadSucursalInfo(Set.of(sucursalId)).get(sucursalId);
@@ -685,6 +707,12 @@ public class PedidoService {
 
     private PedidoResponse toResponse(Pedido p, String[] clientInfo, List<PedidoItem> items,
                                        String colaboradorNombre, String sucursalNombre) {
+        return toResponse(p, clientInfo, items, colaboradorNombre, sucursalNombre, null);
+    }
+
+    private PedidoResponse toResponse(Pedido p, String[] clientInfo, List<PedidoItem> items,
+                                       String colaboradorNombre, String sucursalNombre,
+                                       String metodoPagoPrecargado) {
         String clienteEmail = clientInfo != null ? clientInfo[0] : "";
         String nombre   = clientInfo != null ? clientInfo[1] : null;
         String apellido = clientInfo != null ? clientInfo[2] : null;
@@ -696,10 +724,13 @@ public class PedidoService {
                 ? items.stream().map(this::toItemResponse).toList()
                 : null;
 
-        // Método de pago y reembolso solo se resuelven en el detalle (items != null), igual
-        // que la lista de ítems — evita N+1 queries al listar todos los pedidos.
+        // El reembolso solo se resuelve en el detalle (items != null) — evita N+1 al listar.
+        // El método de pago sí se necesita en la lista (columna "Método pago" en el panel), así
+        // que en getAll() se precarga en batch (loadMetodoPagoInfo) y se pasa por acá; en el
+        // detalle se resuelve individualmente vía obtenerMetodoPago, más preciso al no depender
+        // de qué haya quedado precargado.
         boolean detalle = items != null;
-        String metodoPago = detalle ? obtenerMetodoPago(p.getId()) : null;
+        String metodoPago = detalle ? obtenerMetodoPago(p.getId()) : metodoPagoPrecargado;
         ReembolsoResponse reembolso = detalle ? obtenerReembolso(p.getId()) : null;
 
         return new PedidoResponse(

@@ -37,8 +37,12 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class PagoConfirmacionService {
 
+    // Debe reflejar exactamente los valores del enum Postgres metodo_pago (incluye todos los
+    // payment_method_type que Wompi puede mandar en el webhook, más EFECTIVO para venta local
+    // y OTRO como fallback de sanitizeMetodo() para cualquier valor no reconocido).
     private static final Set<String> METODOS_VALIDOS =
-            Set.of("CARD", "NEQUI", "PSE", "BANCOLOMBIA_TRANSFER", "EFECTIVO", "OTRO");
+            Set.of("CARD", "NEQUI", "PSE", "BANCOLOMBIA_TRANSFER", "BANCOLOMBIA_QR",
+                    "BANCOLOMBIA_COLLECT", "BANCOLOMBIA_BNPL", "DAVIPLATA", "EFECTIVO", "OTRO");
 
     // Mismo set que PedidoService.ESTADOS_TERMINALES — un pago aprobado que llega tarde para un
     // pedido ya en uno de estos estados (ej. cancelado por PedidoAbandonoScheduler tras 2h) nunca
