@@ -251,7 +251,13 @@ public class SolicitudDevolucionService {
         }
 
         OffsetDateTime ahora = OffsetDateTime.now();
-        repo.confirmarRecibida(id, ahora);
+        if (repo.confirmarRecibida(id, ahora) == 0) {
+            // Compare-and-set: alguien más (otro admin, u otro clic del mismo) ya confirmó esta
+            // solicitud entre la lectura de arriba y este UPDATE — sin esto, ambas solicitudes
+            // seguirían adelante y crearían dos reembolsos para el mismo pedido.
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Esta devolución ya fue confirmada por otra acción — recarga la página e intenta de nuevo.");
+        }
         s.setEstado("recibida");
         s.setRecibidaEn(ahora);
 

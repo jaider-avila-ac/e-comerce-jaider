@@ -49,11 +49,15 @@ public interface SolicitudDevolucionRepository extends JpaRepository<SolicitudDe
             """, nativeQuery = true)
     void registrarCodigoRastreo(@Param("id") Long id, @Param("codigo") String codigo);
 
+    /** Compare-and-set: solo marca "recibida" (y dispara el reembolso) si TODAVÍA está
+     *  "en_transito" — dos admins confirmando la misma devolución casi a la vez no deben poder
+     *  crear dos reembolsos (ver PedidoService.aplicarTransicion para el mismo patrón del lado
+     *  del pedido). @return filas afectadas; 0 = alguien más ya la confirmó primero. */
     @Modifying(clearAutomatically = true)
     @Query(value = """
             UPDATE solicitudes_devolucion
             SET sod_estado = CAST('recibida' AS estado_devolucion), sod_recibida_en = :recibidaEn
-            WHERE sod_id = :id
+            WHERE sod_id = :id AND sod_estado = CAST('en_transito' AS estado_devolucion)
             """, nativeQuery = true)
-    void confirmarRecibida(@Param("id") Long id, @Param("recibidaEn") OffsetDateTime recibidaEn);
+    int confirmarRecibida(@Param("id") Long id, @Param("recibidaEn") OffsetDateTime recibidaEn);
 }
