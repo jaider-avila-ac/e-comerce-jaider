@@ -181,6 +181,14 @@ public class PedidoService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Este pedido tiene un problema de stock sin resolver — revísalo antes de prepararlo");
         }
+        // Sin esto, un pedido podía llegar a "preparando"/"enviado" sin que nadie lo hubiera
+        // tomado nunca — nadie era responsable de prepararlo físicamente. Se exige acá, en el
+        // paso de avance normal, no en corregirEstado() (esa es la vía de override explícito del
+        // admin para casos excepcionales, y no debe quedar más restringida que antes).
+        if (("preparando".equals(estado) || "enviado".equals(estado)) && p.getColaboradorId() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Asigna un responsable a este pedido antes de marcarlo como " + estado);
+        }
         if ("enviado".equals(estado)) {
             validarSeguimientoRegistrado(p);
         }
