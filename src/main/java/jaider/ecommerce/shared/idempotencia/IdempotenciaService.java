@@ -113,10 +113,19 @@ public class IdempotenciaService {
                 .getSingleResult());
     }
 
-    /** Q-08: busca CUALQUIER operación activa (procesando con lease vigente, o completada) con la
-     *  MISMA intención (mismo hash), sin importar qué clave literal usó — así dos pestañas del
-     *  mismo usuario, cada una con su propia clave pero comprando exactamente lo mismo, se
-     *  reconocen como la misma intención en vez de crear un segundo pedido/cobro en paralelo. */
+    /** Q-08: busca CUALQUIER operación activa (procesando con lease vigente, o completada
+     *  RECIENTE) con la MISMA intención (mismo hash), sin importar qué clave literal usó — así
+     *  dos pestañas del mismo usuario, cada una con su propia clave pero comprando exactamente lo
+     *  mismo, se reconocen como la misma intención en vez de crear un segundo pedido/cobro en
+     *  paralelo.
+     *
+     *  "completada" tiene una ventana de 3 minutos (igual que la Idempotency-Key del frontend en
+     *  checkoutIntent.js) — sin este límite, una fila completada quedaba activa PARA SIEMPRE, y
+     *  cualquier intento futuro con el mismo carrito/dirección (aunque el cliente mandara una
+     *  clave nueva) volvía a encontrarla por hash y a reciclar la misma referencia de Wompi ya
+     *  usada — Wompi la rechazaba con "la referencia ya ha sido usada" sin ninguna forma de que
+     *  el cliente completara la compra. Bug real encontrado comparando contra el proyecto zampy,
+     *  que nunca reutiliza una referencia. */
     @Transactional(readOnly = true)
     public Optional<Registro> buscarActivaPorHash(Long tndId, Long usrId, String operacion, String requestHash) {
         tenantSupport.applyTenant(em);
@@ -126,7 +135,8 @@ public class IdempotenciaService {
                     FROM idempotencia_operaciones
                     WHERE idm_tnd_id = :tndId AND idm_usr_id = :usrId
                       AND idm_operacion = :operacion AND idm_request_hash = :hash
-                      AND (idm_estado = 'completado' OR idm_lease_hasta >= now())
+                      AND ((idm_estado = 'completado' AND idm_actualizado_en >= now() - INTERVAL '3 minutes')
+                           OR idm_lease_hasta >= now())
                     ORDER BY idm_id DESC LIMIT 1
                     """)
                     .setParameter("tndId", tndId)
