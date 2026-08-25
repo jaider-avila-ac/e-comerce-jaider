@@ -174,10 +174,23 @@ public class AdminUserService {
         }
         Long sucursalId = validarSucursal(tiendaId, req.sucursalId());
 
+        // Opcional — blank/null significa "no la toques". El colaborador no confirma su
+        // contraseña actual acá (a diferencia del cambio de contraseña autenticado del cliente en
+        // la tienda): es el admin reseteándosela desde el panel, no la persona misma.
+        String nuevaPassword = blankToNull(req.password());
+        if (nuevaPassword != null && nuevaPassword.length() < 8) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "La contraseña debe tener al menos 8 caracteres");
+        }
+
         String nombre = req.nombre().trim();
-        em.createNativeQuery("UPDATE admin_users SET nombre = :nombre, sucursal_id = :sucursalId WHERE id = :id")
+        em.createNativeQuery("""
+                UPDATE admin_users SET nombre = :nombre, sucursal_id = :sucursalId,
+                       password = COALESCE(:password, password)
+                WHERE id = :id
+                """)
                 .setParameter("nombre", nombre)
                 .setParameter("sucursalId", sucursalId)
+                .setParameter("password", nuevaPassword == null ? null : passwordEncoder.encode(nuevaPassword))
                 .setParameter("id", id)
                 .executeUpdate();
 
@@ -210,7 +223,8 @@ public class AdminUserService {
                 .setParameter("id", id)
                 .executeUpdate();
 
-        auditoriaService.registrar(tiendaId, actor.getId(), "colaborador.editado", "admin_user", id, Map.of());
+        auditoriaService.registrar(tiendaId, actor.getId(), "colaborador.editado", "admin_user", id,
+                nuevaPassword != null ? Map.of("password_reseteada", true) : Map.of());
 
         return new AdminUserResponse(id, objetivo.getEmail(), nombre, objetivo.getRol(), objetivo.isActivo(),
                 apellido, telefono, cargo, tipoDocumento, numeroDocumento, fechaNacimiento,
