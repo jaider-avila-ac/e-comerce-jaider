@@ -182,15 +182,31 @@ public class AdminUserService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "La contraseña debe tener al menos 8 caracteres");
         }
 
+        // Opcional — blank/null significa "no lo toques". Mismo criterio de normalización y
+        // dominio fijo que en crear(): solo se edita la parte antes de "@", nunca un email libre.
+        String nuevoUsuario = blankToNull(req.usuario());
+        String nuevoEmail = null;
+        if (nuevoUsuario != null) {
+            Tienda tienda = tiendaRepository.findById(tiendaId)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Tienda no encontrada"));
+            String usuarioNormalizado = nuevoUsuario.trim().toLowerCase().replaceAll("\\s+", ".");
+            nuevoEmail = usuarioNormalizado + "@" + tienda.getDominioStaff();
+            if (!nuevoEmail.equals(objetivo.getEmail()) && adminUserRepository.findByEmail(nuevoEmail).isPresent()) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "Ya existe un usuario con ese nombre en esta tienda");
+            }
+        }
+
         String nombre = req.nombre().trim();
         em.createNativeQuery("""
                 UPDATE admin_users SET nombre = :nombre, sucursal_id = :sucursalId,
-                       password = COALESCE(:password, password)
+                       password = COALESCE(:password, password),
+                       email = COALESCE(:email, email)
                 WHERE id = :id
                 """)
                 .setParameter("nombre", nombre)
                 .setParameter("sucursalId", sucursalId)
                 .setParameter("password", nuevaPassword == null ? null : passwordEncoder.encode(nuevaPassword))
+                .setParameter("email", nuevoEmail)
                 .setParameter("id", id)
                 .executeUpdate();
 
@@ -223,10 +239,13 @@ public class AdminUserService {
                 .setParameter("id", id)
                 .executeUpdate();
 
-        auditoriaService.registrar(tiendaId, actor.getId(), "colaborador.editado", "admin_user", id,
-                nuevaPassword != null ? Map.of("password_reseteada", true) : Map.of());
+        Map<String, Object> detalleAuditoria = new java.util.LinkedHashMap<>();
+        if (nuevaPassword != null) detalleAuditoria.put("password_reseteada", true);
+        if (nuevoEmail != null) detalleAuditoria.put("email_nuevo", nuevoEmail);
+        auditoriaService.registrar(tiendaId, actor.getId(), "colaborador.editado", "admin_user", id, detalleAuditoria);
 
-        return new AdminUserResponse(id, objetivo.getEmail(), nombre, objetivo.getRol(), objetivo.isActivo(),
+        return new AdminUserResponse(id, nuevoEmail != null ? nuevoEmail : objetivo.getEmail(), nombre,
+                objetivo.getRol(), objetivo.isActivo(),
                 apellido, telefono, cargo, tipoDocumento, numeroDocumento, fechaNacimiento,
                 sucursalId, null);
     }
