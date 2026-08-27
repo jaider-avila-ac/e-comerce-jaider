@@ -40,7 +40,7 @@ public class ReporteService {
         // alguna razón no se pudo resolver quién es, nunca se cae a "sin filtrar" (que mostraría
         // la tienda completa) — se responde vacío en vez de arriesgar una fuga de datos.
         if (!esAdmin && colaboradorId == null) {
-            return new ReporteResumenResponse(0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L);
+            return new ReporteResumenResponse(0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L);
         }
 
         Periodo periodo = periodo(mes);
@@ -57,6 +57,7 @@ public class ReporteService {
                                  THEN ped_envio_centavos END), 0)                                AS ingresos_envio,
               COALESCE(SUM(CASE WHEN ped_estado IN ('preparando', 'enviado', 'entregado')
                                  THEN ped_descuento_centavos END), 0)                             AS total_descuentos,
+              COALESCE(SUM(CASE WHEN ped_estado = 'pagado' THEN ped_total_centavos END), 0)      AS ingresos_pendientes,
               COUNT(*)                                                                          AS total_pedidos,
               COUNT(*) FILTER (WHERE ped_estado IN ('pagado', 'preparando', 'enviado')) AS en_proceso
             FROM pedidos
@@ -73,8 +74,9 @@ public class ReporteService {
         long ingresosEnvioCentavos = ((Number) row[1]).longValue();
         long ingresosProductosCentavos = totalIngresosCentavos - ingresosEnvioCentavos;
         long totalDescuentosCentavos = ((Number) row[2]).longValue();
-        long totalPedidos          = ((Number) row[3]).longValue();
-        long pedidosEnProceso      = ((Number) row[4]).longValue();
+        long ingresosPendientesCentavos = ((Number) row[3]).longValue();
+        long totalPedidos          = ((Number) row[4]).longValue();
+        long pedidosEnProceso      = ((Number) row[5]).longValue();
 
         Number rowClientes = (Number) em.createNativeQuery("""
             SELECT
@@ -106,6 +108,7 @@ public class ReporteService {
                 ingresosProductosCentavos / 100L,
                 ingresosEnvioCentavos / 100L,
                 totalDescuentosCentavos / 100L,
+                ingresosPendientesCentavos / 100L,
                 totalPedidos,
                 totalPedidos,
                 pedidosEnProceso,

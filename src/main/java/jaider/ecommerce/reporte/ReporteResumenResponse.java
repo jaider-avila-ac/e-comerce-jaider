@@ -13,6 +13,10 @@ public record ReporteResumenResponse(
         // entregados/en camino — hoy solo lo genera VentaLocalService; los pedidos online no lo
         // tocan, así que siempre da 0 para ese canal (ver ped_descuento_centavos).
         Long totalDescuentos,
+        // Plata de pedidos "pagado" — ya cobrados de verdad, pero todavía no pasaron a
+        // preparando (ese es el corte que cuenta como ingreso, ver totalIngresos). Es dinero
+        // real del cliente, pero aún no se cuenta como ingreso confirmado del negocio.
+        Long ingresosPendientes,
         Long totalPedidos,
         Long pedidosEsteMes,
         Long pedidosEnProceso,     // pagado + preparando + enviado
