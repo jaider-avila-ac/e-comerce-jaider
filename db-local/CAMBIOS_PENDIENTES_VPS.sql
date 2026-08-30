@@ -115,3 +115,23 @@ ALTER DEFAULT PRIVILEGES FOR ROLE ecommerce_owner IN SCHEMA public
   GRANT SELECT, USAGE ON SEQUENCES TO calzacaribe_usr;
 ALTER DEFAULT PRIVILEGES FOR ROLE ecommerce_owner IN SCHEMA public
   GRANT SELECT ON TABLES TO ecommerce_readonly;
+
+-- ============================================================================
+-- 2026-08-30 — Regresión encontrada DESPUÉS de aplicar lo de arriba (§10.1):
+-- `tiendas` tenía RLS `ENABLE` pero CERO políticas (`pg_policies` vacío para
+-- esa tabla) — "funcionaba" solo porque calzacaribe_usr era el dueño y sin
+-- FORCE el dueño se salta RLS igual. Al reasignar el ownership a
+-- ecommerce_owner, calzacaribe_usr dejó de poder leer `tiendas` en absoluto
+-- (RLS enabled + 0 políticas = deniega todo para quien no es dueño) — daba
+-- 404 "Tienda no encontrada" en /api/v1/public/tienda/config para CUALQUIER
+-- tenant. `tiendas` es la tabla raíz para resolver qué tienda es cada
+-- solicitud (necesita poder leerse sin tener aún un tenant resuelto — ver
+-- TiendaConfigService.currentTienda(), que siempre deriva el id del contexto
+-- ya autenticado, nunca de un parámetro del cliente, así que la protección de
+-- escritura no depende de RLS acá). La solución correcta es deshabilitar RLS
+-- en esta tabla explícitamente (no dejarla en un estado a medias que solo
+-- "funcionaba" por accidente de ownership).
+-- Se auditaron TODAS las demás tablas por este mismo patrón (RLS enabled +
+-- cero políticas) y `tiendas` fue la única.
+-- ============================================================================
+ALTER TABLE tiendas DISABLE ROW LEVEL SECURITY;
