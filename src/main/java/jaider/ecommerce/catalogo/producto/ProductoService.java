@@ -5,6 +5,8 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
 import jakarta.persistence.PersistenceContext;
 import jaider.ecommerce.catalogo.CatalogCacheService;
+import jaider.ecommerce.catalogo.categoria.CategoriaRepository;
+import jaider.ecommerce.catalogo.subcategoria.SubcategoriaRepository;
 import jaider.ecommerce.infra.CloudinaryService;
 import jaider.ecommerce.notificacion.event.StockDisponibleEvent;
 import jaider.ecommerce.shared.dto.PageResponse;
@@ -37,6 +39,8 @@ public class ProductoService {
     private final ProductoRepository productoRepo;
     private final VarianteRepository varianteRepo;
     private final ProductoImagenRepository imagenRepo;
+    private final CategoriaRepository categoriaRepo;
+    private final SubcategoriaRepository subcategoriaRepo;
     private final TenantSupport tenantSupport;
     private final CatalogCacheService catalogCache;
     private final ApplicationEventPublisher eventPublisher;
@@ -293,7 +297,21 @@ public class ProductoService {
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
     private void applyRequest(Producto p, ProductoRequest req) {
-        if (req.catId() != null) p.setCatId(req.catId());
+        // La FK a categorias/subcategorias NO respeta RLS al validar la referencia (es una
+        // limitación documentada de Postgres: el chequeo de integridad referencial ignora las
+        // políticas de la tabla referenciada), así que sin esta verificación un producto de la
+        // tienda A podría terminar apuntando a una categoría/subcategoría de la tienda B con
+        // solo mandar su ID — el INSERT/UPDATE pasaría igual. findById() sí respeta RLS en un
+        // SELECT normal, por eso alcanza para confirmar que la categoría es de este tenant.
+        if (req.catId() != null) {
+            categoriaRepo.findById(req.catId())
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Categoría no encontrada"));
+            p.setCatId(req.catId());
+        }
+        if (req.subId() != null) {
+            subcategoriaRepo.findById(req.subId())
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Subcategoría no encontrada"));
+        }
         p.setSubId(req.subId());
         if (req.nombre() != null) p.setNombre(req.nombre());
         if (req.slug() != null) p.setSlug(req.slug());

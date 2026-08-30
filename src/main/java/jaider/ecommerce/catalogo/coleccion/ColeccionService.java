@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -121,11 +122,30 @@ public class ColeccionService {
         if (req.imagenUrl() != null) c.setImagenUrl(req.imagenUrl());
     }
 
+    @SuppressWarnings("unchecked")
     private void saveProductos(Long colId, List<Long> productoIds) {
         em.createNativeQuery("DELETE FROM coleccion_productos WHERE col_id = :colId")
                 .setParameter("colId", colId)
                 .executeUpdate();
         if (productoIds == null || productoIds.isEmpty()) return;
+
+        // La política RLS de coleccion_productos solo valida que la COLECCIÓN sea de este
+        // tenant (ver policy pol_coleccion_productos), no que cada producto también lo sea —
+        // y la FK prd_id->productos no respeta RLS al validar la referencia (limitación
+        // documentada de Postgres). Sin este chequeo, una tienda podría enlazar en su propia
+        // colección el ID de un producto de otra tienda. La consulta sí respeta RLS en un
+        // SELECT normal, así que alcanza para confirmar que cada producto es de este tenant.
+        List<Number> existentes = em.createNativeQuery(
+                "SELECT prd_id FROM productos WHERE prd_id = ANY(:ids)")
+                .setParameter("ids", productoIds.toArray(new Long[0]))
+                .getResultList();
+        Set<Long> idsValidos = existentes.stream().map(Number::longValue).collect(java.util.stream.Collectors.toSet());
+        for (Long prdId : productoIds) {
+            if (!idsValidos.contains(prdId)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Producto no encontrado: " + prdId);
+            }
+        }
+
         short ord = 0;
         for (Long prdId : productoIds) {
             em.createNativeQuery(
