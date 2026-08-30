@@ -5,4 +5,6 @@ import java.util.Optional;
 
 public interface TiendaRepository extends JpaRepository<Tienda, Long> {
     Optional<Tienda> findBySlug(String slug);
+    boolean existsBySecretAlias(String secretAlias);
+    boolean existsByNit(String nit);
 }

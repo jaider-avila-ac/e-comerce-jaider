@@ -5,6 +5,7 @@ import jaider.ecommerce.pago.service.PagoConfirmacionService;
 import jaider.ecommerce.pago.service.PaymentGateway;
 import jaider.ecommerce.pago.wompi.WompiGatewayFactory;
 import jaider.ecommerce.pedido.PedidoRepository;
+import jaider.ecommerce.shared.TenantMetrics;
 import jaider.ecommerce.shared.TenantSupport;
 import jaider.ecommerce.shared.interceptor.TenantContext;
 import jakarta.persistence.EntityManager;
@@ -47,6 +48,7 @@ public class PagoWebhookService {
     private final PedidoRepository pedidoRepo;
     private final TenantSupport tenantSupport;
     private final PagoConfirmacionService confirmacionService;
+    private final TenantMetrics metrics;
 
     @PersistenceContext
     private EntityManager em;
@@ -68,11 +70,13 @@ public class PagoWebhookService {
             // de firma, es de aprovisionamiento. Tampoco se procesa, pero es un 400 distinto al
             // de firma inválida para que quede claro en los logs cuál de los dos pasó.
             log.error("Webhook: no se pudieron resolver credenciales de Wompi para tenant {}: {}", tndId, e.getMessage());
+            metrics.webhookRechazado(tndId, "sin_credenciales");
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Tienda no configurada para pagos");
         }
 
         if (!gateway.verificarWebhook(evento)) {
             log.warn("Webhook Wompi rechazado: firma inválida (tenant={})", tndId);
+            metrics.webhookRechazado(tndId, "firma_invalida");
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Firma inválida");
         }
 

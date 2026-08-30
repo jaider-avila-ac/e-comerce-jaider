@@ -1,5 +1,6 @@
 package jaider.ecommerce.infra;
 
+import jaider.ecommerce.shared.TenantMetrics;
 import jaider.ecommerce.tienda.TenantBrandingContext;
 import jaider.ecommerce.tienda.TenantBrandingResolver;
 import jaider.ecommerce.tienda.integracion.ResendCredentials;
@@ -20,6 +21,7 @@ public class ResendEmailService {
 
     private final TenantIntegrationResolver integrationResolver;
     private final TenantBrandingResolver brandingResolver;
+    private final TenantMetrics metrics;
 
     // Override de desarrollo: redirige TODO correo transaccional (verificación, reset, etc.) a
     // esta dirección sin importar el tenant — no es un secreto de integración de ninguna tienda,
@@ -215,6 +217,7 @@ public class ResendEmailService {
             log.info("[EMAIL] tenant={} enviado a={} asunto={}", tndId, to, subject);
         } catch (Exception e) {
             log.error("[EMAIL] tenant={} error enviando a={}: {}", tndId, to, e.getMessage());
+            metrics.emailFallido(tndId);
         }
     }
 }

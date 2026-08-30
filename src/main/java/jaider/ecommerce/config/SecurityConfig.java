@@ -86,6 +86,13 @@ public class SecurityConfig {
                     "/api/v1/health/**",
                     "/api/v1/auth/admin/login",
                     "/api/v1/public/**",
+                    // Operación GLOBAL explícitamente separada del resto (§3.3 del plan
+                    // multi-tenant: "las operaciones globales deben estar separadas y marcadas
+                    // explícitamente como tales") — no pertenece a ningún tenant existente, así
+                    // que no puede protegerse con el JWT normal de un admin de tienda. Su propia
+                    // autorización (una llave compartida) vive en TenantProvisioningController,
+                    // no acá.
+                    "/api/v1/aprovisionamiento/**",
                     "/ws/**",
                     "/error"
                 ).permitAll()
