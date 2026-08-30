@@ -2,7 +2,7 @@ package jaider.ecommerce.pago.reembolso;
 
 import jaider.ecommerce.auditoria.AuditoriaService;
 import jaider.ecommerce.pago.dto.ResultadoReembolso;
-import jaider.ecommerce.pago.service.PaymentGateway;
+import jaider.ecommerce.pago.wompi.WompiGatewayFactory;
 import jaider.ecommerce.shared.TenantSupport;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
@@ -32,7 +32,7 @@ public class ReembolsoService {
     private static final Set<String> ESTADOS_MANUALES_VALIDOS = Set.of("completado", "rechazado", "error");
 
     private final ReembolsoRepository repo;
-    private final PaymentGateway paymentGateway;
+    private final WompiGatewayFactory gatewayFactory;
     private final TenantSupport tenantSupport;
     private final AuditoriaService auditoriaService;
 
@@ -86,7 +86,8 @@ public class ReembolsoService {
             return;
         }
 
-        ResultadoReembolso resultado = paymentGateway.reembolsar(gatewayTxId, r.getMontoCentavos());
+        Long tndId = tndIdDePedido(r.getPedId());
+        ResultadoReembolso resultado = gatewayFactory.forTenant(tndId).reembolsar(gatewayTxId, r.getMontoCentavos());
         if (resultado.exitoso()) {
             repo.actualizarProcesamiento(refId, "completado", resultado.gatewayRefundId(),
                     resultado.respuestaJson(), null, OffsetDateTime.now());
@@ -117,10 +118,13 @@ public class ReembolsoService {
         }
 
         if (adminId != null) {
-            Long tndId = ((Number) em.createNativeQuery("SELECT ped_tnd_id FROM pedidos WHERE ped_id = :id")
-                    .setParameter("id", r.getPedId()).getSingleResult()).longValue();
-            auditoriaService.registrar(tndId, adminId, "reembolso.confirmado_manual", "reembolso", refId,
-                    Map.of("estado", nuevoEstado, "nota", nota == null ? "" : nota));
+            auditoriaService.registrar(tndIdDePedido(r.getPedId()), adminId, "reembolso.confirmado_manual",
+                    "reembolso", refId, Map.of("estado", nuevoEstado, "nota", nota == null ? "" : nota));
         }
+    }
+
+    private Long tndIdDePedido(Long pedId) {
+        return ((Number) em.createNativeQuery("SELECT ped_tnd_id FROM pedidos WHERE ped_id = :id")
+                .setParameter("id", pedId).getSingleResult()).longValue();
     }
 }

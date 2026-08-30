@@ -7,9 +7,8 @@ import jaider.ecommerce.pago.dto.ResultadoReembolso;
 import jaider.ecommerce.pago.dto.WebhookTransactionEvent;
 import jaider.ecommerce.pago.dto.WompiAcceptanceTokensDto;
 import jaider.ecommerce.pago.service.PaymentGateway;
+import jaider.ecommerce.tienda.integracion.WompiCredentials;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Service;
 
 import java.net.URI;
 import java.net.URLEncoder;
@@ -25,47 +24,52 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Integración con Wompi (pasarela de pagos Colombia).
+ * Integración con Wompi (pasarela de pagos Colombia) para UNA tienda — no es un bean de Spring:
+ * lo construye {@link WompiGatewayFactory#forTenant(Long)} con las credenciales ya resueltas de
+ * esa tienda, así que nunca hay un singleton compartido mutando llaves entre tenants (ver
+ * PLAN_MEJORAS_API_ECOMMERCE_MULTITENANT.md §6.3/§9.1). Instanciarlo es barato (solo guarda las
+ * 4 llaves), así que no hace falta cachearlo.
  *
  * Para PRUEBAS sin gastar dinero:
  *   1. Ingresa a https://dashboard.wompi.co → cambiar a modo Sandbox
  *   2. Copia las llaves pub_test_... y prv_test_... (son distintas a las de producción)
- *   3. En .env coloca WOMPI_PUBLIC_KEY=pub_test_... y WOMPI_INTEGRITY_KEY=<integrity_key_sandbox>
+ *   3. En .env coloca WOMPI_<alias>_PUBLIC_KEY=pub_test_... y WOMPI_<alias>_INTEGRITY_KEY=<integrity_key_sandbox>
  *   4. Tarjeta de prueba: 4242 4242 4242 4242, vencimiento cualquier fecha futura, CVV 123
  *
  * La llave de integridad NO es la llave privada; se encuentra en el panel de Wompi
  * en Configuración → Llaves de integridad (es un valor distinto para producción y sandbox).
  */
 @Slf4j
-@Service
 public class WompiService implements PaymentGateway {
 
     private static final String CHECKOUT_URL = "https://checkout.wompi.co/p/";
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    @Value("${wompi.public-key}")
-    private String publicKey;
+    private final String publicKey;
+    private final String privateKey;
+    private final String integrityKey;
+    private final String eventsKey;
+    private final HttpClient httpClient;
 
-    @Value("${wompi.private-key:}")
-    private String privateKey;
-
-    @Value("${wompi.integrity-key}")
-    private String integrityKey;
-
-    @Value("${wompi.events-key}")
-    private String eventsKey;
-
-    private final HttpClient httpClient = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(10))
-            .followRedirects(HttpClient.Redirect.NORMAL)
-            .build();
+    public WompiService(WompiCredentials credentials, HttpClient httpClient) {
+        this.publicKey = credentials.publicKey();
+        this.privateKey = credentials.privateKey();
+        this.integrityKey = credentials.integrityKey();
+        this.eventsKey = credentials.eventsKey();
+        this.httpClient = httpClient;
+    }
 
     // ── Referencia única ──────────────────────────────────────────────────
 
+    // Prefijo neutral (§7.2 del plan) — nunca la marca de una tienda en particular. El tenant
+    // va embebido como segundo campo a propósito: PagoWebhookService lo necesita para resolver
+    // QUÉ credenciales usar para verificar la firma del webhook, ANTES de haberla verificado
+    // (ver extraerTndId allá) — es la única forma de saber a quién pertenece un webhook que
+    // todavía no se sabe si es legítimo.
     @Override
     public String generarReferencia(Long tndId, Long pedId) {
         String uid = UUID.randomUUID().toString().replace("-", "").substring(0, 10).toUpperCase();
-        return "CZC-" + tndId + "-" + pedId + "-" + uid;
+        return "ECM-" + tndId + "-" + pedId + "-" + uid;
     }
 
     // ── Checkout URL (Wompi hosted checkout) ─────────────────────────────

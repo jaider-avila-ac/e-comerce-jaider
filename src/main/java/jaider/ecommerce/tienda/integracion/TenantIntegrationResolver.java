@@ -7,8 +7,8 @@ import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 
 /**
- * Resuelve las credenciales de las integraciones externas (Cloudinary, y más adelante Resend
- * y Wompi/OnePay) de UNA tienda a partir de su {@code tnd_id} — ver
+ * Resuelve las credenciales de las integraciones externas (Cloudinary, Resend, Wompi) de UNA
+ * tienda a partir de su {@code tnd_id} — ver
  * PLAN_MEJORAS_API_ECOMMERCE_MULTITENANT.md §6.3.
  *
  * Las llaves nunca están en código ni en la base de datos: cada tienda tiene un
@@ -44,6 +44,22 @@ public class TenantIntegrationResolver {
                 requireEnv(alias, "RESEND", "FROM"));
     }
 
+    /**
+     * La llave privada es la única opcional de las 4 (igual que antes de esta refactorización):
+     * una tienda puede tener el checkout hospedado de Wompi funcionando (public+integrity key)
+     * sin haber activado cobro directo con tarjeta tokenizada ni reembolsos automáticos — esos
+     * flujos ya validaban en tiempo de uso que la llave privada estuviera presente y fallaban con
+     * un mensaje claro si no, en vez de exigirla desde el arranque.
+     */
+    public WompiCredentials paymentCredentials(Long tndId) {
+        String alias = resolveAlias(tndId);
+        return new WompiCredentials(
+                requireEnv(alias, "WOMPI", "PUBLIC_KEY"),
+                optionalEnv(alias, "WOMPI", "PRIVATE_KEY"),
+                requireEnv(alias, "WOMPI", "INTEGRITY_KEY"),
+                requireEnv(alias, "WOMPI", "EVENTS_KEY"));
+    }
+
     private String resolveAlias(Long tndId) {
         return tiendaRepo.findById(tndId)
                 .map(Tienda::getSecretAlias)
@@ -60,5 +76,12 @@ public class TenantIntegrationResolver {
                             + " no está configurado para esta tienda");
         }
         return value;
+    }
+
+    /** Como requireEnv, pero devuelve "" en vez de fallar si la variable no está — para campos
+     *  que un flujo puede necesitar validar por su cuenta en el momento de usarlos, no acá. */
+    private String optionalEnv(String alias, String proveedor, String campo) {
+        String value = environment.getProperty(proveedor + "_" + alias + "_" + campo);
+        return value != null ? value : "";
     }
 }

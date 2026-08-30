@@ -4,6 +4,7 @@ import jaider.ecommerce.pago.dto.CobroTarjetaResultado;
 import jaider.ecommerce.pago.dto.WebhookTransactionEvent;
 import jaider.ecommerce.pago.service.PagoConfirmacionService;
 import jaider.ecommerce.pago.service.PaymentGateway;
+import jaider.ecommerce.pago.wompi.WompiGatewayFactory;
 import jaider.ecommerce.pedido.PedidoCreacionService.PagoInfo;
 import jaider.ecommerce.pedido.PedidoCreacionService.PedidoCreado;
 import jaider.ecommerce.shared.idempotencia.IdempotenciaGuard;
@@ -46,7 +47,7 @@ import java.util.Optional;
 public class PedidoCheckoutService {
 
     private final PedidoCreacionService pedidoCreacionService;
-    private final PaymentGateway paymentGateway;
+    private final WompiGatewayFactory gatewayFactory;
     private final PagoConfirmacionService confirmacionService;
     private final IdempotenciaGuard idempotenciaGuard;
     private final IdempotenciaService idempotenciaService;
@@ -72,19 +73,20 @@ public class PedidoCheckoutService {
         // falta consultar a Wompi (el cobro real ocurre después, en su ventana, no acá).
         return idempotenciaGuard.ejecutar(tndId, usrId, "checkout_hospedado", idempotencyKey, hashBasis,
                 CheckoutResponse.class,
-                this::reconciliarHospedado,
+                reg -> reconciliarHospedado(tndId, reg),
                 idmId -> {
+                    PaymentGateway gateway = gatewayFactory.forTenant(tndId);
                     PedidoCreado pedido = pedidoCreacionService.crearDesdeCarrito(
                             usrId, tndId, req.direccionId(), req.direccionInline(), req.notas());
 
-                    String referencia = paymentGateway.generarReferencia(tndId, pedido.pedId());
+                    String referencia = gateway.generarReferencia(tndId, pedido.pedId());
                     pedidoCreacionService.crearPago(pedido.pedId(), usrId, referencia, pedido.totalCentavos(), null);
                     // Igual que en tarjeta: asociar el pedido a la clave apenas existe, para que
                     // reconciliarHospedado() lo encuentre si el proceso muere antes de completar().
                     idempotenciaService.registrarPedido(idmId, pedido.pedId());
 
                     String redirectUrl = frontendTiendaUrl + "/pedido/resultado?numero=" + pedido.numero();
-                    String checkoutUrl = paymentGateway.buildCheckoutUrl(referencia, pedido.totalCentavos(), "COP", redirectUrl);
+                    String checkoutUrl = gateway.buildCheckoutUrl(referencia, pedido.totalCentavos(), "COP", redirectUrl);
 
                     return new CheckoutResponse(pedido.pedId(), pedido.numero(), referencia, checkoutUrl,
                             pedido.totalCentavos(), "COP");
@@ -105,15 +107,16 @@ public class PedidoCheckoutService {
 
         return idempotenciaGuard.ejecutar(tndId, usrId, "checkout_tarjeta", idempotencyKey, hashBasis,
                 PagoTarjetaResponse.class,
-                this::reconciliarTarjeta,
+                reg -> reconciliarTarjeta(tndId, reg),
                 idmId -> pagarConTarjetaReal(usrId, tndId, req, idmId));
     }
 
     private PagoTarjetaResponse pagarConTarjetaReal(Long usrId, Long tndId, CheckoutTarjetaRequest req, Long idmId) {
+        PaymentGateway gateway = gatewayFactory.forTenant(tndId);
         PedidoCreado pedido = pedidoCreacionService.crearDesdeCarrito(
                 usrId, tndId, req.direccionId(), req.direccionInline(), req.notas());
 
-        String referencia = paymentGateway.generarReferencia(tndId, pedido.pedId());
+        String referencia = gateway.generarReferencia(tndId, pedido.pedId());
         Long pagoId = pedidoCreacionService.crearPago(pedido.pedId(), usrId, referencia, pedido.totalCentavos(), "CARD");
         String email = pedidoCreacionService.obtenerEmail(usrId);
 
@@ -125,7 +128,7 @@ public class PedidoCheckoutService {
 
         Long fuentePagoId;
         try {
-            fuentePagoId = paymentGateway.crearFuentePago(
+            fuentePagoId = gateway.crearFuentePago(
                     req.cardToken(), email, req.acceptanceToken(), req.personalAuthToken());
         } catch (Exception e) {
             // Fallo acá es de validación/tokenización — NUNCA llega a cobrar. Es seguro liberar la
@@ -140,7 +143,7 @@ public class PedidoCheckoutService {
 
         CobroTarjetaResultado resultado;
         try {
-            resultado = paymentGateway.cobrarFuentePago(fuentePagoId, email, pedido.totalCentavos(), referencia);
+            resultado = gateway.cobrarFuentePago(fuentePagoId, email, pedido.totalCentavos(), referencia);
         } catch (Exception e) {
             // A diferencia del catch de arriba, ESTE fallo es ambiguo: no sabemos si Wompi sí
             // procesó el cobro antes de que la llamada fallara (timeout de red, etc.). Por eso NO
@@ -193,13 +196,14 @@ public class PedidoCheckoutService {
      *  a medias, o todo persistió (incluido "completado") o nada persistió excepto la propia fila
      *  de idempotencia. Reconstruir es solo releer lo que ya está, nunca hace falta tocar Wompi
      *  (el cobro real ocurre después, en la ventana hospedada, no en este método). */
-    private Optional<CheckoutResponse> reconciliarHospedado(Registro reg) {
+    private Optional<CheckoutResponse> reconciliarHospedado(Long tndId, Registro reg) {
         if (reg.pedId() == null) return Optional.empty();
         return pedidoCreacionService.obtenerUltimoPago(reg.pedId()).map(pago -> {
             String redirectUrl = frontendTiendaUrl + "/pedido/resultado?numero=" + pago.numeroPedido();
             // buildCheckoutUrl es una construcción local de URL (no llama a Wompi ni cobra nada),
             // así que reconstruirla es seguro y determinístico dado el mismo referencia/monto.
-            String checkoutUrl = paymentGateway.buildCheckoutUrl(pago.referencia(), pago.montoCentavos(), "COP", redirectUrl);
+            String checkoutUrl = gatewayFactory.forTenant(tndId)
+                    .buildCheckoutUrl(pago.referencia(), pago.montoCentavos(), "COP", redirectUrl);
             return new CheckoutResponse(reg.pedId(), pago.numeroPedido(), pago.referencia(), checkoutUrl,
                     pago.montoCentavos(), "COP");
         });
@@ -211,7 +215,7 @@ public class PedidoCheckoutService {
      *  seguía PENDING (no se sabe si Wompi cobró), se consulta directamente a Wompi por
      *  referencia — igual que el flujo de reconciliación manual que ya existe para webhooks
      *  perdidos (ver PaymentGateway.consultarTransaccion). */
-    private Optional<PagoTarjetaResponse> reconciliarTarjeta(Registro reg) {
+    private Optional<PagoTarjetaResponse> reconciliarTarjeta(Long tndId, Registro reg) {
         if (reg.pedId() == null) return Optional.empty(); // nunca se creó nada — seguro reintentar desde cero
 
         Optional<PagoInfo> pagoOpt = pedidoCreacionService.obtenerUltimoPago(reg.pedId());
@@ -230,7 +234,7 @@ public class PedidoCheckoutService {
 
         // Nuestra BD sigue en PENDING — el proceso pudo haber muerto justo después de que Wompi
         // cobrara de verdad, sin que llegáramos a registrarlo. Se pregunta directo a la fuente.
-        Optional<WebhookTransactionEvent> txOpt = paymentGateway.consultarTransaccion(pago.referencia());
+        Optional<WebhookTransactionEvent> txOpt = gatewayFactory.forTenant(tndId).consultarTransaccion(pago.referencia());
         if (txOpt.isEmpty()) {
             log.warn("[Idempotencia][Reconciliación] No se pudo consultar Wompi para referencia {} (pedido {}) — " +
                     "resultado desconocido, se bloquea el reintento automático.", pago.referencia(), reg.pedId());
