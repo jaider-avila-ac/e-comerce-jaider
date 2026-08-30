@@ -95,7 +95,7 @@ public class CategoriaService {
         catalogCache.invalidate(TenantContext.get());
 
         if (req.imagenUrl() != null && !req.imagenUrl().equals(imagenAnterior)) {
-            cloudinaryService.delete(imagenAnterior);
+            cloudinaryService.delete(imagenAnterior, cat.getTndId());
         }
         return resp;
     }
@@ -107,7 +107,7 @@ public class CategoriaService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Categoría no encontrada: " + id));
         repo.deleteById(id);
         catalogCache.invalidate(TenantContext.get());
-        cloudinaryService.delete(cat.getImagenUrl());
+        cloudinaryService.delete(cat.getImagenUrl(), cat.getTndId());
     }
 
     /** Reordena moviendo libremente (arriba/abajo) — el frontend manda la lista completa

@@ -135,3 +135,23 @@ ALTER DEFAULT PRIVILEGES FOR ROLE ecommerce_owner IN SCHEMA public
 -- cero políticas) y `tiendas` fue la única.
 -- ============================================================================
 ALTER TABLE tiendas DISABLE ROW LEVEL SECURITY;
+
+-- ============================================================================
+-- 2026-08-30 — Fase 1 (§4.4/§6): alias de secretos por tienda.
+--
+-- Requisito para TenantIntegrationResolver: cada tienda necesita un alias
+-- neutral e inmutable para armar el nombre de sus variables de entorno
+-- (CLOUDINARY_<alias>_*, y más adelante RESEND_<alias>_*/WOMPI_<alias>_*).
+-- El alias de Calzado Caribe en el VPS debe quedar CALZADO_CARIBE para que
+-- coincida con las variables CLOUDINARY_CALZADO_CARIBE_* que hay que crear
+-- en el entorno del VPS (renombrando las actuales CLOUDINARY_CLOUD_NAME/
+-- API_KEY/API_SECRET, que dejan de leerse una vez desplegada esta rama).
+-- ============================================================================
+ALTER TABLE tiendas ADD COLUMN tnd_secret_alias varchar(60);
+UPDATE tiendas SET tnd_secret_alias = 'CALZADO_CARIBE' WHERE tnd_id = 1;
+-- Si en el VPS ya existiera más de una tienda real para cuando se aplique esto,
+-- hay que darle un alias único a cada una ANTES del siguiente ALTER (que exige
+-- NOT NULL para todas las filas).
+ALTER TABLE tiendas ALTER COLUMN tnd_secret_alias SET NOT NULL;
+ALTER TABLE tiendas ADD CONSTRAINT uq_tiendas_secret_alias UNIQUE (tnd_secret_alias);
+ALTER TABLE tiendas ADD CONSTRAINT chk_tiendas_secret_alias_formato CHECK (tnd_secret_alias ~ '^[A-Z0-9_]+$');

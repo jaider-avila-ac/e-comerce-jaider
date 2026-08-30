@@ -117,7 +117,7 @@ public class BannerService {
         BannerResponse resp = toResponse(repo.findById(id).orElseThrow());
 
         if (req.url() != null && !req.url().isBlank() && !req.url().equals(urlAnterior)) {
-            cloudinaryService.delete(urlAnterior);
+            cloudinaryService.delete(urlAnterior, b.getTndId());
         }
         return resp;
     }
@@ -147,7 +147,7 @@ public class BannerService {
         Banner b = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Banner no encontrado: " + id));
         repo.deleteById(id);
-        cloudinaryService.delete(b.getUrl());
+        cloudinaryService.delete(b.getUrl(), b.getTndId());
     }
 
     private static void validateLink(String link) {

@@ -162,7 +162,7 @@ public class SolicitudDevolucionService {
                     "Solo se puede cancelar mientras está pendiente de revisión");
         }
 
-        eliminarFotosDeCloudinary(s.getId());
+        eliminarFotosDeCloudinary(s.getId(), s.getTndId());
         repo.updateEstado(s.getId(), "cancelada");
     }
 
@@ -238,7 +238,7 @@ public class SolicitudDevolucionService {
         s.setAdminNota(nota.trim());
         s.setRevisadoEn(ahora);
 
-        eliminarFotosDeCloudinary(id);
+        eliminarFotosDeCloudinary(id, s.getTndId());
         if (adminId != null) {
             auditoriaService.registrar(s.getTndId(), adminId, "devolucion.rechazada", "solicitud_devolucion", id,
                     Map.of("nota", nota.trim()));
@@ -351,9 +351,9 @@ public class SolicitudDevolucionService {
         }
     }
 
-    private void eliminarFotosDeCloudinary(Long solicitudId) {
+    private void eliminarFotosDeCloudinary(Long solicitudId, Long tndId) {
         fotoRepo.findBySodIdOrderByOrdenAscIdAsc(solicitudId)
-                .forEach(f -> cloudinaryService.delete(f.getUrl()));
+                .forEach(f -> cloudinaryService.delete(f.getUrl(), tndId));
     }
 
     /** Crea el reembolso e intenta procesarlo automáticamente contra la pasarela — mismo camino

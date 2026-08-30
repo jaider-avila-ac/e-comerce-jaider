@@ -119,7 +119,9 @@ public class ProductoService {
             // Solo se borran de Cloudinary las que ya no están en la lista nueva — las que el
             // admin conservó se re-insertan con nueva fila pero es la misma imagen remota.
             Set<String> urlsNuevas = req.imagenes().stream().map(ImagenRequest::url).collect(java.util.stream.Collectors.toSet());
-            urlsAnteriores.stream().filter(u -> !urlsNuevas.contains(u)).forEach(cloudinaryService::delete);
+            Long tndIdProducto = p.getTndId();
+            urlsAnteriores.stream().filter(u -> !urlsNuevas.contains(u))
+                    .forEach(u -> cloudinaryService.delete(u, tndIdProducto));
         }
 
         catalogCache.invalidate(TenantContext.get());
@@ -155,8 +157,8 @@ public class ProductoService {
         catalogCache.invalidate(TenantContext.get());
 
         // Nunca deben quedar archivos ni carpetas huérfanas en Cloudinary tras borrar un producto.
-        urls.forEach(cloudinaryService::delete);
-        cloudinaryService.deleteFolder(cloudinaryService.folderDeProducto(p.getTndId(), id));
+        urls.forEach(u -> cloudinaryService.delete(u, p.getTndId()));
+        cloudinaryService.deleteFolder(cloudinaryService.folderDeProducto(p.getTndId(), id), p.getTndId());
     }
 
     @Transactional(readOnly = true)

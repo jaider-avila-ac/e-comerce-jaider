@@ -19,6 +19,12 @@ public class Tienda {
     @Column(name = "tnd_slug", nullable = false, unique = true, length = 60)
     private String slug;
 
+    // Alias neutral e inmutable (mayúsculas/números/guion bajo) usado para resolver los
+    // secretos de esta tienda: WOMPI_<alias>_*, RESEND_<alias>_*, CLOUDINARY_<alias>_* (ver
+    // TenantIntegrationResolver). Nunca se expone al frontend ni contiene la llave en sí.
+    @Column(name = "tnd_secret_alias", nullable = false, unique = true, length = 60)
+    private String secretAlias;
+
     @Column(name = "tnd_nombre", nullable = false, length = 120)
     private String nombre;
 

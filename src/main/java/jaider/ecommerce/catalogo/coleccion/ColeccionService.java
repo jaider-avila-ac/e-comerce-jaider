@@ -83,7 +83,7 @@ public class ColeccionService {
             saveProductos(c.getId(), req.productoIds());
         }
         if (req.imagenUrl() != null && !req.imagenUrl().equals(imagenAnterior) && imagenAnterior != null) {
-            cloudinaryService.delete(imagenAnterior);
+            cloudinaryService.delete(imagenAnterior, c.getTndId());
         }
         return toResponse(c);
     }
@@ -95,7 +95,7 @@ public class ColeccionService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Colección no encontrada"));
         // coleccion_productos se borra por CASCADE
         repo.deleteById(id);
-        cloudinaryService.delete(c.getImagenUrl());
+        cloudinaryService.delete(c.getImagenUrl(), c.getTndId());
     }
 
     /** Reordena moviendo libremente (arriba/abajo) — el frontend manda la lista completa
