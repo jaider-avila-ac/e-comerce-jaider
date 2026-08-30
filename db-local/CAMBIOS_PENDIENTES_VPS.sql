@@ -209,3 +209,28 @@ ALTER TABLE tiendas ADD COLUMN tnd_color_principal VARCHAR(7);
 -- ============================================================================
 ALTER TABLE sucursales ADD COLUMN suc_whatsapp VARCHAR(20);
 ALTER TABLE tiendas DROP COLUMN tnd_whatsapp_la_paz;
+
+-- ============================================================================
+-- 2026-08-30 — Corrección de diseño del superadmin (§11.2), pedida por el usuario DESPUÉS
+-- del cierre de Fase 3: el superadmin NO debe poder elegir una tienda y operar como su admin
+-- (eso se había implementado así en un primer intento y era exactamente lo que el usuario NO
+-- quería — acceso sin consentimiento del dueño de la tienda). Corregido: el superadmin solo
+-- puede ver TOTALES agregados de toda la plataforma (nunca datos operativos ni por tienda), vía
+-- una función SQL SECURITY DEFINER — el único punto autorizado a cruzar el RLS de todas las
+-- tiendas, y solo para devolver conteos, nunca filas individuales.
+--
+-- IMPORTANTE: debe quedar dueña de `postgres` (superusuario) para que SECURITY DEFINER
+-- bypasee RLS de verdad — si se crea como cualquier otro rol (incluido ecommerce_owner, que NO
+-- tiene BYPASSRLS) la función seguiría bloqueada por el FORCE ROW LEVEL SECURITY de las tablas.
+-- ============================================================================
+CREATE FUNCTION fn_superadmin_resumen()
+RETURNS TABLE(tiendas_activas bigint, total_clientes bigint)
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT
+    (SELECT count(*) FROM tiendas WHERE tnd_activo = true),
+    (SELECT count(*) FROM usuarios);
+$$;
+GRANT EXECUTE ON FUNCTION fn_superadmin_resumen() TO calzacaribe_usr;
