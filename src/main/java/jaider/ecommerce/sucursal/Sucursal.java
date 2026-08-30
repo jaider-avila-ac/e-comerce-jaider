@@ -29,6 +29,11 @@ public class Sucursal {
     @Column(name = "suc_activo", nullable = false)
     private boolean activo = true;
 
+    // Contacto de ESTA sucursal en particular (§4.2 del plan multi-tenant: los contactos por
+    // sucursal van acá, no como columnas fijas en `tiendas` tipo tnd_whatsapp_la_paz).
+    @Column(name = "suc_whatsapp", length = 20)
+    private String whatsapp;
+
     @Column(name = "suc_creado_en", nullable = false, updatable = false)
     private OffsetDateTime creadoEn;
 }

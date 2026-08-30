@@ -56,11 +56,13 @@ public class Tienda {
     @Column(name = "tnd_tienda_url", length = 255)
     private String tiendaUrl;
 
+    // WhatsApp general de la tienda (§4.2) — no de una sucursal en particular. El contacto de
+    // una sucursal específica va en Sucursal.whatsapp, no acá (antes existía
+    // tnd_whatsapp_la_paz, exactamente el anti-patrón que el plan nombra: "no deben existir
+    // campos específicos como whatsappLaPaz" — se eliminó, no lo usaba ni el backend ni ningún
+    // frontend, columna/valor siempre vacíos).
     @Column(name = "tnd_whatsapp_principal", length = 20)
     private String whatsappPrincipal;
-
-    @Column(name = "tnd_whatsapp_la_paz", length = 20)
-    private String whatsappLaPaz;
 
     // 'contra_entrega' (default — el cliente paga el envío directo al transportador al recibir,
     // no se cobra nada de envío en el checkout online) | 'fijo' (se cobra tnd_envio_costo_centavos

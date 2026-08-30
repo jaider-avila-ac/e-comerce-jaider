@@ -201,3 +201,13 @@ ALTER TABLE tiendas ADD COLUMN tnd_razon_social VARCHAR(200);
 ALTER TABLE tiendas ADD COLUMN tnd_nit VARCHAR(30);
 ALTER TABLE tiendas ADD COLUMN tnd_email_contacto VARCHAR(255);
 ALTER TABLE tiendas ADD COLUMN tnd_color_principal VARCHAR(7);
+
+-- ============================================================================
+-- 2026-08-30 — Fase 2 (§4.2): generalizar contactos por sucursal en vez de columnas fijas
+-- en `tiendas` tipo tnd_whatsapp_la_paz — exactamente el anti-patrón que el plan nombra por
+-- nombre ("No deben existir campos específicos como whatsappLaPaz"). Verificado que
+-- tnd_whatsapp_la_paz no lo leía ni el backend ni ningún frontend (admin/tienda/sitio-web) y
+-- que su valor real en el VPS está vacío — no hay nada que migrar, solo eliminar la columna.
+-- ============================================================================
+ALTER TABLE sucursales ADD COLUMN suc_whatsapp VARCHAR(20);
+ALTER TABLE tiendas DROP COLUMN tnd_whatsapp_la_paz;
