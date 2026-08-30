@@ -2,18 +2,24 @@ package jaider.ecommerce.shared.interceptor;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.http.HttpStatus;
 import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Component;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.HandlerInterceptor;
 
 /**
  * Extrae el tenant del request y lo guarda en ThreadLocal.
- * El TenantContext lo usa el JPA interceptor para inyectar
- * SET LOCAL app.current_tnd_id en cada transacción.
+ * El TenantSupport lo usa para inyectar SET LOCAL app.current_tnd_id en cada transacción.
  *
- * La tienda se identifica por el header X-Tenant-Id o por el slug
- * en el path (ej: /api/v1/{slug}/...). Se puede cambiar la estrategia
- * sin tocar el resto del código.
+ * Este interceptor corre DESPUÉS de {@link jaider.ecommerce.auth.jwt.JwtAuthFilter} (los
+ * Filter de servlet siempre se ejecutan antes que los HandlerInterceptor de Spring MVC), así
+ * que si ya hay tenant en el contexto al llegar acá, viene de un JWT válido y firmado — es la
+ * fuente autorizada. El header X-Tenant-Id NUNCA puede pisar silenciosamente ese valor: solo
+ * se usa como fuente del tenant en rutas públicas (sin JWT), y si llega junto con un JWT debe
+ * coincidir exactamente o la solicitud se rechaza con 403. Esto es lo que exige la sección 3.2
+ * de PLAN_MEJORAS_API_ECOMMERCE_MULTITENANT.md: un cliente autenticado en la tienda A no puede
+ * leer/escribir datos de la tienda B solo cambiando este header.
  */
 @Component
 public class TenantInterceptor implements HandlerInterceptor {
@@ -22,9 +28,20 @@ public class TenantInterceptor implements HandlerInterceptor {
     public boolean preHandle(@NonNull HttpServletRequest request,
                              @NonNull HttpServletResponse response,
                              @NonNull Object handler) {
-        String tenantId = request.getHeader("X-Tenant-Id");
-        if (tenantId != null && !tenantId.isBlank()) {
-            TenantContext.set(tenantId);
+        String headerTenantId = request.getHeader("X-Tenant-Id");
+        String jwtTenantId = TenantContext.get();
+
+        if (jwtTenantId != null) {
+            if (headerTenantId != null && !headerTenantId.isBlank()
+                    && !headerTenantId.trim().equals(jwtTenantId)) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                        "El tenant del token no coincide con X-Tenant-Id");
+            }
+            return true;
+        }
+
+        if (headerTenantId != null && !headerTenantId.isBlank()) {
+            TenantContext.set(headerTenantId.trim());
         }
         return true;
     }
