@@ -1,0 +1,33 @@
+name: ecommerce-api
+
+# Postgres LOCAL para el trabajo de PLAN_MEJORAS_API_ECOMMERCE_MULTITENANT.md.
+# No reemplaza el flujo normal (conexion-vps-db.sh + .env apuntando al VPS por
+# tunel SSH) — es un compose adicional que se levanta aparte:
+#
+#   docker compose -f docker-compose.local-db.yaml up -d
+#
+# y luego se restaura el dump con backups/setup-local-db.sh. Mientras se usa
+# esta base local, el backend debe apuntar a DB_URL=jdbc:postgresql://localhost:5434/calzacaribe_db
+# (ver .env.local-db para las credenciales, no confundir con .env del VPS).
+
+services:
+  postgres-local:
+    image: postgres:18-alpine
+    container_name: ecommerce-postgres-local
+    restart: unless-stopped
+    env_file:
+      - .env.local-db
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - ecommerce_postgres_local_data:/var/lib/postgresql
+      - ./db-local/init:/docker-entrypoint-initdb.d:ro
+      - ./backups:/backups:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d calzacaribe_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  ecommerce_postgres_local_data:
