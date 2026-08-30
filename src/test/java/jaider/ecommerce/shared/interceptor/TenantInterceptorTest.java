@@ -1,30 +1,40 @@
 package jaider.ecommerce.shared.interceptor;
 
+import jaider.ecommerce.tienda.TenantDomainResolver;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.Optional;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * Unit test puro (sin contexto de Spring ni base de datos) para la regla de la sección 3.2
- * de PLAN_MEJORAS_API_ECOMMERCE_MULTITENANT.md: "El header X-Tenant-Id no puede ser la
- * autoridad en solicitudes autenticadas". Simula lo que ya dejó JwtAuthFilter en
- * TenantContext (si vino un JWT válido con tnd_id) antes de que corra este interceptor.
- *
- * Cubre exactamente los 3 escenarios verificados manualmente contra la BD local durante la
- * implementación (ver memoria de la sesión): sin header, header igual al del JWT, header
- * distinto al del JWT.
+ * Unit test puro (sin contexto de Spring ni base de datos) para las dos reglas de resolución de
+ * tenant en rutas del interceptor:
+ *   - §3.2: "El header X-Tenant-Id no puede ser la autoridad en solicitudes autenticadas" —
+ *     simula lo que ya dejó JwtAuthFilter en TenantContext (si vino un JWT válido con tnd_id).
+ *   - §5: en rutas públicas (sin JWT), el dominio tiene prioridad sobre X-Tenant-Id.
  */
 class TenantInterceptorTest {
 
-    private final TenantInterceptor interceptor = new TenantInterceptor();
+    private TenantDomainResolver domainResolver;
+    private TenantInterceptor interceptor;
+
+    @BeforeEach
+    void setUp() {
+        domainResolver = mock(TenantDomainResolver.class);
+        when(domainResolver.resolveTenantId(any())).thenReturn(Optional.empty());
+        interceptor = new TenantInterceptor(domainResolver);
+    }
 
     @AfterEach
     void limpiarContexto() {
@@ -32,7 +42,7 @@ class TenantInterceptorTest {
     }
 
     @Test
-    void sinJwtYSinHeader_noFijaTenant() {
+    void sinJwtYSinHeaderNiDominio_noFijaTenant() {
         HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse response = mock(HttpServletResponse.class);
         when(request.getHeader("X-Tenant-Id")).thenReturn(null);
@@ -44,7 +54,7 @@ class TenantInterceptorTest {
     }
 
     @Test
-    void sinJwt_conHeader_usaElHeaderComoTenant() {
+    void sinJwtNiDominio_conHeader_usaElHeaderComoTenant() {
         HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse response = mock(HttpServletResponse.class);
         when(request.getHeader("X-Tenant-Id")).thenReturn("5");
@@ -53,6 +63,22 @@ class TenantInterceptorTest {
 
         assertThat(continua).isTrue();
         assertThat(TenantContext.get()).isEqualTo("5");
+    }
+
+    @Test
+    void sinJwt_dominioRegistrado_tienePrioridadSobreElHeader() {
+        when(domainResolver.resolveTenantId(any())).thenReturn(Optional.of(1L));
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        HttpServletResponse response = mock(HttpServletResponse.class);
+        when(request.getHeader("Host")).thenReturn("calzacaribe.com");
+        // El navegador intenta pedir la tienda 2 por header, pero el dominio real es de la 1 —
+        // el dominio manda porque el cliente no puede falsificar en qué Host está parado.
+        when(request.getHeader("X-Tenant-Id")).thenReturn("2");
+
+        boolean continua = interceptor.preHandle(request, response, new Object());
+
+        assertThat(continua).isTrue();
+        assertThat(TenantContext.get()).isEqualTo("1");
     }
 
     @Test

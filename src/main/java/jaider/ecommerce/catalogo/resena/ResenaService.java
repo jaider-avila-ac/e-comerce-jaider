@@ -164,7 +164,7 @@ public class ResenaService {
     }
 
     private static String autorNombre(String nombre, String apellido) {
-        if (nombre == null || nombre.isBlank()) return "Cliente Calzacaribe";
+        if (nombre == null || nombre.isBlank()) return "Cliente";
         String inicialApellido = (apellido != null && !apellido.isBlank())
                 ? " " + Character.toUpperCase(apellido.charAt(0)) + "."
                 : "";

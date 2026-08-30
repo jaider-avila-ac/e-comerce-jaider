@@ -1,5 +1,7 @@
 package jaider.ecommerce.infra;
 
+import jaider.ecommerce.tienda.TenantBrandingContext;
+import jaider.ecommerce.tienda.TenantBrandingResolver;
 import jaider.ecommerce.tienda.integracion.ResendCredentials;
 import jaider.ecommerce.tienda.integracion.TenantIntegrationResolver;
 import lombok.RequiredArgsConstructor;
@@ -17,6 +19,7 @@ import java.util.Map;
 public class ResendEmailService {
 
     private final TenantIntegrationResolver integrationResolver;
+    private final TenantBrandingResolver brandingResolver;
 
     // Override de desarrollo: redirige TODO correo transaccional (verificación, reset, etc.) a
     // esta dirección sin importar el tenant — no es un secreto de integración de ninguna tienda,
@@ -26,29 +29,35 @@ public class ResendEmailService {
     private String emailOverride;
 
     public void sendVerification(Long tndId, String to, String nombre, String code) {
+        TenantBrandingContext b = brandingResolver.resolve(tndId);
         String recipient = override(to);
         String html = """
             <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#fff">
               <h2 style="margin:0 0 8px;color:#111;font-size:20px">Hola%s</h2>
-              <p style="color:#555;font-size:15px;margin:0 0 24px">Tu código de verificación para Calzacaribe es:</p>
-              <div style="font-size:40px;font-weight:900;letter-spacing:10px;color:#111;padding:20px 0;text-align:center;background:#f5f5f5;border-radius:12px">%s</div>
+              <p style="color:#555;font-size:15px;margin:0 0 24px">Tu código de verificación para %s es:</p>
+              <div style="font-size:40px;font-weight:900;letter-spacing:10px;color:%s;padding:20px 0;text-align:center;background:#f5f5f5;border-radius:12px">%s</div>
               <p style="color:#888;font-size:13px;margin-top:20px">Este código expira en <strong>5 minutos</strong>. Si no solicitaste este código, ignora este mensaje.</p>
+              %s
             </div>
-            """.formatted(nombre != null && !nombre.isBlank() ? ", " + nombre : "", code);
-        send(tndId, recipient, "Tu código de verificación — Calzacaribe", html);
+            """.formatted(nombre != null && !nombre.isBlank() ? ", " + nombre : "", b.nombreComercial(),
+                    b.colorPrincipalODefecto(), code, pie(b));
+        send(tndId, recipient, "Tu código de verificación — " + b.nombreComercial(), html);
     }
 
     public void sendPasswordReset(Long tndId, String to, String nombre, String code) {
+        TenantBrandingContext b = brandingResolver.resolve(tndId);
         String recipient = override(to);
         String html = """
             <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#fff">
               <h2 style="margin:0 0 8px;color:#111;font-size:20px">Hola%s</h2>
-              <p style="color:#555;font-size:15px;margin:0 0 24px">Tu código para restablecer la contraseña de Calzacaribe es:</p>
-              <div style="font-size:40px;font-weight:900;letter-spacing:10px;color:#111;padding:20px 0;text-align:center;background:#f5f5f5;border-radius:12px">%s</div>
+              <p style="color:#555;font-size:15px;margin:0 0 24px">Tu código para restablecer la contraseña de %s es:</p>
+              <div style="font-size:40px;font-weight:900;letter-spacing:10px;color:%s;padding:20px 0;text-align:center;background:#f5f5f5;border-radius:12px">%s</div>
               <p style="color:#888;font-size:13px;margin-top:20px">Este código expira en <strong>5 minutos</strong>. Si no lo solicitaste, puedes ignorar este mensaje.</p>
+              %s
             </div>
-            """.formatted(nombre != null && !nombre.isBlank() ? ", " + nombre : "", code);
-        send(tndId, recipient, "Restablecer contraseña — Calzacaribe", html);
+            """.formatted(nombre != null && !nombre.isBlank() ? ", " + nombre : "", b.nombreComercial(),
+                    b.colorPrincipalODefecto(), code, pie(b));
+        send(tndId, recipient, "Restablecer contraseña — " + b.nombreComercial(), html);
     }
 
     /** Resumen de un ítem del pedido, ya en pesos (no centavos), para el correo de confirmación. */
@@ -63,6 +72,7 @@ public class ResendEmailService {
     public void sendConfirmacionCompra(Long tndId, String to, String nombre, String numero,
                                         List<ItemResumenEmail> items, Map<String, Object> direccion,
                                         String metodoPagoLabel, long totalPesos) {
+        TenantBrandingContext b = brandingResolver.resolve(tndId);
         String recipient = override(to);
 
         String itemsHtml = items.stream().map(i -> """
@@ -81,7 +91,7 @@ public class ResendEmailService {
 
         String html = """
                 <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#fff">
-                  <h2 style="margin:0 0 8px;color:#111;font-size:20px">¡Gracias por tu compra%s!</h2>
+                  <h2 style="margin:0 0 8px;color:%s;font-size:20px">¡Gracias por tu compra%s!</h2>
                   <p style="color:#555;font-size:15px;margin:0 0 20px">Confirmamos tu pedido <strong>#%s</strong>. Aquí el resumen:</p>
                   <table style="width:100%%;border-collapse:collapse">
                     %s
@@ -94,14 +104,15 @@ public class ResendEmailService {
                   <p style="color:#555;font-size:14px;margin:16px 0 0"><strong>Método de pago:</strong> %s</p>
                   %s
                   <p style="color:#888;font-size:13px;margin-top:24px">Te avisaremos por aquí y dentro de tu cuenta cuando tu pedido sea despachado.</p>
+                  %s
                 </div>
                 """.formatted(
-                        nombre != null && !nombre.isBlank() ? ", " + nombre : "",
+                        b.colorPrincipalODefecto(), nombre != null && !nombre.isBlank() ? ", " + nombre : "",
                         numero, itemsHtml, formatPesos(totalPesos),
                         metodoPagoLabel != null ? metodoPagoLabel : "No especificado",
-                        direccionHtml);
+                        direccionHtml, pie(b));
 
-        send(tndId, recipient, "Confirmamos tu pedido " + numero + " — Calzacaribe", html);
+        send(tndId, recipient, "Confirmamos tu pedido " + numero + " — " + b.nombreComercial(), html);
     }
 
     private String direccionTexto(Map<String, Object> direccion) {
@@ -144,6 +155,41 @@ public class ResendEmailService {
             """.formatted(clienteNombre != null && !clienteNombre.isBlank() ? clienteNombre : "Un cliente",
                     totalFmt, numero);
         send(tndId, to, "Nuevo pedido — " + numero, html);
+    }
+
+    /** Pie común con la identidad de la tienda (§8.3) — cada línea se omite si el dato no está
+     *  cargado, nunca se muestra un hueco vacío ni "null". */
+    private String pie(TenantBrandingContext b) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("<div style=\"margin-top:28px;padding-top:16px;border-top:1px solid #eee;color:#999;font-size:12px;line-height:1.6\">");
+        sb.append(escapeHtml(b.nombreComercial()));
+        if (b.razonSocial() != null && !b.razonSocial().isBlank()) {
+            sb.append(" — ").append(escapeHtml(b.razonSocial()));
+        }
+        if (b.nit() != null && !b.nit().isBlank()) {
+            sb.append(" · NIT ").append(escapeHtml(b.nit()));
+        }
+        sb.append("<br>");
+        boolean algo = false;
+        if (b.emailSoporte() != null && !b.emailSoporte().isBlank()) {
+            sb.append(escapeHtml(b.emailSoporte()));
+            algo = true;
+        }
+        if (b.whatsapp() != null && !b.whatsapp().isBlank()) {
+            if (algo) sb.append(" · ");
+            sb.append("WhatsApp ").append(escapeHtml(b.whatsapp()));
+            algo = true;
+        }
+        if (b.sitioWeb() != null && !b.sitioWeb().isBlank()) {
+            if (algo) sb.append(" · ");
+            sb.append(escapeHtml(b.sitioWeb()));
+        }
+        sb.append("</div>");
+        return sb.toString();
+    }
+
+    private String escapeHtml(String s) {
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
     private String override(String original) {

@@ -6,5 +6,9 @@ public record TiendaConfigResponse(
         Long envioGratisDesde, // pesos COP
         Long envioCosto,       // pesos COP
         String dominioStaff,
-        String emailNotificacionPedidos
+        String emailNotificacionPedidos,
+        String razonSocial,
+        String nit,
+        String emailContacto,
+        String colorPrincipal
 ) {}

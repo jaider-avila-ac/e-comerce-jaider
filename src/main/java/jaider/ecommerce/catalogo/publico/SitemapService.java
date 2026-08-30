@@ -2,12 +2,15 @@ package jaider.ecommerce.catalogo.publico;
 
 import jaider.ecommerce.shared.TenantSupport;
 import jaider.ecommerce.shared.interceptor.TenantContext;
+import jaider.ecommerce.tienda.TiendaDominioRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 
@@ -24,20 +27,22 @@ import java.util.List;
  * que el archivo quede servido desde el mismo host que las páginas que lista — Google solo
  * acepta URLs de un sitemap si son del mismo host donde vive el archivo, salvo un cross-submit
  * verificado en Search Console, que no aplica acá.
+ *
+ * El tenant se resuelve por TenantInterceptor ANTES de llegar acá (dominio real vía
+ * X-Forwarded-Host si el proxy de la tienda lo manda, X-Tenant-Id como respaldo) — ya no está
+ * fijo a "1" (§18 Fase 2: eliminar hardcodeo de un solo tenant). Nota: el proxy de la tienda
+ * reescribe el header Host al dominio del backend para el ruteo TLS, así que necesita mandar
+ * también X-Forwarded-Host con el dominio real de la tienda para que esto resuelva bien.
  */
 @Service
 @RequiredArgsConstructor
 public class SitemapService {
 
-    // Deployment de un solo tenant — TenantInterceptor solo resuelve tenant por header
-    // X-Tenant-Id, y un crawler nunca lo manda. Si algún día hay más de un tenant, esto
-    // necesita resolverse por dominio en vez de quedar fijo en "1".
-    private static final String TENANT_ID = "1";
-
     private final TenantSupport tenantSupport;
+    private final TiendaDominioRepository dominioRepo;
 
     @Value("${frontend.tienda-url}")
-    private String tiendaUrl;
+    private String frontendTiendaUrlPorDefecto;
 
     @PersistenceContext
     private EntityManager em;
@@ -45,9 +50,15 @@ public class SitemapService {
     @Transactional(readOnly = true)
     @SuppressWarnings("unchecked")
     public String generar() {
-        TenantContext.set(TENANT_ID);
+        String tndIdStr = TenantContext.get();
+        if (tndIdStr == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "No se pudo resolver la tienda para este sitemap");
+        }
+        Long tndId = Long.parseLong(tndIdStr);
         tenantSupport.applyTenant(em);
-        String base = tiendaUrl.replaceAll("/+$", "");
+
+        String base = baseUrl(tndId).replaceAll("/+$", "");
 
         StringBuilder xml = new StringBuilder();
         xml.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
@@ -73,6 +84,15 @@ public class SitemapService {
 
         xml.append("</urlset>\n");
         return xml.toString();
+    }
+
+    /** Dominio principal registrado de la tienda si existe (§5), si no el valor global de
+     *  desarrollo (frontend.tienda-url) — así el sitemap sigue funcionando en local sin tener
+     *  que registrar un dominio real para cada tenant de prueba. */
+    private String baseUrl(Long tndId) {
+        return dominioRepo.findByTndIdAndPrincipalTrueAndActivoTrue(tndId)
+                .map(d -> "https://" + d.getDominio())
+                .orElse(frontendTiendaUrlPorDefecto);
     }
 
     private void agregarUrl(StringBuilder xml, String loc, String lastmod, String changefreq, String priority) {

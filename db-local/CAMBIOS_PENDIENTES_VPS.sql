@@ -155,3 +155,49 @@ UPDATE tiendas SET tnd_secret_alias = 'CALZADO_CARIBE' WHERE tnd_id = 1;
 ALTER TABLE tiendas ALTER COLUMN tnd_secret_alias SET NOT NULL;
 ALTER TABLE tiendas ADD CONSTRAINT uq_tiendas_secret_alias UNIQUE (tnd_secret_alias);
 ALTER TABLE tiendas ADD CONSTRAINT chk_tiendas_secret_alias_formato CHECK (tnd_secret_alias ~ '^[A-Z0-9_]+$');
+
+-- ============================================================================
+-- 2026-08-30 — Fase 2 (§5): tabla de dominios por tienda, para resolver el tenant de una
+-- solicitud pública por Host real en vez de depender solo de X-Tenant-Id (ver
+-- TenantDomainResolver + TenantInterceptor). Sin RLS a propósito — igual que `tiendas`, tiene
+-- que poder leerse ANTES de que exista contexto de tenant (es la tabla que lo resuelve).
+--
+-- IMPORTANTE: el dominio real del storefront de Calzado Caribe (calzacaribe.com /
+-- www.calzacaribe.com) es una INFERENCIA a partir de tnd_dominio_staff — el usuario debe
+-- confirmar o corregir esto antes de aplicarlo en el VPS.
+--
+-- También hace falta que el proxy de la tienda (tienda/nginx.conf, location = /sitemap.xml)
+-- mande X-Forwarded-Host con el dominio real del storefront — hoy solo reescribe Host al
+-- dominio del backend para el ruteo TLS, y TenantInterceptor no tiene otra forma de saber cuál
+-- era el Host original del navegador en ese proxy_pass específico.
+-- ============================================================================
+CREATE TABLE tienda_dominios (
+  tdo_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  tdo_tnd_id BIGINT NOT NULL REFERENCES tiendas(tnd_id) ON DELETE CASCADE,
+  tdo_dominio VARCHAR(255) NOT NULL,
+  tdo_principal BOOLEAN NOT NULL DEFAULT false,
+  tdo_activo BOOLEAN NOT NULL DEFAULT true,
+  tdo_verificado_en TIMESTAMPTZ,
+  tdo_creado_en TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT uq_tienda_dominios_dominio UNIQUE (tdo_dominio)
+);
+CREATE INDEX idx_tienda_dominios_tnd_id ON tienda_dominios(tdo_tnd_id);
+GRANT SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER ON TABLE tienda_dominios TO calzacaribe_usr;
+GRANT SELECT,USAGE ON SEQUENCE tienda_dominios_tdo_id_seq TO calzacaribe_usr;
+
+-- CONFIRMAR el dominio real antes de correr esto en el VPS (ver nota arriba).
+INSERT INTO tienda_dominios (tdo_tnd_id, tdo_dominio, tdo_principal, tdo_activo) VALUES
+  (1, 'calzacaribe.com', true, true),
+  (1, 'www.calzacaribe.com', false, true);
+
+-- ============================================================================
+-- 2026-08-30 — Fase 2 (§4.1/§4.2/§8.3): campos de identidad de marca para el
+-- TenantBrandingContext (correos ya no dicen "Calzacaribe" a fuego, usan estos campos).
+-- Quedan NULL para Calzado Caribe a propósito — el usuario los completa desde el panel
+-- (TiendaConfigService ya expone razonSocial/nit/emailContacto/colorPrincipal editables), no
+-- hay datos reales fiables para inventarlos acá.
+-- ============================================================================
+ALTER TABLE tiendas ADD COLUMN tnd_razon_social VARCHAR(200);
+ALTER TABLE tiendas ADD COLUMN tnd_nit VARCHAR(30);
+ALTER TABLE tiendas ADD COLUMN tnd_email_contacto VARCHAR(255);
+ALTER TABLE tiendas ADD COLUMN tnd_color_principal VARCHAR(7);

@@ -22,6 +22,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Map;
 
@@ -55,13 +56,22 @@ public class AuthController {
 
             tenantSupport.applyTenant(em);
             AdminUser admin = adminUserRepository.findByEmail(user.getUsername()).orElseThrow();
-            // superadmin no tiene tienda_id; para el panel admin siempre es calzacaribe = 1
-            Long tndId = admin.getTiendaId() != null ? admin.getTiendaId() : 1L;
-            String token = jwtService.generate(admin.getEmail(), admin.getRol(), tndId);
+            if (admin.getTiendaId() == null) {
+                // Un superadmin (tienda_id NULL por diseño, ver chk_admin_users_superadmin) NUNCA
+                // debe recibir automáticamente el tenant 1 — el plan multi-tenant exige selección
+                // explícita y auditada de la tienda sobre la que va a actuar (§11.2), algo que
+                // todavía no existe como flujo propio. Hasta que se construya, este login rechaza
+                // en vez de emitir un JWT con un tenant que el superadmin no eligió — es preferible
+                // a repetir el bug de asumir "calzacaribe = 1" silenciosamente.
+                rateLimiter.registrarFallo(identificador);
+                throw new ResponseStatusException(HttpStatus.NOT_IMPLEMENTED,
+                        "El acceso de superadministrador requiere seleccionar explícitamente una tienda — ese flujo aún no está implementado.");
+            }
+            String token = jwtService.generate(admin.getEmail(), admin.getRol(), admin.getTiendaId());
 
             rateLimiter.registrarExito(identificador);
             return ResponseEntity.ok(new LoginResponse(
-                    token, expirationMs, admin.getEmail(), admin.getNombre(), tndId, admin.getRol()
+                    token, expirationMs, admin.getEmail(), admin.getNombre(), admin.getTiendaId(), admin.getRol()
             ));
 
         } catch (AuthenticationException e) {

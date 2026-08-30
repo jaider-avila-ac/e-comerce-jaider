@@ -59,6 +59,29 @@ public class TiendaConfigService {
             }
             tienda.setEmailNotificacionPedidos(email.isBlank() ? null : email);
         }
+        if (req.emailContacto() != null) {
+            String email = req.emailContacto().trim();
+            if (!email.isBlank() && !email.matches("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Correo de contacto inválido");
+            }
+            tienda.setEmailContacto(email.isBlank() ? null : email);
+        }
+        if (req.razonSocial() != null) {
+            String v = req.razonSocial().trim();
+            tienda.setRazonSocial(v.isBlank() ? null : v);
+        }
+        if (req.nit() != null) {
+            String v = req.nit().trim();
+            tienda.setNit(v.isBlank() ? null : v);
+        }
+        if (req.colorPrincipal() != null) {
+            String v = req.colorPrincipal().trim();
+            if (!v.isBlank() && !v.matches("^#[0-9A-Fa-f]{6}$")) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "El color debe ser hexadecimal de 6 dígitos, ej. #1A2B3C");
+            }
+            tienda.setColorPrincipal(v.isBlank() ? null : v);
+        }
 
         repo.save(tienda);
         return toResponse(tienda);
@@ -80,7 +103,11 @@ public class TiendaConfigService {
                 tienda.getEnvioGratisDesdeCentavos() / 100L,
                 tienda.getEnvioCostoCentavos() / 100L,
                 tienda.getDominioStaff(),
-                tienda.getEmailNotificacionPedidos()
+                tienda.getEmailNotificacionPedidos(),
+                tienda.getRazonSocial(),
+                tienda.getNit(),
+                tienda.getEmailContacto(),
+                tienda.getColorPrincipal()
         );
     }
 }

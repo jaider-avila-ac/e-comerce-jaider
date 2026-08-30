@@ -28,8 +28,21 @@ public class Tienda {
     @Column(name = "tnd_nombre", nullable = false, length = 120)
     private String nombre;
 
+    // Identidad legal (§4.1) — distinta del nombre comercial, para el pie de los correos
+    // transaccionales y cualquier dato fiscal que deba mostrarse. Nullable: no toda tienda la
+    // tiene cargada todavía (se completa desde el panel, TiendaConfigService).
+    @Column(name = "tnd_razon_social", length = 200)
+    private String razonSocial;
+
+    @Column(name = "tnd_nit", length = 30)
+    private String nit;
+
     @Column(name = "tnd_logo_url", length = 512)
     private String logoUrl;
+
+    // Color de marca en hex (#RRGGBB) usado en las plantillas de correo (§8.3 TenantBrandingContext).
+    @Column(name = "tnd_color_principal", length = 7)
+    private String colorPrincipal;
 
     @Column(name = "tnd_moneda", nullable = false, length = 3)
     private String moneda = "COP";
@@ -74,6 +87,11 @@ public class Tienda {
     // Null/blank = no enviar ningún correo (además de la notificación in-app que ya existe).
     @Column(name = "tnd_email_notificacion_pedidos", length = 255)
     private String emailNotificacionPedidos;
+
+    // Correo de atención al cliente (§4.2/§8.3) — el que ve el COMPRADOR en los correos
+    // transaccionales. Distinto de emailNotificacionPedidos, que es para uso interno del staff.
+    @Column(name = "tnd_email_contacto", length = 255)
+    private String emailContacto;
 
     @Column(name = "tnd_activo", nullable = false)
     private boolean activo = true;
