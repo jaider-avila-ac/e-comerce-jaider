@@ -1,5 +1,6 @@
 package jaider.ecommerce.infra;
 
+import jaider.ecommerce.shared.TenantCircuitBreaker;
 import jaider.ecommerce.shared.TenantMetrics;
 import jaider.ecommerce.tienda.TenantBrandingContext;
 import jaider.ecommerce.tienda.TenantBrandingResolver;
@@ -22,6 +23,7 @@ public class ResendEmailService {
     private final TenantIntegrationResolver integrationResolver;
     private final TenantBrandingResolver brandingResolver;
     private final TenantMetrics metrics;
+    private final TenantCircuitBreaker circuitBreaker;
 
     // Override de desarrollo: redirige TODO correo transaccional (verificación, reset, etc.) a
     // esta dirección sin importar el tenant — no es un secreto de integración de ninguna tienda,
@@ -198,7 +200,17 @@ public class ResendEmailService {
         return (emailOverride != null && !emailOverride.isBlank()) ? emailOverride : original;
     }
 
+    private static final String PROVEEDOR = "resend";
+
     private void send(Long tndId, String to, String subject, String html) {
+        if (circuitBreaker.abierto(tndId, PROVEEDOR)) {
+            // Ya se sabe que Resend está fallando para esta tienda — ni se intenta la llamada,
+            // evita esperar otro timeout inútil (§14). Mismo comportamiento observable para
+            // quien llamó (el correo simplemente no sale) que un fallo normal.
+            log.warn("[EMAIL] tenant={} circuito abierto para Resend, no se intenta enviar a={}", tndId, to);
+            metrics.emailFallido(tndId);
+            return;
+        }
         try {
             ResendCredentials creds = integrationResolver.emailCredentials(tndId);
             RestClient.create()
@@ -215,9 +227,11 @@ public class ResendEmailService {
                     .retrieve()
                     .toBodilessEntity();
             log.info("[EMAIL] tenant={} enviado a={} asunto={}", tndId, to, subject);
+            circuitBreaker.registrarExito(tndId, PROVEEDOR);
         } catch (Exception e) {
             log.error("[EMAIL] tenant={} error enviando a={}: {}", tndId, to, e.getMessage());
             metrics.emailFallido(tndId);
+            circuitBreaker.registrarFallo(tndId, PROVEEDOR);
         }
     }
 }

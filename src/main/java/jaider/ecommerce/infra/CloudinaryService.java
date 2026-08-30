@@ -1,6 +1,7 @@
 package jaider.ecommerce.infra;
 
 import com.cloudinary.utils.ObjectUtils;
+import jaider.ecommerce.shared.TenantCircuitBreaker;
 import jaider.ecommerce.tienda.TiendaRepository;
 import jaider.ecommerce.tienda.integracion.TenantCloudinaryClients;
 import lombok.RequiredArgsConstructor;
@@ -16,8 +17,11 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class CloudinaryService {
 
+    private static final String PROVEEDOR = "cloudinary";
+
     private final TenantCloudinaryClients clientes;
     private final TiendaRepository tiendaRepo;
+    private final TenantCircuitBreaker circuitBreaker;
 
     /**
      * @param productId  ID del producto (null cuando aún no se ha creado — se usa carpeta "new")
@@ -50,6 +54,13 @@ public class CloudinaryService {
     }
 
     private String uploadToFolder(MultipartFile file, Long tndId, String subfolder, boolean esVideo) throws IOException {
+        if (circuitBreaker.abierto(tndId, PROVEEDOR)) {
+            // Ya se sabe que Cloudinary está fallando para esta tienda — mismo IOException que
+            // cualquier otro fallo de subida, para que el llamador (UploadController) lo trate
+            // exactamente igual (§14: no esperar otro timeout inútil).
+            throw new IOException("Cloudinary no disponible temporalmente para esta tienda");
+        }
+
         String slug = tiendaRepo.findById(tndId)
                 .map(t -> t.getSlug())
                 .orElse("default");
@@ -69,7 +80,14 @@ public class CloudinaryService {
                         "quality",       "auto",
                         "fetch_format",  "auto");
 
-        Map<?, ?> result = clientes.get(tndId).uploader().upload(file.getBytes(), params);
+        Map<?, ?> result;
+        try {
+            result = clientes.get(tndId).uploader().upload(file.getBytes(), params);
+        } catch (IOException e) {
+            circuitBreaker.registrarFallo(tndId, PROVEEDOR);
+            throw e;
+        }
+        circuitBreaker.registrarExito(tndId, PROVEEDOR);
 
         String url = (String) result.get("secure_url");
         log.info("Archivo ({}) subido a Cloudinary en {}: {}", resourceType, folder, url);
@@ -87,14 +105,20 @@ public class CloudinaryService {
      */
     public void delete(String url, Long tndId) {
         if (url == null || url.isBlank()) return;
+        if (circuitBreaker.abierto(tndId, PROVEEDOR)) {
+            log.warn("No se intenta eliminar de Cloudinary (circuito abierto para tenant={}): {}", tndId, url);
+            return;
+        }
         try {
             String resourceType = url.contains("/video/upload/") ? "video" : "image";
             String publicId = extractPublicId(url);
             if (publicId == null) return;
             clientes.get(tndId).uploader().destroy(publicId, ObjectUtils.asMap("resource_type", resourceType));
             log.info("Archivo eliminado de Cloudinary: {}", publicId);
+            circuitBreaker.registrarExito(tndId, PROVEEDOR);
         } catch (Exception e) {
             log.warn("No se pudo eliminar de Cloudinary la url {}: {}", url, e.getMessage());
+            circuitBreaker.registrarFallo(tndId, PROVEEDOR);
         }
     }
 
@@ -102,11 +126,17 @@ public class CloudinaryService {
      *  último archivo de la carpeta dedicada de un producto. Nunca lanza. */
     public void deleteFolder(String folder, Long tndId) {
         if (folder == null || folder.isBlank()) return;
+        if (circuitBreaker.abierto(tndId, PROVEEDOR)) {
+            log.warn("No se intenta borrar carpeta de Cloudinary (circuito abierto para tenant={}): {}", tndId, folder);
+            return;
+        }
         try {
             clientes.get(tndId).api().deleteFolder(folder, ObjectUtils.emptyMap());
             log.info("Carpeta eliminada de Cloudinary: {}", folder);
+            circuitBreaker.registrarExito(tndId, PROVEEDOR);
         } catch (Exception e) {
             log.warn("No se pudo eliminar la carpeta de Cloudinary {}: {}", folder, e.getMessage());
+            circuitBreaker.registrarFallo(tndId, PROVEEDOR);
         }
     }
 
