@@ -162,9 +162,9 @@ ALTER TABLE tiendas ADD CONSTRAINT chk_tiendas_secret_alias_formato CHECK (tnd_s
 -- TenantDomainResolver + TenantInterceptor). Sin RLS a propósito — igual que `tiendas`, tiene
 -- que poder leerse ANTES de que exista contexto de tenant (es la tabla que lo resuelve).
 --
--- IMPORTANTE: el dominio real del storefront de Calzado Caribe (calzacaribe.com /
--- www.calzacaribe.com) es una INFERENCIA a partir de tnd_dominio_staff — el usuario debe
--- confirmar o corregir esto antes de aplicarlo en el VPS.
+-- Dominio real del storefront confirmado por el usuario (2026-08-30): tienda.calzacaribe.com
+-- (la primera inferencia, calzacaribe.com/www.calzacaribe.com a partir de tnd_dominio_staff,
+-- era incorrecta — corregido).
 --
 -- También hace falta que el proxy de la tienda (tienda/nginx.conf, location = /sitemap.xml)
 -- mande X-Forwarded-Host con el dominio real del storefront — hoy solo reescribe Host al
@@ -185,10 +185,8 @@ CREATE INDEX idx_tienda_dominios_tnd_id ON tienda_dominios(tdo_tnd_id);
 GRANT SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER ON TABLE tienda_dominios TO calzacaribe_usr;
 GRANT SELECT,USAGE ON SEQUENCE tienda_dominios_tdo_id_seq TO calzacaribe_usr;
 
--- CONFIRMAR el dominio real antes de correr esto en el VPS (ver nota arriba).
 INSERT INTO tienda_dominios (tdo_tnd_id, tdo_dominio, tdo_principal, tdo_activo) VALUES
-  (1, 'calzacaribe.com', true, true),
-  (1, 'www.calzacaribe.com', false, true);
+  (1, 'tienda.calzacaribe.com', true, true);
 
 -- ============================================================================
 -- 2026-08-30 — Fase 2 (§4.1/§4.2/§8.3): campos de identidad de marca para el
