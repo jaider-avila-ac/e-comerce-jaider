@@ -55,3 +55,63 @@ ALTER TABLE usuarios ADD CONSTRAINT uq_usuarios_google_id_tnd UNIQUE (usr_tnd_id
 
 ALTER TABLE pedidos DROP CONSTRAINT pedidos_ped_numero_key;
 ALTER TABLE pedidos ADD CONSTRAINT uq_pedidos_numero_tnd UNIQUE (ped_tnd_id, ped_numero);
+
+-- ============================================================================
+-- 2026-08-30 — Fase 0 (§10.1): separación de roles Postgres.
+--
+-- Antes: calzacaribe_usr (el rol que usa la API) era DUEÑO de todas las tablas,
+-- justo lo que el plan pide evitar ("ecommerce_app... No debe ser propietario
+-- de las tablas"). El riesgo real de esto (que el dueño se salte RLS) ya se
+-- había cerrado forzando RLS en todas las tablas, pero seguía sin cumplir la
+-- separación de roles que pide la sección 10.1.
+--
+-- IMPORTANTE antes de correr esto en el VPS:
+--   1. Cambiar las dos contraseñas de más abajo (son placeholders locales).
+--   2. Correrlo completo en una sola sesión/transacción — REASSIGN OWNED
+--      mueve TODO lo que sea dueño calzacaribe_usr (tablas, vistas,
+--      funciones, secuencias) a ecommerce_owner de un solo golpe; si algo
+--      queda a medias, el segundo bloque (los GRANT explícitos) es el que
+--      le devuelve a calzacaribe_usr lo que necesita para seguir operando.
+--   3. Reiniciar el backend después (pool de conexiones/planes cacheados).
+--   4. Verificar con un smoke test amplio (login, listar pedidos/productos/
+--      categorías/colecciones, crear un producto, catálogo público, sitemap)
+--      antes de dar por buena la migración — se probó así en local y todo
+--      siguió funcionando igual, pero el VPS es la base real.
+--
+-- No se le da BYPASSRLS a ecommerce_owner — las migraciones que necesiten ver
+-- todos los tenants a la vez se siguen haciendo con el superusuario `postgres`
+-- (igual que ya se hacía antes, ver memoria del proyecto), no con este rol.
+-- ============================================================================
+CREATE ROLE ecommerce_owner LOGIN PASSWORD 'CAMBIAR_ANTES_DE_USAR_EN_VPS';
+CREATE ROLE ecommerce_readonly LOGIN PASSWORD 'CAMBIAR_ANTES_DE_USAR_EN_VPS';
+GRANT USAGE ON SCHEMA public TO calzacaribe_usr, ecommerce_readonly;
+
+REASSIGN OWNED BY calzacaribe_usr TO ecommerce_owner;
+
+DO $$
+DECLARE r RECORD;
+BEGIN
+  FOR r IN SELECT tablename FROM pg_tables WHERE schemaname='public' LOOP
+    EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON TABLE public.%I TO calzacaribe_usr', r.tablename);
+    EXECUTE format('GRANT SELECT ON TABLE public.%I TO ecommerce_readonly', r.tablename);
+  END LOOP;
+  FOR r IN SELECT sequence_name FROM information_schema.sequences WHERE sequence_schema='public' LOOP
+    EXECUTE format('GRANT SELECT, USAGE ON SEQUENCE public.%I TO calzacaribe_usr', r.sequence_name);
+    EXECUTE format('GRANT SELECT ON SEQUENCE public.%I TO ecommerce_readonly', r.sequence_name);
+  END LOOP;
+  -- Las vistas (v_categorias_activas, v_inventario_simple, v_subcategorias_activas,
+  -- v_variantes_con_stock) NO están en pg_tables — hay que concederlas aparte.
+  FOR r IN SELECT viewname FROM pg_views WHERE schemaname='public' LOOP
+    EXECUTE format('GRANT SELECT ON TABLE public.%I TO calzacaribe_usr', r.viewname);
+    EXECUTE format('GRANT SELECT ON TABLE public.%I TO ecommerce_readonly', r.viewname);
+  END LOOP;
+END $$;
+
+-- Para que las próximas tablas/vistas que cree ecommerce_owner (vía migraciones futuras)
+-- ya nazcan con estos permisos, sin tener que acordarse del GRANT manual cada vez.
+ALTER DEFAULT PRIVILEGES FOR ROLE ecommerce_owner IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON TABLES TO calzacaribe_usr;
+ALTER DEFAULT PRIVILEGES FOR ROLE ecommerce_owner IN SCHEMA public
+  GRANT SELECT, USAGE ON SEQUENCES TO calzacaribe_usr;
+ALTER DEFAULT PRIVILEGES FOR ROLE ecommerce_owner IN SCHEMA public
+  GRANT SELECT ON TABLES TO ecommerce_readonly;
