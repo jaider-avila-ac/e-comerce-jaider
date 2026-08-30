@@ -149,7 +149,7 @@ public class NotificacionService {
             long totalPesos = ((Number) row[0]).longValue() / 100L;
             String clienteNombre = (String) row[1];
 
-            emailService.sendNuevoPedido(emailDestino, numero, clienteNombre, totalPesos);
+            emailService.sendNuevoPedido(tndId, emailDestino, numero, clienteNombre, totalPesos);
         } catch (Exception e) {
             log.warn("[Notificaciones] No se pudo enviar aviso por correo del pedido {} en tienda {}: {}",
                     numero, tndId, e.getMessage());
@@ -217,7 +217,7 @@ public class NotificacionService {
             }
             String metodoPagoLabel = metodoPago != null ? METODO_PAGO_LABEL.getOrDefault(metodoPago, metodoPago) : null;
 
-            emailService.sendConfirmacionCompra(email, nombre, numero, items, direccion, metodoPagoLabel, totalPesos);
+            emailService.sendConfirmacionCompra(tndId, email, nombre, numero, items, direccion, metodoPagoLabel, totalPesos);
         } catch (Exception e) {
             log.warn("[Notificaciones] No se pudo enviar la confirmación de compra del pedido {} en tienda {}: {}",
                     numero, tndId, e.getMessage());

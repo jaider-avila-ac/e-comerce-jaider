@@ -37,6 +37,13 @@ public class TenantIntegrationResolver {
                 requireEnv(alias, "CLOUDINARY", "API_SECRET"));
     }
 
+    public ResendCredentials emailCredentials(Long tndId) {
+        String alias = resolveAlias(tndId);
+        return new ResendCredentials(
+                requireEnv(alias, "RESEND", "API_KEY"),
+                requireEnv(alias, "RESEND", "FROM"));
+    }
+
     private String resolveAlias(Long tndId) {
         return tiendaRepo.findById(tndId)
                 .map(Tienda::getSecretAlias)

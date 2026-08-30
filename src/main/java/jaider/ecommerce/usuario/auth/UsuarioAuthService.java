@@ -110,7 +110,7 @@ public class UsuarioAuthService {
                 .setParameter("tndId", tndId)
                 .executeUpdate();
 
-        emailService.sendVerification(email, nombre, code);
+        emailService.sendVerification(tndId, email, nombre, code);
         log.info("[PRE-REGISTER] email={} tndId={} — código enviado", email, tndId);
     }
 
@@ -300,7 +300,7 @@ public class UsuarioAuthService {
                 .setParameter("tndId", tndId)
                 .executeUpdate();
 
-        emailService.sendVerification(normalizedEmail, nombre, newCode);
+        emailService.sendVerification(tndId, normalizedEmail, nombre, newCode);
         log.info("[RESEND-CODE] email={} tndId={}", normalizedEmail, tndId);
     }
 
@@ -449,7 +449,7 @@ public class UsuarioAuthService {
                 .executeUpdate();
 
         String[] perfil = getPerfil(usuario.getId());
-        emailService.sendPasswordReset(email, perfil[0], code);
+        emailService.sendPasswordReset(tndId, email, perfil[0], code);
         log.info("[FORGOT-PASSWORD] email={} tndId={}", email, tndId);
     }
 

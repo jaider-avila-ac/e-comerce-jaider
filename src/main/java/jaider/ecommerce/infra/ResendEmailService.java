@@ -1,5 +1,8 @@
 package jaider.ecommerce.infra;
 
+import jaider.ecommerce.tienda.integracion.ResendCredentials;
+import jaider.ecommerce.tienda.integracion.TenantIntegrationResolver;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -10,18 +13,19 @@ import java.util.Map;
 
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class ResendEmailService {
 
-    @Value("${resend.api-key}")
-    private String apiKey;
+    private final TenantIntegrationResolver integrationResolver;
 
-    @Value("${resend.from}")
-    private String from;
-
+    // Override de desarrollo: redirige TODO correo transaccional (verificación, reset, etc.) a
+    // esta dirección sin importar el tenant — no es un secreto de integración de ninguna tienda,
+    // es una red de seguridad para no mandarle correos reales a clientes durante pruebas, así que
+    // se queda como una única variable global (no por tenant).
     @Value("${email.override:}")
     private String emailOverride;
 
-    public void sendVerification(String to, String nombre, String code) {
+    public void sendVerification(Long tndId, String to, String nombre, String code) {
         String recipient = override(to);
         String html = """
             <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#fff">
@@ -31,10 +35,10 @@ public class ResendEmailService {
               <p style="color:#888;font-size:13px;margin-top:20px">Este código expira en <strong>5 minutos</strong>. Si no solicitaste este código, ignora este mensaje.</p>
             </div>
             """.formatted(nombre != null && !nombre.isBlank() ? ", " + nombre : "", code);
-        send(recipient, "Tu código de verificación — Calzacaribe", html);
+        send(tndId, recipient, "Tu código de verificación — Calzacaribe", html);
     }
 
-    public void sendPasswordReset(String to, String nombre, String code) {
+    public void sendPasswordReset(Long tndId, String to, String nombre, String code) {
         String recipient = override(to);
         String html = """
             <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#fff">
@@ -44,7 +48,7 @@ public class ResendEmailService {
               <p style="color:#888;font-size:13px;margin-top:20px">Este código expira en <strong>5 minutos</strong>. Si no lo solicitaste, puedes ignorar este mensaje.</p>
             </div>
             """.formatted(nombre != null && !nombre.isBlank() ? ", " + nombre : "", code);
-        send(recipient, "Restablecer contraseña — Calzacaribe", html);
+        send(tndId, recipient, "Restablecer contraseña — Calzacaribe", html);
     }
 
     /** Resumen de un ítem del pedido, ya en pesos (no centavos), para el correo de confirmación. */
@@ -56,7 +60,7 @@ public class ResendEmailService {
      *  el resumen congelado del pedido — ítems, dirección (si aplica), método y total — para que
      *  el cliente tenga constancia sin depender de volver a entrar a la app (RF-031).
      *  direccion puede venir vacío (ventas locales no pasan por acá, pero por si acaso). */
-    public void sendConfirmacionCompra(String to, String nombre, String numero,
+    public void sendConfirmacionCompra(Long tndId, String to, String nombre, String numero,
                                         List<ItemResumenEmail> items, Map<String, Object> direccion,
                                         String metodoPagoLabel, long totalPesos) {
         String recipient = override(to);
@@ -97,7 +101,7 @@ public class ResendEmailService {
                         metodoPagoLabel != null ? metodoPagoLabel : "No especificado",
                         direccionHtml);
 
-        send(recipient, "Confirmamos tu pedido " + numero + " — Calzacaribe", html);
+        send(tndId, recipient, "Confirmamos tu pedido " + numero + " — Calzacaribe", html);
     }
 
     private String direccionTexto(Map<String, Object> direccion) {
@@ -127,7 +131,7 @@ public class ResendEmailService {
 
     /** Aviso al correo que el admin configuró en Ajustes — no usa override() a propósito:
      *  ese correo lo eligió el propio admin, no es un dato de un cliente de prueba. */
-    public void sendNuevoPedido(String to, String numero, String clienteNombre, long totalPesos) {
+    public void sendNuevoPedido(Long tndId, String to, String numero, String clienteNombre, long totalPesos) {
         String totalFmt = String.format("$%,d", totalPesos).replace(',', '.');
         String html = """
             <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#fff">
@@ -139,31 +143,32 @@ public class ResendEmailService {
             </div>
             """.formatted(clienteNombre != null && !clienteNombre.isBlank() ? clienteNombre : "Un cliente",
                     totalFmt, numero);
-        send(to, "Nuevo pedido — " + numero, html);
+        send(tndId, to, "Nuevo pedido — " + numero, html);
     }
 
     private String override(String original) {
         return (emailOverride != null && !emailOverride.isBlank()) ? emailOverride : original;
     }
 
-    private void send(String to, String subject, String html) {
+    private void send(Long tndId, String to, String subject, String html) {
         try {
+            ResendCredentials creds = integrationResolver.emailCredentials(tndId);
             RestClient.create()
                     .post()
                     .uri("https://api.resend.com/emails")
-                    .header("Authorization", "Bearer " + apiKey)
+                    .header("Authorization", "Bearer " + creds.apiKey())
                     .header("Content-Type", "application/json")
                     .body(Map.of(
-                            "from", from,
+                            "from", creds.from(),
                             "to", List.of(to),
                             "subject", subject,
                             "html", html
                     ))
                     .retrieve()
                     .toBodilessEntity();
-            log.info("[EMAIL] enviado a={} asunto={}", to, subject);
+            log.info("[EMAIL] tenant={} enviado a={} asunto={}", tndId, to, subject);
         } catch (Exception e) {
-            log.error("[EMAIL] error enviando a={}: {}", to, e.getMessage());
+            log.error("[EMAIL] tenant={} error enviando a={}: {}", tndId, to, e.getMessage());
         }
     }
 }
