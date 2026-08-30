@@ -1,5 +1,6 @@
 package jaider.ecommerce.pedido;
 
+import jaider.ecommerce.shared.TenantMetrics;
 import jaider.ecommerce.shared.interceptor.TenantContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -14,6 +15,7 @@ import org.springframework.stereotype.Component;
 public class PedidoAutoConfirmacionScheduler {
 
     private final PedidoAutoConfirmacionService service;
+    private final TenantMetrics metrics;
 
     @Scheduled(cron = "0 0 * * * *") // cada hora, en punto
     public void ejecutar() {
@@ -27,6 +29,7 @@ public class PedidoAutoConfirmacionScheduler {
                 }
             } catch (Exception e) {
                 log.warn("[Auto-confirmación] error en tienda {}: {}", tndId, e.getMessage());
+                metrics.jobFallido("pedido_auto_confirmacion");
             } finally {
                 TenantContext.clear();
             }

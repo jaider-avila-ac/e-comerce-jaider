@@ -1,6 +1,8 @@
 package jaider.ecommerce.pago.wompi;
 
 import jaider.ecommerce.pago.service.PaymentGateway;
+import jaider.ecommerce.shared.TenantCircuitBreaker;
+import jaider.ecommerce.shared.TenantMetrics;
 import jaider.ecommerce.tienda.integracion.TenantIntegrationResolver;
 import jaider.ecommerce.tienda.integracion.WompiCredentials;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +25,8 @@ import java.time.Duration;
 public class WompiGatewayFactory {
 
     private final TenantIntegrationResolver integrationResolver;
+    private final TenantCircuitBreaker circuitBreaker;
+    private final TenantMetrics metrics;
 
     // HttpClient es seguro para compartir entre hilos y tenants — no guarda credenciales, cada
     // request las lleva en su propio header Authorization armado por la instancia de WompiService
@@ -34,6 +38,6 @@ public class WompiGatewayFactory {
 
     public PaymentGateway forTenant(Long tndId) {
         WompiCredentials credentials = integrationResolver.paymentCredentials(tndId);
-        return new WompiService(credentials, httpClient);
+        return new WompiService(credentials, httpClient, tndId, circuitBreaker, metrics);
     }
 }

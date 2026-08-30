@@ -36,6 +36,14 @@ public class TenantInterceptor implements HandlerInterceptor {
 
     private final TenantDomainResolver domainResolver;
 
+    /** Nombre del atributo del request donde queda el tenant ya resuelto — a diferencia de
+     *  TenantContext (ThreadLocal, se limpia en afterCompletion), un atributo del request vive
+     *  mientras dure el objeto HttpServletRequest, así que sigue disponible cuando Micrometer
+     *  cierra la Observation de la solicitud (después de afterCompletion). Ver
+     *  TenantServerRequestObservationConvention, que lo usa para etiquetar http.server.requests
+     *  por tenant sin depender de un timing de ThreadLocal. */
+    public static final String REQUEST_ATTR_TENANT = "jaider.ecommerce.tenant";
+
     @Override
     public boolean preHandle(@NonNull HttpServletRequest request,
                              @NonNull HttpServletResponse response,
@@ -49,6 +57,7 @@ public class TenantInterceptor implements HandlerInterceptor {
                 throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                         "El tenant del token no coincide con X-Tenant-Id");
             }
+            request.setAttribute(REQUEST_ATTR_TENANT, jwtTenantId);
             return true;
         }
 
@@ -57,6 +66,9 @@ public class TenantInterceptor implements HandlerInterceptor {
             TenantContext.set(tndIdPorDominio.get().toString());
         } else if (headerTenantId != null && !headerTenantId.isBlank()) {
             TenantContext.set(headerTenantId.trim());
+        }
+        if (TenantContext.get() != null) {
+            request.setAttribute(REQUEST_ATTR_TENANT, TenantContext.get());
         }
         return true;
     }

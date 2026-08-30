@@ -7,6 +7,8 @@ import jaider.ecommerce.pago.dto.ResultadoReembolso;
 import jaider.ecommerce.pago.dto.WebhookTransactionEvent;
 import jaider.ecommerce.pago.dto.WompiAcceptanceTokensDto;
 import jaider.ecommerce.pago.service.PaymentGateway;
+import jaider.ecommerce.shared.TenantCircuitBreaker;
+import jaider.ecommerce.shared.TenantMetrics;
 import jaider.ecommerce.tienda.integracion.WompiCredentials;
 import lombok.extern.slf4j.Slf4j;
 
@@ -43,6 +45,7 @@ import java.util.UUID;
 public class WompiService implements PaymentGateway {
 
     private static final String CHECKOUT_URL = "https://checkout.wompi.co/p/";
+    private static final String PROVEEDOR = "wompi";
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final String publicKey;
@@ -50,13 +53,20 @@ public class WompiService implements PaymentGateway {
     private final String integrityKey;
     private final String eventsKey;
     private final HttpClient httpClient;
+    private final Long tndId;
+    private final TenantCircuitBreaker circuitBreaker;
+    private final TenantMetrics metrics;
 
-    public WompiService(WompiCredentials credentials, HttpClient httpClient) {
+    public WompiService(WompiCredentials credentials, HttpClient httpClient, Long tndId,
+                         TenantCircuitBreaker circuitBreaker, TenantMetrics metrics) {
         this.publicKey = credentials.publicKey();
         this.privateKey = credentials.privateKey();
         this.integrityKey = credentials.integrityKey();
         this.eventsKey = credentials.eventsKey();
         this.httpClient = httpClient;
+        this.tndId = tndId;
+        this.circuitBreaker = circuitBreaker;
+        this.metrics = metrics;
     }
 
     // ── Referencia única ──────────────────────────────────────────────────
@@ -166,6 +176,10 @@ public class WompiService implements PaymentGateway {
 
     @Override
     public Optional<WebhookTransactionEvent> consultarTransaccion(String referencia) {
+        if (circuitBreaker.abierto(tndId, PROVEEDOR)) {
+            log.warn("[Reconciliación] circuito abierto para Wompi (tenant={}), no se consulta ref {}", tndId, referencia);
+            return Optional.empty();
+        }
         String url = wompiBase() + "/transactions?reference=" + encode(referencia);
         try {
             HttpRequest req = HttpRequest.newBuilder()
@@ -177,16 +191,19 @@ public class WompiService implements PaymentGateway {
             HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
             if (resp.statusCode() != 200) {
                 log.warn("[Reconciliación] Wompi retornó HTTP {} para referencia {}", resp.statusCode(), referencia);
+                registrarFallo("consultar_transaccion");
                 return Optional.empty();
             }
 
             JsonNode root = MAPPER.readTree(resp.body());
             JsonNode data = root.path("data");
             if (!data.isArray() || data.isEmpty()) {
+                circuitBreaker.registrarExito(tndId, PROVEEDOR);
                 return Optional.empty();
             }
 
             JsonNode tx = data.get(0);
+            circuitBreaker.registrarExito(tndId, PROVEEDOR);
             return Optional.of(new WebhookTransactionEvent(
                     "transaction.updated",
                     tx.path("status").asText(null),
@@ -198,6 +215,7 @@ public class WompiService implements PaymentGateway {
             ));
         } catch (Exception e) {
             log.error("[Reconciliación] Error consultando Wompi para ref {}: {}", referencia, e.getMessage());
+            registrarFallo("consultar_transaccion");
             return Optional.empty();
         }
     }
@@ -206,6 +224,9 @@ public class WompiService implements PaymentGateway {
 
     @Override
     public WompiAcceptanceTokensDto obtenerTokensAceptacion() {
+        if (circuitBreaker.abierto(tndId, PROVEEDOR)) {
+            throw new RuntimeException("Wompi no disponible temporalmente para esta tienda (circuito abierto)");
+        }
         String url = wompiBase() + "/merchants/" + encode(publicKey);
         try {
             HttpRequest req = HttpRequest.newBuilder()
@@ -221,9 +242,11 @@ public class WompiService implements PaymentGateway {
             String authTok = data.path("presigned_personal_data_auth").path("acceptance_token").asText(null);
             String authLink = data.path("presigned_personal_data_auth").path("permalink").asText(null);
 
+            circuitBreaker.registrarExito(tndId, PROVEEDOR);
             return new WompiAcceptanceTokensDto(wompiBase(), publicKey, acceptTok, acceptLink, authTok, authLink);
         } catch (Exception e) {
             log.error("[Wompi] Error obteniendo tokens de aceptación: {}", e.getMessage());
+            registrarFallo("tokens_aceptacion");
             throw new RuntimeException("No se pudo obtener los tokens de aceptación de Wompi", e);
         }
     }
@@ -233,6 +256,9 @@ public class WompiService implements PaymentGateway {
                                  String acceptanceToken, String personalAuthToken) {
         if (privateKey == null || privateKey.isBlank()) {
             throw new IllegalStateException("WOMPI_PRIVATE_KEY no configurada — el pago con tarjeta no está disponible");
+        }
+        if (circuitBreaker.abierto(tndId, PROVEEDOR)) {
+            throw new RuntimeException("Wompi no disponible temporalmente para esta tienda (circuito abierto)");
         }
         String url = wompiBase() + "/payment_sources";
         String body = MAPPER.createObjectNode()
@@ -254,16 +280,22 @@ public class WompiService implements PaymentGateway {
             JsonNode root = MAPPER.readTree(resp.body());
             if (resp.statusCode() != 200 && resp.statusCode() != 201) {
                 log.error("[Wompi] Error creando fuente de pago HTTP {}: {}", resp.statusCode(), resp.body());
+                registrarFallo("crear_fuente_pago");
                 throw new RuntimeException("Wompi rechazó la fuente de pago: " + resp.statusCode());
             }
             long psId = root.path("data").path("id").asLong(-1);
-            if (psId <= 0) throw new RuntimeException("Wompi no retornó un ID de fuente de pago válido");
+            if (psId <= 0) {
+                registrarFallo("crear_fuente_pago");
+                throw new RuntimeException("Wompi no retornó un ID de fuente de pago válido");
+            }
             log.info("[Wompi] Fuente de pago creada: id={} email={}", psId, customerEmail);
+            circuitBreaker.registrarExito(tndId, PROVEEDOR);
             return psId;
         } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {
             log.error("[Wompi] Error HTTP creando fuente de pago: {}", e.getMessage());
+            registrarFallo("crear_fuente_pago");
             throw new RuntimeException("Error de red al crear fuente de pago en Wompi", e);
         }
     }
@@ -273,6 +305,9 @@ public class WompiService implements PaymentGateway {
                                                    long amountCentavos, String referencia) {
         if (privateKey == null || privateKey.isBlank()) {
             throw new IllegalStateException("WOMPI_PRIVATE_KEY no configurada");
+        }
+        if (circuitBreaker.abierto(tndId, PROVEEDOR)) {
+            throw new RuntimeException("Wompi no disponible temporalmente para esta tienda (circuito abierto)");
         }
         String url = wompiBase() + "/transactions";
         String body;
@@ -304,17 +339,23 @@ public class WompiService implements PaymentGateway {
             JsonNode root = MAPPER.readTree(resp.body());
 
             if (resp.statusCode() == 422 || resp.statusCode() == 400) {
+                // Rechazo de NEGOCIO (tarjeta inválida, fondos insuficientes, etc.) — Wompi SÍ
+                // respondió correctamente, así que esto NO cuenta como fallo de integración para
+                // el circuit breaker ni la métrica de pago.error (eso dispararía el circuito con
+                // tarjetas rechazadas legítimas, bloqueando a clientes con tarjetas buenas).
                 String errMsg = root.path("error").path("reason").asText(
                         root.path("error").path("type").asText("Error Wompi " + resp.statusCode()));
                 log.warn("[Wompi Tarjeta] HTTP {} para ref {}: {}", resp.statusCode(), referencia, errMsg);
                 boolean invalida = errMsg.toLowerCase().contains("token")
                         || errMsg.toLowerCase().contains("payment_source")
                         || errMsg.toLowerCase().contains("not found");
+                circuitBreaker.registrarExito(tndId, PROVEEDOR);
                 return new CobroTarjetaResultado(null, "ERROR", errMsg, invalida);
             }
 
             if (resp.statusCode() != 200 && resp.statusCode() != 201) {
                 log.error("[Wompi Tarjeta] HTTP {} inesperado para ref {}", resp.statusCode(), referencia);
+                registrarFallo("cobrar_fuente_pago");
                 return new CobroTarjetaResultado(null, "ERROR",
                         "Error inesperado Wompi HTTP " + resp.statusCode(), false);
             }
@@ -325,12 +366,14 @@ public class WompiService implements PaymentGateway {
             String statusMsg = tx.path("status_message").asText(null);
 
             log.info("[Wompi Tarjeta] Cobro ref={} txId={} status={} msg={}", referencia, txId, status, statusMsg);
+            circuitBreaker.registrarExito(tndId, PROVEEDOR);
             return new CobroTarjetaResultado(txId, status, statusMsg, false);
 
         } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {
             log.error("[Wompi Tarjeta] Error de red cobrando ref {}: {}", referencia, e.getMessage());
+            registrarFallo("cobrar_fuente_pago");
             throw new RuntimeException("Error de red al intentar el cobro con tarjeta", e);
         }
     }
@@ -352,6 +395,10 @@ public class WompiService implements PaymentGateway {
         if (gatewayTxId == null || gatewayTxId.isBlank()) {
             return new ResultadoReembolso(false, null, null, "No hay transacción de Wompi asociada a este pago");
         }
+        if (circuitBreaker.abierto(tndId, PROVEEDOR)) {
+            return new ResultadoReembolso(false, null, null,
+                    "Wompi no disponible temporalmente para esta tienda (circuito abierto) — requiere gestión manual");
+        }
 
         String url = wompiBase() + "/transactions/" + encode(gatewayTxId) + "/void";
         try {
@@ -366,6 +413,7 @@ public class WompiService implements PaymentGateway {
 
             if (resp.statusCode() != 200 && resp.statusCode() != 201) {
                 log.warn("[Wompi Reembolso] HTTP {} anulando tx {}: {}", resp.statusCode(), gatewayTxId, resp.body());
+                registrarFallo("reembolso");
                 return new ResultadoReembolso(false, null, resp.body(),
                         "Wompi respondió HTTP " + resp.statusCode() + " — requiere gestión manual");
             }
@@ -376,15 +424,26 @@ public class WompiService implements PaymentGateway {
             boolean exitoso = "VOIDED".equals(status) || "APPROVED".equals(status);
 
             log.info("[Wompi Reembolso] tx={} status={} exitoso={}", gatewayTxId, status, exitoso);
+            // Un estado de negocio no exitoso (ej. ya conciliada, no reembolsable) SÍ es una
+            // respuesta válida de Wompi — no cuenta como fallo de integración.
+            circuitBreaker.registrarExito(tndId, PROVEEDOR);
             return new ResultadoReembolso(exitoso, refundId, resp.body(),
                     exitoso ? null : "Wompi devolvió estado " + status + " — requiere gestión manual");
         } catch (Exception e) {
             log.error("[Wompi Reembolso] Error de red anulando tx {}: {}", gatewayTxId, e.getMessage());
+            registrarFallo("reembolso");
             return new ResultadoReembolso(false, null, null, "Error de red al intentar el reembolso automático");
         }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
+
+    /** Registra fallo tanto en el circuit breaker como en la métrica de errores de pago (§14) —
+     *  un único punto para no repetir las dos llamadas en cada catch. */
+    private void registrarFallo(String operacion) {
+        circuitBreaker.registrarFallo(tndId, PROVEEDOR);
+        metrics.pagoError(tndId, PROVEEDOR, operacion);
+    }
 
     private String wompiBase() {
         return (publicKey != null && publicKey.startsWith("pub_test_"))
