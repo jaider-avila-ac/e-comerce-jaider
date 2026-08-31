@@ -11,10 +11,12 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
+// SUPERADMIN nunca llega hasta acá: SecurityConfig ya lo excluye de todo /api/v1/** salvo
+// /api/v1/superadmin/** y su propia cuenta (me/logout).
 @RestController
 @RequestMapping("/api/v1/reembolsos")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN')")
+@PreAuthorize("hasRole('ADMIN')")
 public class ReembolsoController {
 
     private final ReembolsoService reembolsoService;

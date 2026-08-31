@@ -6,11 +6,13 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
-/** Consulta del registro de auditoría (quién hizo qué) — solo admin/superadmin. */
+/** Consulta del registro de auditoría (quién hizo qué) de la tienda actual — solo admin.
+ *  SUPERADMIN nunca llega hasta acá: SecurityConfig ya lo excluye de todo /api/v1/** salvo
+ *  /api/v1/superadmin/** y su propia cuenta (me/logout). */
 @RestController
 @RequestMapping("/api/v1/auditoria")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN')")
+@PreAuthorize("hasRole('ADMIN')")
 public class AuditoriaController {
 
     private final AuditoriaService service;

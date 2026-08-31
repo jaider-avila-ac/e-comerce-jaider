@@ -67,7 +67,9 @@ public class PedidoController {
 
     @PostMapping("/{id}/corregir-estado")
     @Transactional
-    @PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN')")
+    // SUPERADMIN nunca llega hasta acá: SecurityConfig ya lo excluye de todo /api/v1/** salvo
+    // /api/v1/superadmin/** y su propia cuenta (me/logout).
+    @PreAuthorize("hasRole('ADMIN')")
     public PedidoResponse corregirEstado(@AuthenticationPrincipal UserDetails userDetails,
             @PathVariable Long id, @RequestBody CorregirEstadoRequest req) {
         Long adminId = resolverAdminId(userDetails);
@@ -76,7 +78,9 @@ public class PedidoController {
 
     @PostMapping("/{id}/cancelar")
     @Transactional
-    @PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN')")
+    // SUPERADMIN nunca llega hasta acá: SecurityConfig ya lo excluye de todo /api/v1/** salvo
+    // /api/v1/superadmin/** y su propia cuenta (me/logout).
+    @PreAuthorize("hasRole('ADMIN')")
     public PedidoResponse cancelar(@AuthenticationPrincipal UserDetails userDetails,
             @PathVariable Long id, @RequestBody CancelarPedidoRequest req) {
         Long adminId = resolverAdminId(userDetails);
@@ -92,7 +96,9 @@ public class PedidoController {
 
     @PatchMapping("/{id}/asignar")
     @Transactional
-    @PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN')")
+    // SUPERADMIN nunca llega hasta acá: SecurityConfig ya lo excluye de todo /api/v1/** salvo
+    // /api/v1/superadmin/** y su propia cuenta (me/logout).
+    @PreAuthorize("hasRole('ADMIN')")
     public PedidoResponse asignar(@AuthenticationPrincipal UserDetails userDetails,
             @PathVariable Long id, @RequestBody AsignarPedidoRequest req) {
         Long adminId = resolverAdminId(userDetails);

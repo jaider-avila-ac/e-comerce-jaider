@@ -75,30 +75,37 @@ public class ReporteController {
     }
 
     @GetMapping("/productos-mas-vendidos")
-    @PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN')")
+    // SUPERADMIN nunca llega hasta acá: SecurityConfig ya lo excluye de todo /api/v1/** salvo
+    // /api/v1/superadmin/** y su propia cuenta (me/logout).
+    @PreAuthorize("hasRole('ADMIN')")
     public List<Map<String, Object>> productosMasVendidos(@RequestParam(required = false) String mes,
             @RequestParam(required = false) Long colaboradorId, @RequestParam(required = false) Long sucursalId) {
         return service.productosMasVendidos(mes, colaboradorId, sucursalId);
     }
 
     @GetMapping("/ventas-por-categoria")
-    @PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN')")
+    // SUPERADMIN nunca llega hasta acá: SecurityConfig ya lo excluye de todo /api/v1/** salvo
+    // /api/v1/superadmin/** y su propia cuenta (me/logout).
+    @PreAuthorize("hasRole('ADMIN')")
     public List<Map<String, Object>> ventasPorCategoria(@RequestParam(required = false) String mes,
             @RequestParam(required = false) Long colaboradorId, @RequestParam(required = false) Long sucursalId) {
         return service.ventasPorCategoria(mes, colaboradorId, sucursalId);
     }
 
     @GetMapping("/ventas-por-canal")
-    @PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN')")
+    // SUPERADMIN nunca llega hasta acá: SecurityConfig ya lo excluye de todo /api/v1/** salvo
+    // /api/v1/superadmin/** y su propia cuenta (me/logout).
+    @PreAuthorize("hasRole('ADMIN')")
     public List<Map<String, Object>> ventasPorCanal(@RequestParam(required = false) String mes,
             @RequestParam(required = false) Long colaboradorId, @RequestParam(required = false) Long sucursalId) {
         return service.ventasPorCanal(mes, colaboradorId, sucursalId);
     }
 
+    // SUPERADMIN nunca llega hasta acá (ver arriba), así que solo ROLE_ADMIN cuenta como admin.
     private boolean esAdmin(Authentication auth) {
         if (auth == null) return false;
         return auth.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
-                .anyMatch(a -> a.equals("ROLE_ADMIN") || a.equals("ROLE_SUPERADMIN"));
+                .anyMatch(a -> a.equals("ROLE_ADMIN"));
     }
 }
