@@ -1,7 +1,7 @@
 package jaider.ecommerce.tienda;
 
 public record TiendaConfigResponse(
-        String envioModo,       // "contra_entrega" | "fijo"
+        String envioModo,       // "contra_entrega" | "fijo" | "envia"
         Boolean envioGratisActivo,
         Long envioGratisDesde, // pesos COP
         Long envioCosto,       // pesos COP
@@ -10,5 +10,6 @@ public record TiendaConfigResponse(
         String razonSocial,
         String nit,
         String emailContacto,
-        String colorPrincipal
+        String colorPrincipal,
+        String enviaAmbiente    // "sandbox" | "produccion" — solo importa si envioModo="envia"
 ) {}

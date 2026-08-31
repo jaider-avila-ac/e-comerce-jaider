@@ -12,6 +12,7 @@ import org.springframework.web.server.ResponseStatusException;
 public class TiendaConfigService {
 
     private static final java.util.Set<String> MODOS_ENVIO_VALIDOS = java.util.Set.of("contra_entrega", "fijo");
+    private static final java.util.Set<String> AMBIENTES_ENVIA_VALIDOS = java.util.Set.of("sandbox", "produccion");
 
     private final TiendaRepository repo;
 
@@ -26,6 +27,14 @@ public class TiendaConfigService {
 
         if (req.envioModo() != null) {
             String modo = req.envioModo().trim();
+            // PLAN_INTEGRACION_ENVIA.md: el esquema ya acepta 'envia' (columna + CHECK de BD),
+            // pero el cálculo real es de la Fase 3 — hasta que exista, activarlo dejaría el
+            // checkout cobrando el costo fijo en silencio, como si fuera un envío calculado de
+            // verdad. Se bloquea acá con un mensaje claro, no con el genérico de "modo inválido".
+            if ("envia".equals(modo)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "El envío calculado con Envia todavía no está disponible");
+            }
             if (!MODOS_ENVIO_VALIDOS.contains(modo)) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                         "Modo de envío inválido: " + modo);
@@ -82,6 +91,14 @@ public class TiendaConfigService {
             }
             tienda.setColorPrincipal(v.isBlank() ? null : v);
         }
+        if (req.enviaAmbiente() != null) {
+            String v = req.enviaAmbiente().trim().toLowerCase();
+            if (!AMBIENTES_ENVIA_VALIDOS.contains(v)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Ambiente de Envia inválido: " + v);
+            }
+            tienda.setEnviaAmbiente(v);
+        }
 
         repo.save(tienda);
         return toResponse(tienda);
@@ -107,7 +124,8 @@ public class TiendaConfigService {
                 tienda.getRazonSocial(),
                 tienda.getNit(),
                 tienda.getEmailContacto(),
-                tienda.getColorPrincipal()
+                tienda.getColorPrincipal(),
+                tienda.getEnviaAmbiente()
         );
     }
 }

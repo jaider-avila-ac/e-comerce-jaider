@@ -66,12 +66,17 @@ public class Tienda {
 
     // 'contra_entrega' (default — el cliente paga el envío directo al transportador al recibir,
     // no se cobra nada de envío en el checkout online) | 'fijo' (se cobra tnd_envio_costo_centavos
-    // en el checkout, con la excepción de envío gratis por monto mínimo de abajo). El precio real
-    // del envío varía mucho y no hay integración con transportadoras que lo calcule automático,
-    // así que "contra entrega" es el modo seguro por defecto — el admin activa "fijo" cuando
-    // quiera controlar/cobrar un costo de envío específico.
+    // en el checkout, con la excepción de envío gratis por monto mínimo de abajo) | 'envia'
+    // (PLAN_INTEGRACION_ENVIA.md — cotización real vía Envia.com, calculada del carrito; ningún
+    // producto de Calzacaribe la necesita, es opcional por tienda). "contra entrega" sigue siendo
+    // el modo seguro por defecto para cualquier tienda nueva.
     @Column(name = "tnd_envio_modo", nullable = false, length = 20)
     private String envioModo = "contra_entrega";
+
+    // Solo importa si envioModo='envia' — a qué ambiente de Envia.com apunta esta tienda.
+    // 'sandbox' por defecto a propósito: nunca se activa producción sin que el operador lo elija.
+    @Column(name = "tnd_envia_ambiente", nullable = false, length = 20)
+    private String enviaAmbiente = "sandbox";
 
     @Column(name = "tnd_envio_gratis_activo", nullable = false)
     private boolean envioGratisActivo = true;

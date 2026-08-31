@@ -265,3 +265,15 @@ CREATE TABLE tienda_secretos (
 GRANT SELECT, INSERT, UPDATE, DELETE ON tienda_secretos TO calzacaribe_usr;
 GRANT USAGE, SELECT ON SEQUENCE tienda_secretos_tse_id_seq TO calzacaribe_usr;
 ALTER TABLE tienda_secretos OWNER TO ecommerce_owner;
+
+-- ============================================================================
+-- 2026-08-31 — PLAN_INTEGRACION_ENVIA.md, Fase 0: agrega 'envia' como tercer modo de envío
+-- (junto a 'contra_entrega' y 'fijo', que ya existían) — OPCIONAL por tienda, Calzacaribe se
+-- queda en su modo actual sin cambio. tnd_envia_ambiente distingue sandbox/producción, solo
+-- relevante si tnd_envio_modo='envia'.
+-- ============================================================================
+ALTER TABLE tiendas DROP CONSTRAINT tiendas_tnd_envio_modo_check;
+ALTER TABLE tiendas ADD CONSTRAINT tiendas_tnd_envio_modo_check
+    CHECK (tnd_envio_modo::text = ANY (ARRAY['contra_entrega','fijo','envia']::text[]));
+ALTER TABLE tiendas ADD COLUMN tnd_envia_ambiente VARCHAR(20) NOT NULL DEFAULT 'sandbox'
+    CHECK (tnd_envia_ambiente IN ('sandbox','produccion'));

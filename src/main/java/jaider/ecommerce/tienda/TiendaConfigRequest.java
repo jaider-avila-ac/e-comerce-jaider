@@ -1,7 +1,7 @@
 package jaider.ecommerce.tienda;
 
 public record TiendaConfigRequest(
-        String envioModo,       // "contra_entrega" | "fijo"
+        String envioModo,       // "contra_entrega" | "fijo" | "envia"
         Boolean envioGratisActivo,
         Long envioGratisDesde, // pesos COP
         Long envioCosto,       // pesos COP — costo de envío estándar cuando no aplica envío gratis
@@ -11,5 +11,7 @@ public record TiendaConfigRequest(
         String razonSocial,
         String nit,
         String emailContacto,   // el que ve el comprador, distinto de emailNotificacionPedidos
-        String colorPrincipal   // hex "#RRGGBB"
+        String colorPrincipal,  // hex "#RRGGBB"
+        // ── PLAN_INTEGRACION_ENVIA.md, Fase 0 — solo importa si envioModo="envia" ──
+        String enviaAmbiente    // "sandbox" | "produccion"
 ) {}
