@@ -234,3 +234,34 @@ AS $$
     (SELECT count(*) FROM usuarios);
 $$;
 GRANT EXECUTE ON FUNCTION fn_superadmin_resumen() TO calzacaribe_usr;
+
+-- ============================================================================
+-- 2026-08-31 — Credenciales de integración (Wompi/Resend/Cloudinary) por tienda, cifradas en
+-- BD — decisión explícita del usuario, reemplaza la dependencia exclusiva de variables de
+-- entorno para tiendas NUEVAS creadas desde el panel de superadmin (§6 del plan). Las tiendas
+-- que ya usan variables de entorno (Calzacaribe) siguen funcionando igual — TenantIntegration-
+-- Resolver ahora consulta esta tabla PRIMERO y solo cae a la variable de entorno si no hay fila.
+--
+-- Sin RLS a propósito, mismo criterio que `tiendas`: la toca (a) el superadmin, que administra
+-- TODAS las tiendas, no una sola, y (b) TenantIntegrationResolver, que siempre recibe el tndId
+-- de un parámetro Java ya resuelto de forma confiable (JWT/contexto), nunca de un valor de
+-- cliente sin validar.
+--
+-- IMPORTANTE: además de este DDL, el VPS necesita su PROPIA variable SECRETS_ENCRYPTION_KEY
+-- (256 bits, base64) — generada aparte para el VPS, NUNCA la misma que la de este entorno
+-- local. Sin ella, guardar o leer cualquier credencial desde esta tabla falla con un error
+-- claro (nunca se inventa ni se reusa una llave por defecto).
+-- ============================================================================
+CREATE TABLE tienda_secretos (
+    tse_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    tse_tnd_id BIGINT NOT NULL REFERENCES tiendas(tnd_id) ON DELETE CASCADE,
+    tse_proveedor VARCHAR(20) NOT NULL,
+    tse_campo VARCHAR(30) NOT NULL,
+    tse_valor_cifrado TEXT NOT NULL,
+    tse_actualizado_en TIMESTAMPTZ NOT NULL DEFAULT now(),
+    tse_actualizado_por BIGINT REFERENCES admin_users(id) ON DELETE SET NULL,
+    UNIQUE(tse_tnd_id, tse_proveedor, tse_campo)
+);
+GRANT SELECT, INSERT, UPDATE, DELETE ON tienda_secretos TO calzacaribe_usr;
+GRANT USAGE, SELECT ON SEQUENCE tienda_secretos_tse_id_seq TO calzacaribe_usr;
+ALTER TABLE tienda_secretos OWNER TO ecommerce_owner;
