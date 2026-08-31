@@ -1,6 +1,7 @@
 package jaider.ecommerce.shared.interceptor;
 
 import jaider.ecommerce.tienda.TenantDomainResolver;
+import jaider.ecommerce.tienda.TenantEstadoCache;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -29,12 +30,17 @@ import java.util.Optional;
  * navegador no puede falsificar en qué dominio real está parado, mientras que el header sí es
  * un valor arbitrario que el propio cliente decide mandar. X-Tenant-Id sigue funcionando como
  * respaldo cuando el Host no coincide con ningún dominio registrado (dev local, Postman, etc.).
+ *
+ * También valida, una sola vez por solicitud sin importar la fuente (JWT, dominio o header),
+ * que el tenant resuelto exista, esté activo y esté bien formado (§3.3 del plan) — ver
+ * {@link #validarTenantExisteYActivo} y {@link TenantEstadoCache}.
  */
 @Component
 @RequiredArgsConstructor
 public class TenantInterceptor implements HandlerInterceptor {
 
     private final TenantDomainResolver domainResolver;
+    private final TenantEstadoCache estadoCache;
 
     /** Nombre del atributo del request donde queda el tenant ya resuelto — a diferencia de
      *  TenantContext (ThreadLocal, se limpia en afterCompletion), un atributo del request vive
@@ -57,6 +63,7 @@ public class TenantInterceptor implements HandlerInterceptor {
                 throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                         "El tenant del token no coincide con X-Tenant-Id");
             }
+            validarTenantExisteYActivo(jwtTenantId);
             request.setAttribute(REQUEST_ATTR_TENANT, jwtTenantId);
             return true;
         }
@@ -68,9 +75,30 @@ public class TenantInterceptor implements HandlerInterceptor {
             TenantContext.set(headerTenantId.trim());
         }
         if (TenantContext.get() != null) {
+            validarTenantExisteYActivo(TenantContext.get());
             request.setAttribute(REQUEST_ATTR_TENANT, TenantContext.get());
         }
         return true;
+    }
+
+    /**
+     * §3.3 del plan: "tenant inexistente o inactivo: rechazar la operación" / "tenant mal
+     * formado: responder error de validación". Se hace UNA sola vez acá, sin importar de cuál de
+     * las 3 fuentes vino el tenant (JWT, dominio o header) — incluye al JWT a propósito: un token
+     * ya emitido para una tienda que se desactiva después de emitido debe dejar de funcionar sin
+     * esperar a que expire (con el TTL del caché, en un máximo de 60s).
+     */
+    private void validarTenantExisteYActivo(String tndIdStr) {
+        long tndId;
+        try {
+            tndId = Long.parseLong(tndIdStr);
+        } catch (NumberFormatException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Tenant mal formado");
+        }
+        if (!estadoCache.existeYActivo(tndId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND,
+                    "La tienda solicitada no existe o no está activa");
+        }
     }
 
     @Override

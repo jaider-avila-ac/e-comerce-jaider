@@ -1,6 +1,7 @@
 package jaider.ecommerce.shared.interceptor;
 
 import jaider.ecommerce.tienda.TenantDomainResolver;
+import jaider.ecommerce.tienda.TenantEstadoCache;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.AfterEach;
@@ -27,13 +28,18 @@ import static org.mockito.Mockito.when;
 class TenantInterceptorTest {
 
     private TenantDomainResolver domainResolver;
+    private TenantEstadoCache estadoCache;
     private TenantInterceptor interceptor;
 
     @BeforeEach
     void setUp() {
         domainResolver = mock(TenantDomainResolver.class);
         when(domainResolver.resolveTenantId(any())).thenReturn(Optional.empty());
-        interceptor = new TenantInterceptor(domainResolver);
+        estadoCache = mock(TenantEstadoCache.class);
+        // Por defecto, cualquier tenant "existe y está activo" — los tests de §3.3 abajo
+        // sobrescriben esto puntualmente para probar el caso contrario.
+        when(estadoCache.existeYActivo(any())).thenReturn(true);
+        interceptor = new TenantInterceptor(domainResolver, estadoCache);
     }
 
     @AfterEach
@@ -121,6 +127,62 @@ class TenantInterceptorTest {
 
         // El tenant del JWT nunca debe quedar reemplazado por el valor del header, ni siquiera
         // en el momento en que se rechaza la solicitud.
+        assertThat(TenantContext.get()).isEqualTo("1");
+    }
+
+    // --- §3.3: "tenant inexistente o inactivo: rechazar la operación" / "tenant mal formado" ---
+
+    @Test
+    void conJwt_tenantYaNoExisteOFueDesactivado_lanza404() {
+        TenantContext.set("1");
+        when(estadoCache.existeYActivo(1L)).thenReturn(false);
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        HttpServletResponse response = mock(HttpServletResponse.class);
+        when(request.getHeader("X-Tenant-Id")).thenReturn(null);
+
+        assertThatThrownBy(() -> interceptor.preHandle(request, response, new Object()))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode())
+                        .isEqualTo(HttpStatus.NOT_FOUND));
+    }
+
+    @Test
+    void sinJwt_headerConIdInexistente_lanza404() {
+        when(estadoCache.existeYActivo(9999L)).thenReturn(false);
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        HttpServletResponse response = mock(HttpServletResponse.class);
+        when(request.getHeader("X-Tenant-Id")).thenReturn("9999");
+
+        assertThatThrownBy(() -> interceptor.preHandle(request, response, new Object()))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode())
+                        .isEqualTo(HttpStatus.NOT_FOUND));
+    }
+
+    @Test
+    void sinJwt_headerMalFormado_lanza400() {
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        HttpServletResponse response = mock(HttpServletResponse.class);
+        when(request.getHeader("X-Tenant-Id")).thenReturn("abc");
+
+        assertThatThrownBy(() -> interceptor.preHandle(request, response, new Object()))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode())
+                        .isEqualTo(HttpStatus.BAD_REQUEST));
+    }
+
+    @Test
+    void sinJwt_dominioResuelveUnTenantExistenteYActivo_pasaSinProblema() {
+        when(domainResolver.resolveTenantId(any())).thenReturn(Optional.of(1L));
+        when(estadoCache.existeYActivo(1L)).thenReturn(true);
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        HttpServletResponse response = mock(HttpServletResponse.class);
+        when(request.getHeader("Host")).thenReturn("calzacaribe.com");
+        when(request.getHeader("X-Tenant-Id")).thenReturn(null);
+
+        boolean continua = interceptor.preHandle(request, response, new Object());
+
+        assertThat(continua).isTrue();
         assertThat(TenantContext.get()).isEqualTo("1");
     }
 }
