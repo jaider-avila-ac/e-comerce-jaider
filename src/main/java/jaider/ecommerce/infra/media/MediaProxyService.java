@@ -1,7 +1,9 @@
 package jaider.ecommerce.infra.media;
 
+import jaider.ecommerce.catalogo.producto.Producto;
 import jaider.ecommerce.catalogo.producto.ProductoImagen;
 import jaider.ecommerce.catalogo.producto.ProductoImagenRepository;
+import jaider.ecommerce.catalogo.producto.ProductoRepository;
 import jaider.ecommerce.shared.TenantSupport;
 import jaider.ecommerce.shared.interceptor.TenantContext;
 import jakarta.persistence.EntityManager;
@@ -29,6 +31,7 @@ public class MediaProxyService {
     private static final HttpClient CLIENT = HttpClient.newHttpClient();
 
     private final ProductoImagenRepository imagenRepo;
+    private final ProductoRepository productoRepo;
     private final TenantSupport tenantSupport;
 
     @PersistenceContext
@@ -41,6 +44,20 @@ public class MediaProxyService {
             tenantSupport.requireTenant(em);
             ProductoImagen img = imagenRepo.findById(imgId)
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Imagen no encontrada"));
+
+            // Hallazgo real (guía de medios, 2026-08-30): esto solo verificaba que la imagen
+            // fuera de ESTE tenant (correcto vía RLS), pero nunca que el producto dueño siguiera
+            // activo/visible — cualquiera que adivinara un pi_id consecutivo podía ver fotos de
+            // productos ocultos/en borrador antes de que la tienda quisiera mostrarlos, algo que
+            // PublicCatalogService.getProductoById() sí filtra (Producto::isActivo) pero este
+            // proxy no. Mismo trato que "no encontrada" a propósito — no hay que confirmarle a
+            // quien adivina el ID si el producto existe pero está oculto.
+            Producto producto = productoRepo.findById(img.getPrdId())
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Imagen no encontrada"));
+            if (!producto.isActivo()) {
+                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Imagen no encontrada");
+            }
+
             return fetchRemote(img.getUrl());
         } finally {
             TenantContext.clear();
