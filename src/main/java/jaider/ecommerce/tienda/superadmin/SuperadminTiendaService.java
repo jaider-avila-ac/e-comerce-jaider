@@ -20,6 +20,7 @@ import jaider.ecommerce.tienda.secretos.TiendaSecretoRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.env.Environment;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -60,6 +61,9 @@ public class SuperadminTiendaService {
     private final TenantSupport tenantSupport;
     private final Environment environment;
 
+    @Value("${app.base-url}")
+    private String appBaseUrl;
+
     @PersistenceContext
     private EntityManager em;
 
@@ -94,7 +98,8 @@ public class SuperadminTiendaService {
                 tienda.getId(), tienda.getNombre(), tienda.getSlug(), tienda.isActivo(), dominio,
                 estadoCampos(tndId, tienda.getSecretAlias(), "WOMPI", "PUBLIC_KEY", "PRIVATE_KEY", "INTEGRITY_KEY", "EVENTS_KEY"),
                 estadoCampos(tndId, tienda.getSecretAlias(), "RESEND", "API_KEY", "FROM"),
-                estadoCampos(tndId, tienda.getSecretAlias(), "CLOUDINARY", "CLOUD_NAME", "API_KEY", "API_SECRET")
+                estadoCampos(tndId, tienda.getSecretAlias(), "CLOUDINARY", "CLOUD_NAME", "API_KEY", "API_SECRET"),
+                appBaseUrl + "/api/v1/public/pagos/webhook/wompi"
         );
     }
 
