@@ -41,7 +41,7 @@ public class ReembolsoService {
 
     @Transactional
     public Long crear(Long pagId, Long pedId, Long usrId, long montoCentavos, String motivo, String origen) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Number idNum = (Number) em.createNativeQuery("""
                 INSERT INTO reembolsos (ref_pag_id, ref_ped_id, ref_usr_id, ref_monto_centavos, ref_motivo, ref_origen)
                 VALUES (:pagId, :pedId, :usrId, :monto, :motivo, :origen)
@@ -61,7 +61,7 @@ public class ReembolsoService {
      *  en vez de romper el flujo que lo originó (cancelación de pedido / devolución recibida). */
     @Transactional
     public void procesarAutomatico(Long refId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Reembolso r = repo.findById(refId).orElseThrow();
 
         Object[] pago;
@@ -99,7 +99,7 @@ public class ReembolsoService {
 
     @Transactional
     public void confirmarManual(Long refId, String nuevoEstado, String nota, Long adminId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Reembolso r = repo.findById(refId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Reembolso no encontrado"));
         if (!ESTADOS_MANUALES_VALIDOS.contains(nuevoEstado)) {

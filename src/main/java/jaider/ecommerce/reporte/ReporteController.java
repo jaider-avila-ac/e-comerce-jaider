@@ -68,7 +68,7 @@ public class ReporteController {
         if (auth == null || auth.getPrincipal() == null) return null;
         Object principal = auth.getPrincipal();
         if (!(principal instanceof UserDetails userDetails)) return null;
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         return adminUserRepository.findByEmail(userDetails.getUsername())
                 .map(a -> a.getId())
                 .orElse(null);

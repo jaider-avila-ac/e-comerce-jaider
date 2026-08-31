@@ -34,7 +34,7 @@ public class ReembolsoController {
 
     private Long resolverAdminId(UserDetails userDetails) {
         if (userDetails == null) return null;
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         return adminUserRepository.findByEmail(userDetails.getUsername())
                 .map(a -> a.getId())
                 .orElse(null);

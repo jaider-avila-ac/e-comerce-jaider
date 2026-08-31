@@ -60,7 +60,7 @@ public class PedidoCreacionService {
     @Transactional
     public PedidoCreado crearDesdeCarrito(Long usrId, Long tndId, Long direccionId,
                                            ClienteDireccionRequest direccionInline, String notas) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         List<ItemCarrito> items = cargarCarritoValidado(usrId);
         Map<String, Object> dirSnapshot = resolverDireccion(usrId, tndId, direccionId, direccionInline);
@@ -136,7 +136,7 @@ public class PedidoCreacionService {
 
     @Transactional
     public Long crearPago(Long pedId, Long usrId, String referencia, long montoCentavos, String metodo) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Number pagIdNum = (Number) em.createNativeQuery("""
                 INSERT INTO pagos (pag_ped_id, pag_usr_id, pag_referencia, pag_proveedor, pag_metodo, pag_monto_centavos)
                 VALUES (:pedId, :usrId, :referencia, CAST('WOMPI' AS proveedor_pago), CAST(:metodo AS metodo_pago), :monto)
@@ -159,7 +159,7 @@ public class PedidoCreacionService {
      *  cambia y el backend ya no confunde ambos intentos. */
     @Transactional(readOnly = true)
     public List<String> firmarCarrito(Long usrId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         @SuppressWarnings("unchecked")
         List<Object[]> rows = em.createNativeQuery("""
                 SELECT ci.ci_prd_id, ci.ci_var_id, ci.ci_cantidad, ci.ci_precio_snap_centavos
@@ -178,7 +178,7 @@ public class PedidoCreacionService {
 
     @Transactional(readOnly = true)
     public Optional<PagoInfo> obtenerUltimoPago(Long pedId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         try {
             Object[] row = (Object[]) em.createNativeQuery("""
                     SELECT p.pag_id, p.pag_estado::text, p.pag_referencia, p.pag_gateway_tx_id,
@@ -200,7 +200,7 @@ public class PedidoCreacionService {
 
     @Transactional(readOnly = true)
     public String obtenerEmail(Long usrId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         return (String) em.createNativeQuery("SELECT usr_email FROM usuarios WHERE usr_id = :id")
                 .setParameter("id", usrId)
                 .getSingleResult();
@@ -216,7 +216,7 @@ public class PedidoCreacionService {
      */
     @Transactional
     public void confirmarRecibido(Long usrId, Long tndId, String numero) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         Object[] row;
         try {
@@ -254,7 +254,7 @@ public class PedidoCreacionService {
     /** Estado del pedido y su último pago, para que el frontend haga polling tras el checkout. */
     @Transactional(readOnly = true)
     public Map<String, Object> consultarEstado(Long usrId, Long tndId, String numero) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         Object[] row;
         try {
@@ -305,7 +305,7 @@ public class PedidoCreacionService {
 
     @Transactional(readOnly = true)
     public List<Map<String, Object>> listarComprasAprobadas(Long usrId, Long tndId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         @SuppressWarnings("unchecked")
         List<Object[]> rows = em.createNativeQuery("""

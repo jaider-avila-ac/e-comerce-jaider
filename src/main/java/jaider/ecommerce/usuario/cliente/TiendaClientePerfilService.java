@@ -33,7 +33,7 @@ public class TiendaClientePerfilService {
 
     @Transactional
     public Map<String, Object> getPerfil(Long usrId, Long tndId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         ensureTenant(tndId);
         return fetchPerfil(usrId, tndId, true);
     }
@@ -85,7 +85,7 @@ public class TiendaClientePerfilService {
 
     @Transactional
     public Map<String, Object> updatePerfil(Long usrId, Long tndId, ClientePerfilRequest req) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         ensureTenant(tndId);
         requireUsuario(usrId, tndId);
 
@@ -175,7 +175,7 @@ public class TiendaClientePerfilService {
      *  usuario NO logueado vía código de correo). Exige la contraseña actual. */
     @Transactional
     public void cambiarPassword(Long usrId, Long tndId, ClientePasswordRequest req) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         ensureTenant(tndId);
 
         Usuario usuario = usuarioRepository.findById(usrId)
@@ -203,7 +203,7 @@ public class TiendaClientePerfilService {
 
     @Transactional
     public List<Map<String, Object>> addDireccion(Long usrId, Long tndId, ClienteDireccionRequest req) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         ensureTenant(tndId);
         requireUsuario(usrId, tndId);
 
@@ -234,7 +234,7 @@ public class TiendaClientePerfilService {
 
     @Transactional
     public List<Map<String, Object>> updateDireccion(Long usrId, Long tndId, Long direccionId, ClienteDireccionRequest req) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         ensureTenant(tndId);
 
         int updated = em.createNativeQuery("""
@@ -272,7 +272,7 @@ public class TiendaClientePerfilService {
 
     @Transactional
     public List<Map<String, Object>> deleteDireccion(Long usrId, Long tndId, Long direccionId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         ensureTenant(tndId);
 
         int deleted = em.createNativeQuery("""

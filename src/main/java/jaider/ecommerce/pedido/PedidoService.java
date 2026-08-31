@@ -81,7 +81,7 @@ public class PedidoService {
 
     @Transactional(readOnly = true)
     public Map<String, Long> conteosPorEstado() {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         @SuppressWarnings("unchecked")
         List<Object[]> rows = em.createNativeQuery(
                 "SELECT ped_estado::text, COUNT(*) FROM pedidos GROUP BY ped_estado").getResultList();
@@ -100,7 +100,7 @@ public class PedidoService {
 
     @Transactional(readOnly = true)
     public List<PedidoResponse> getAll(String estado, Long colaboradorId, Long sucursalId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         List<Pedido> pedidos = (estado != null && !estado.isBlank())
                 ? pedidoRepo.findByEstado(estado, colaboradorId, sucursalId)
@@ -130,7 +130,7 @@ public class PedidoService {
     @Transactional(readOnly = true)
     @SuppressWarnings("unchecked")
     public List<Map<String, Object>> listarColaboradores() {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         List<Object[]> rows = em.createNativeQuery(
                 "SELECT id, nombre FROM admin_users WHERE activo = true AND rol <> 'superadmin' ORDER BY nombre ASC")
                 .getResultList();
@@ -148,7 +148,7 @@ public class PedidoService {
 
     @Transactional(readOnly = true)
     public PedidoResponse getById(Long id) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         Pedido p = pedidoRepo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pedido no encontrado"));
@@ -167,7 +167,7 @@ public class PedidoService {
      *  (ver AUDITORIA_FUNCIONAL_ECOMMERCE.md, F-05). */
     @Transactional
     public PedidoResponse updateEstado(Long id, String estado, Long adminId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         if (estado == null || !ESTADOS_VALIDOS.contains(estado)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -216,7 +216,7 @@ public class PedidoService {
      *  historial: solo registra el estado real al que se corrigió y por qué. */
     @Transactional
     public PedidoResponse corregirEstado(Long id, String estado, String motivo, Long adminId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         if (estado == null || !ESTADOS_CORREGIBLES.contains(estado)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -300,7 +300,7 @@ public class PedidoService {
      *  colaborador, se rechaza — evita que dos personas gestionen el mismo pedido a la vez. */
     @Transactional
     public PedidoResponse asignarme(Long id, Long adminId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Pedido p = pedidoRepo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pedido no encontrado"));
 
@@ -326,7 +326,7 @@ public class PedidoService {
      *  sin la validación de "ya está tomado" (es un override intencional). */
     @Transactional
     public PedidoResponse asignar(Long id, Long colaboradorId, Long adminId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Pedido p = pedidoRepo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pedido no encontrado"));
 
@@ -346,7 +346,7 @@ public class PedidoService {
 
     @Transactional
     public PedidoResponse cancelarPorAdmin(Long id, String motivo, String motivoOtro, String nota, Long adminId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         if (motivo == null || !MOTIVOS_CANCELACION.containsKey(motivo)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -412,7 +412,7 @@ public class PedidoService {
      *  invoca desde una solicitud de devolución "recibida", que ya exigió "entregado" al crearse). */
     @Transactional
     public void transicionarPorDevolucion(Long pedId, Long adminId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Pedido p = pedidoRepo.findById(pedId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pedido no encontrado"));
         if (ESTADOS_TERMINALES.contains(p.getEstado())) {
@@ -425,7 +425,7 @@ public class PedidoService {
 
     @Transactional(readOnly = true)
     public List<Map<String, Object>> getHistorialEstados(Long id) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         @SuppressWarnings("unchecked")
         List<Object[]> rows = em.createNativeQuery("""
                 SELECT h.phe_estado::text, h.phe_nota, h.phe_creado_en, a.nombre
@@ -472,7 +472,7 @@ public class PedidoService {
     @Transactional
     public PedidoResponse updateSeguimiento(Long id, String transportadora, String codigoRastreo,
                                              String link, String mostrar) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         String linkLimpio = (link != null && !link.isBlank()) ? link.trim() : null;
         if (linkLimpio != null && !linkLimpio.startsWith("http://") && !linkLimpio.startsWith("https://")) {
@@ -506,7 +506,7 @@ public class PedidoService {
      *  reembolsó parcialmente, contactó al cliente, etc.) y el pedido puede seguir su curso. */
     @Transactional
     public PedidoResponse resolverAlertaStock(Long id) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         if (!pedidoRepo.existsById(id)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Pedido no encontrado");

@@ -34,7 +34,7 @@ public class AuditoriaService {
     @Transactional
     public void registrar(Long tndId, Long adminId, String accion, String entidad, Long entidadId,
                            Map<String, Object> detalle) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         Auditoria auditoria = new Auditoria();
         auditoria.setTndId(tndId);
@@ -48,7 +48,7 @@ public class AuditoriaService {
 
     @Transactional(readOnly = true)
     public PageResponse<AuditoriaResponse> listar(Long tndId, String entidad, int page, int size) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         Page<Auditoria> resultado = (entidad != null && !entidad.isBlank())
                 ? repository.findByTndIdAndEntidadOrderByCreadoEnDesc(tndId, entidad, PageRequest.of(page, size))

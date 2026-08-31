@@ -36,7 +36,7 @@ public class AdminUserService {
 
     @Transactional(readOnly = true)
     public List<AdminUserResponse> listar() {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Long tiendaId = currentTiendaId();
 
         @SuppressWarnings("unchecked")
@@ -68,7 +68,7 @@ public class AdminUserService {
 
     @Transactional
     public AdminUserResponse crear(AdminUser actor, AdminUserRequest req) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         if (req.rol() == null || !ROLES_ASIGNABLES.contains(req.rol().toLowerCase())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Solo puedes crear colaboradores o personal de bodega");
@@ -161,7 +161,7 @@ public class AdminUserService {
 
     @Transactional
     public AdminUserResponse actualizar(AdminUser actor, Long id, AdminUserUpdateRequest req) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Long tiendaId = currentTiendaId();
 
         AdminUser objetivo = adminUserRepository.findById(id)
@@ -252,7 +252,7 @@ public class AdminUserService {
 
     @Transactional
     public AdminUserResponse cambiarActivo(AdminUser actor, Long id, boolean activo) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         AdminUser objetivo = adminUserRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Usuario no encontrado"));
 

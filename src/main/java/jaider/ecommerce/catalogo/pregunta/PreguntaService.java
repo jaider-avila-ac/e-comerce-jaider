@@ -36,7 +36,7 @@ public class PreguntaService {
     @Transactional(readOnly = true)
     @SuppressWarnings("unchecked")
     public List<PreguntaResponse> listarPublicas(Long prdId, Long usrId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         List<Object[]> rows = em.createNativeQuery("""
                 SELECT p.preg_id, p.preg_texto, p.preg_editada, p.preg_respuesta_texto,
@@ -69,7 +69,7 @@ public class PreguntaService {
 
     @Transactional
     public PreguntaResponse crear(Long prdId, Long usrId, Long tndId, PreguntaRequest req) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         String texto = blankToNull(req.texto());
         if (texto == null) {
@@ -108,7 +108,7 @@ public class PreguntaService {
      *  pisarlo, para que el admin pueda ver "qué decía antes". */
     @Transactional
     public void editar(Long pregId, Long usrId, Long tndId, PreguntaRequest req) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Pregunta pregunta = preguntaRepo.findById(pregId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pregunta no encontrada"));
 
@@ -136,7 +136,7 @@ public class PreguntaService {
      *  la tienda), igual que cuando la borra el admin; solo cambia quién quedó registrado. */
     @Transactional
     public void eliminarPropia(Long pregId, Long usrId, Long tndId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Pregunta pregunta = preguntaRepo.findById(pregId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pregunta no encontrada"));
 
@@ -153,7 +153,7 @@ public class PreguntaService {
     @Transactional(readOnly = true)
     @SuppressWarnings("unchecked")
     public List<PreguntaAdminResponse> listarAdmin(String estado, Long prdId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         StringBuilder where = new StringBuilder(" WHERE (CAST(:prdId AS BIGINT) IS NULL OR p.preg_prd_id = CAST(:prdId AS BIGINT)) ");
         if ("pendiente".equals(estado)) {
@@ -207,7 +207,7 @@ public class PreguntaService {
 
     @Transactional(readOnly = true)
     public List<PreguntaEdicionResponse> historial(Long pregId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         return edicionRepo.findByPregIdOrderByEditadoEnDesc(pregId).stream()
                 .map(e -> new PreguntaEdicionResponse(e.getCampo(), e.getTextoAnterior(), e.getEditadoEn()))
                 .toList();
@@ -218,7 +218,7 @@ public class PreguntaService {
      *  no dispara un segundo aviso, para no spamear por cada ajuste de redacción. */
     @Transactional
     public void responder(Long pregId, Long adminId, ResponderPreguntaRequest req) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Pregunta pregunta = preguntaRepo.findById(pregId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pregunta no encontrada"));
         if (pregunta.isEliminada()) {
@@ -250,7 +250,7 @@ public class PreguntaService {
 
     @Transactional
     public void eliminarAdmin(Long pregId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Pregunta pregunta = preguntaRepo.findById(pregId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pregunta no encontrada"));
         marcarEliminada(pregunta, "admin");

@@ -59,7 +59,7 @@ public class PedidoController {
      *  se evita romper el cambio de estado por un problema de resolución de identidad). */
     private Long resolverAdminId(UserDetails userDetails) {
         if (userDetails == null) return null;
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         return adminUserRepository.findByEmail(userDetails.getUsername())
                 .map(a -> a.getId())
                 .orElse(null);

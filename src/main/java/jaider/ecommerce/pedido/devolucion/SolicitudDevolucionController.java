@@ -65,7 +65,7 @@ public class SolicitudDevolucionController {
      *  se evita romper la acción por un problema de resolución de identidad). */
     private Long resolverAdminId(UserDetails userDetails) {
         if (userDetails == null) return null;
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         return adminUserRepository.findByEmail(userDetails.getUsername())
                 .map(a -> a.getId())
                 .orElse(null);

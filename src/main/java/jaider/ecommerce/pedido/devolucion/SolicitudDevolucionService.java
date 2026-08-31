@@ -55,7 +55,7 @@ public class SolicitudDevolucionService {
 
     @Transactional
     public SolicitudDevolucionResponse crear(Long usrId, Long tndId, String numero, SolicitudDevolucionRequest req) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         if (req.motivo() == null || req.motivo().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Indica el motivo de la devolución");
@@ -117,7 +117,7 @@ public class SolicitudDevolucionService {
 
     @Transactional(readOnly = true)
     public Optional<SolicitudDevolucionResponse> obtenerPorPedido(Long usrId, Long tndId, String numero) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Object[] row = buscarPedido(numero, usrId, tndId);
         Long pedId = ((Number) row[0]).longValue();
 
@@ -128,7 +128,7 @@ public class SolicitudDevolucionService {
 
     @Transactional
     public SolicitudDevolucionResponse registrarCodigoRastreo(Long usrId, Long tndId, String numero, String codigo) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         if (codigo == null || codigo.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Indica el número de guía");
         }
@@ -151,7 +151,7 @@ public class SolicitudDevolucionService {
 
     @Transactional
     public void cancelar(Long usrId, Long tndId, String numero) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Object[] row = buscarPedido(numero, usrId, tndId);
         Long pedId = ((Number) row[0]).longValue();
         SolicitudDevolucion s = repo.findActivaByPedId(pedId)
@@ -170,7 +170,7 @@ public class SolicitudDevolucionService {
 
     @Transactional(readOnly = true)
     public List<SolicitudDevolucionResponse> getAll(String estado) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         List<SolicitudDevolucion> lista = (estado != null && !estado.isBlank())
                 ? repo.findByEstado(estado)
                 : repo.findAllOrdered();
@@ -179,7 +179,7 @@ public class SolicitudDevolucionService {
 
     @Transactional(readOnly = true)
     public SolicitudDevolucionResponse getById(Long id) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         SolicitudDevolucion s = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Solicitud no encontrada"));
         return toResponse(s, numeroDePedido(s.getPedId()));
@@ -187,7 +187,7 @@ public class SolicitudDevolucionService {
 
     @Transactional
     public SolicitudDevolucionResponse aprobar(Long id, Long direccionId, String nota, Long adminId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         SolicitudDevolucion s = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Solicitud no encontrada"));
         if (!"pendiente".equals(s.getEstado())) {
@@ -219,7 +219,7 @@ public class SolicitudDevolucionService {
 
     @Transactional
     public SolicitudDevolucionResponse rechazar(Long id, String nota, Long adminId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         SolicitudDevolucion s = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Solicitud no encontrada"));
         if (!"pendiente".equals(s.getEstado())) {
@@ -248,7 +248,7 @@ public class SolicitudDevolucionService {
 
     @Transactional
     public SolicitudDevolucionResponse confirmarRecibida(Long id, Long adminId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         SolicitudDevolucion s = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Solicitud no encontrada"));
         if (!"en_transito".equals(s.getEstado())) {

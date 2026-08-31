@@ -93,7 +93,7 @@ public class PagoWebhookService {
         }
 
         TenantContext.set(tndId.toString());
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         Pago pago = pagoRepo.findByReferencia(tx.referencia()).orElse(null);
         if (pago == null) {

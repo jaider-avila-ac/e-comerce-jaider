@@ -92,7 +92,7 @@ public class TenantProvisioningService {
         // tenant recién creado para que el INSERT pase el WITH CHECK de la política.
         TenantContext.set(tndId.toString());
         try {
-            tenantSupport.applyTenant(em);
+            tenantSupport.requireTenant(em);
 
             String hash = passwordEncoder.encode(req.adminPassword());
             Number adminIdNum = (Number) em.createNativeQuery("""

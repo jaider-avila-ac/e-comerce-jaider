@@ -25,21 +25,21 @@ public class NotificacionAdminController {
     @GetMapping
     @Transactional(readOnly = true)
     public List<NotificacionAdminResponse> listar() {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         return repo.findTop50ByOrderByCreadoEnDesc().stream().map(this::toResponse).toList();
     }
 
     @PostMapping("/{id}/leer")
     @Transactional
     public void marcarLeida(@PathVariable Long id) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         repo.marcarLeida(id);
     }
 
     @PostMapping("/leer-todas")
     @Transactional
     public void marcarTodasLeidas() {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         repo.marcarTodasLeidas();
     }
 

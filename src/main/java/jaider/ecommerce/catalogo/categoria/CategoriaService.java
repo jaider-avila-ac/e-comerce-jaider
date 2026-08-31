@@ -41,7 +41,7 @@ public class CategoriaService {
 
     @Transactional(readOnly = true)
     public List<CategoriaResponse> getAll() {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         return repo.findAllByOrderByOrdenAscNombreAsc().stream()
                 .map(this::toResponse)
                 .toList();
@@ -49,7 +49,7 @@ public class CategoriaService {
 
     @Transactional(readOnly = true)
     public CategoriaResponse getById(Long id) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Categoria cat = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Categoría no encontrada: " + id));
         return toResponse(cat);
@@ -57,7 +57,7 @@ public class CategoriaService {
 
     @Transactional
     public CategoriaResponse create(CategoriaRequest req) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         String tndId = TenantContext.get();
         if (tndId == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Sin contexto de tenant");
 
@@ -82,7 +82,7 @@ public class CategoriaService {
 
     @Transactional
     public CategoriaResponse update(Long id, CategoriaRequest req) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Categoria cat = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Categoría no encontrada: " + id));
         if (req.nombre() != null && !req.nombre().isBlank()) cat.setNombre(req.nombre());
@@ -102,7 +102,7 @@ public class CategoriaService {
 
     @Transactional
     public void delete(Long id) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Categoria cat = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Categoría no encontrada: " + id));
         repo.deleteById(id);
@@ -114,7 +114,7 @@ public class CategoriaService {
      *  de ids en el nuevo orden, y cada posición en la lista se vuelve su "orden". */
     @Transactional
     public void reordenar(List<Long> ids) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         for (int i = 0; i < ids.size(); i++) {
             em.createNativeQuery("UPDATE categorias SET cat_orden = :orden WHERE cat_id = :id")
                     .setParameter("orden", (short) i)

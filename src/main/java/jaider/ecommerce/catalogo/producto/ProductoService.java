@@ -53,7 +53,7 @@ public class ProductoService {
 
     @Transactional(readOnly = true)
     public PageResponse<ProductoResponse> search(Long catId, Boolean activo, String q, int page, int size) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         String tenantId = TenantContext.get();
         String qNorm = (q == null || q.isBlank()) ? null : q.trim();
 
@@ -73,7 +73,7 @@ public class ProductoService {
 
     @Transactional(readOnly = true)
     public ProductoResponse getById(Long id) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Producto p = productoRepo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Producto no encontrado"));
         return toResponse(p);
@@ -83,7 +83,7 @@ public class ProductoService {
 
     @Transactional
     public ProductoResponse create(ProductoRequest req) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         String tndId = TenantContext.get();
 
         Producto p = new Producto();
@@ -100,7 +100,7 @@ public class ProductoService {
 
     @Transactional
     public ProductoResponse update(Long id, ProductoRequest req) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         Producto p = productoRepo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Producto no encontrado"));
@@ -134,7 +134,7 @@ public class ProductoService {
     // así que el admin debe saber de antemano que se van a perder antes de confirmar.
     @Transactional(readOnly = true)
     public ImpactoEliminacionResponse impactoEliminacion(Long id) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         long resenas = ((Number) em.createNativeQuery("SELECT COUNT(*) FROM reseñas WHERE res_prd_id = :id")
                 .setParameter("id", id).getSingleResult()).longValue();
         long preguntas = ((Number) em.createNativeQuery("SELECT COUNT(*) FROM producto_preguntas WHERE preg_prd_id = :id")
@@ -144,7 +144,7 @@ public class ProductoService {
 
     @Transactional
     public void delete(Long id) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Producto p = productoRepo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Producto no encontrado"));
 
@@ -163,7 +163,7 @@ public class ProductoService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> inventarioResumen() {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Object[] row = (Object[]) em.createNativeQuery("""
             SELECT
               COALESCE(SUM(var_stock), 0)                                             AS total_stock,
@@ -184,7 +184,7 @@ public class ProductoService {
     @Transactional(readOnly = true)
     @SuppressWarnings("unchecked")
     public Map<String, Object> inventario() {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         List<Object[]> rows = em.createNativeQuery("""
             SELECT v.var_id,
                    v.var_prd_id,
@@ -235,7 +235,7 @@ public class ProductoService {
     @Transactional(readOnly = true)
     @SuppressWarnings("unchecked")
     public List<Map<String, Object>> getLowStock(int limite) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         List<Object[]> rows = em.createNativeQuery("""
             SELECT v.var_id, p.prd_nombre, v.var_talla, v.var_color, v.var_stock,
                    CASE WHEN v.var_stock = 0 THEN 'agotado'
@@ -266,7 +266,7 @@ public class ProductoService {
 
     @Transactional
     public VarianteResponse updateStock(Long varId, Integer cantidad) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Variante v = varianteRepo.findById(varId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Variante no encontrada"));
 

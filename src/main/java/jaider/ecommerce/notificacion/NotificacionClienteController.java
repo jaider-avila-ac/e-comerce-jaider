@@ -32,7 +32,7 @@ public class NotificacionClienteController {
     public List<NotificacionClienteResponse> listar(
             @RequestHeader(value = "Authorization", required = false) String authHeader) {
         Long[] ids = extractIds(authHeader);
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         return repo.findActivasByUsrId(ids[0]).stream().map(this::toResponse).toList();
     }
 
@@ -42,7 +42,7 @@ public class NotificacionClienteController {
             @RequestHeader(value = "Authorization", required = false) String authHeader,
             @PathVariable Long id) {
         Long[] ids = extractIds(authHeader);
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         repo.marcarLeida(id, ids[0]);
     }
 
@@ -51,7 +51,7 @@ public class NotificacionClienteController {
     public void marcarTodasLeidas(
             @RequestHeader(value = "Authorization", required = false) String authHeader) {
         Long[] ids = extractIds(authHeader);
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         repo.marcarTodasLeidas(ids[0]);
     }
 
@@ -61,7 +61,7 @@ public class NotificacionClienteController {
             @RequestHeader(value = "Authorization", required = false) String authHeader,
             @PathVariable Long id) {
         Long[] ids = extractIds(authHeader);
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         repo.eliminar(id, ids[0]);
     }
 

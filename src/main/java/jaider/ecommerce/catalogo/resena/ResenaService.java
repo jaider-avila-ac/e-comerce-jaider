@@ -30,7 +30,7 @@ public class ResenaService {
 
     @Transactional(readOnly = true)
     public ResenaListResponse listarPublicas(Long prdId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         @SuppressWarnings("unchecked")
         List<Object[]> rows = em.createNativeQuery("""
@@ -72,7 +72,7 @@ public class ResenaService {
     @Transactional(readOnly = true)
     public Map<Long, ResenaResumen> resumenBulk(List<Long> prdIds) {
         if (prdIds.isEmpty()) return Map.of();
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         @SuppressWarnings("unchecked")
         List<Object[]> rows = em.createNativeQuery("""
@@ -98,7 +98,7 @@ public class ResenaService {
 
     @Transactional(readOnly = true)
     public ResenaEstadoResponse estadoParaUsuario(Long prdId, Long usrId, Long tndId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         boolean compro = buscarPedidoItemCompraAprobada(prdId, usrId, tndId) != null;
         boolean yaReseno = resenaRepository.existsByPrdIdAndUsrId(prdId, usrId);
         return new ResenaEstadoResponse(compro, yaReseno);
@@ -108,7 +108,7 @@ public class ResenaService {
 
     @Transactional
     public ResenaResponse crear(Long prdId, Long usrId, Long tndId, ResenaRequest req) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         if (req.calificacion() == null || req.calificacion() < 1 || req.calificacion() > 5) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "La calificación debe ser entre 1 y 5 estrellas");

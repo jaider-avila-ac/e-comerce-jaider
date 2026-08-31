@@ -38,7 +38,7 @@ public class MediaProxyService {
     public ProxiedImage fetchProductoImagen(Long tndId, Long imgId) {
         TenantContext.set(tndId.toString());
         try {
-            tenantSupport.applyTenant(em);
+            tenantSupport.requireTenant(em);
             ProductoImagen img = imagenRepo.findById(imgId)
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Imagen no encontrada"));
             return fetchRemote(img.getUrl());

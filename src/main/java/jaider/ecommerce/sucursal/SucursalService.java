@@ -24,7 +24,7 @@ public class SucursalService {
     // PedidoService.listarColaboradores(). RLS ya restringe al tenant actual.
     @Transactional(readOnly = true)
     public List<SucursalResponse> listar() {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         return sucursalRepository.findByActivoTrueOrderByNombreAsc().stream()
                 .map(s -> new SucursalResponse(s.getId(), s.getNombre(), s.getWhatsapp()))
                 .toList();

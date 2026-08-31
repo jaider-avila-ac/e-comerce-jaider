@@ -57,7 +57,7 @@ public class AdminUserController {
     }
 
     private AdminUser actor(UserDetails userDetails) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         return adminUserRepository.findByEmail(userDetails.getUsername())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Usuario no encontrado"));
     }

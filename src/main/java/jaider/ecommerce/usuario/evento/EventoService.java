@@ -26,7 +26,7 @@ public class EventoService {
 
     @Transactional
     public void registrar(EventoRequest req, Long usrId, Long tndId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         em.createNativeQuery(
                 "INSERT INTO eventos_usuario (eu_usr_id, eu_tipo, eu_entidad_tipo, eu_entidad_id) " +
                 "VALUES (:usrId, :tipo, :entidadTipo, :entidadId)")
@@ -46,7 +46,7 @@ public class EventoService {
     @Transactional(readOnly = true)
     @SuppressWarnings("unchecked")
     public List<PublicProductoResponse> recientes(Long usrId, Long tndId, int limit) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         // DISTINCT ON se queda con la vista más reciente de cada producto, y el ORDER BY
         // externo ordena esas últimas vistas entre sí (más reciente primero) antes de recortar.
@@ -71,7 +71,7 @@ public class EventoService {
     @Transactional(readOnly = true)
     @SuppressWarnings("unchecked")
     public Map<String, Object> categoriaFavorita(Long usrId, Long tndId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         List<Object[]> rows = em.createNativeQuery("""
                 SELECT p.prd_cat_id, c.cat_nombre, COUNT(*) AS visitas
                 FROM eventos_usuario e

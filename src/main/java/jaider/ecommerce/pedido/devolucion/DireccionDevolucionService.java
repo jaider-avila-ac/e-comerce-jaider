@@ -24,19 +24,19 @@ public class DireccionDevolucionService {
 
     @Transactional(readOnly = true)
     public List<DireccionDevolucionResponse> getAll() {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         return repo.findAllByOrderByNombreAsc().stream().map(this::toResponse).toList();
     }
 
     @Transactional(readOnly = true)
     public List<DireccionDevolucionResponse> getActivas() {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         return repo.findByActivoTrueOrderByNombreAsc().stream().map(this::toResponse).toList();
     }
 
     @Transactional
     public DireccionDevolucionResponse create(DireccionDevolucionRequest req) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         String tndId = TenantContext.get();
         if (tndId == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Sin contexto de tenant");
         validar(req);
@@ -49,7 +49,7 @@ public class DireccionDevolucionService {
 
     @Transactional
     public DireccionDevolucionResponse update(Long id, DireccionDevolucionRequest req) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         DireccionDevolucion d = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Dirección no encontrada: " + id));
         aplicar(d, req);
@@ -58,7 +58,7 @@ public class DireccionDevolucionService {
 
     @Transactional
     public void delete(Long id) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         if (!repo.existsById(id)) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Dirección no encontrada: " + id);
         boolean enUso = ((Number) em.createNativeQuery(
                 "SELECT COUNT(*) FROM solicitudes_devolucion WHERE sod_dvd_id = :id")

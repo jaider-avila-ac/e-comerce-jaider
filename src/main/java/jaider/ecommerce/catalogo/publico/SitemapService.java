@@ -56,7 +56,7 @@ public class SitemapService {
                     "No se pudo resolver la tienda para este sitemap");
         }
         Long tndId = Long.parseLong(tndIdStr);
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         String base = baseUrl(tndId).replaceAll("/+$", "");
 

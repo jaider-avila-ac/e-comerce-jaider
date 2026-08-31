@@ -60,7 +60,7 @@ public class VentaLocalService {
 
     @Transactional(readOnly = true)
     public CotizacionVentaLocal cotizar(List<VentaLocalRequest.ItemVentaLocal> pedidos) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         if (pedidos == null || pedidos.isEmpty()) return new CotizacionVentaLocal(List.of(), 0L, 0L, 0L);
         List<ItemResuelto> resueltos = resolverItems(pedidos);
         List<ItemCotizado> items = resueltos.stream().map(item -> new ItemCotizado(
@@ -88,7 +88,7 @@ public class VentaLocalService {
     }
 
     private VentaLocalCreada crearReal(Long tndId, Long adminId, VentaLocalRequest req) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         if (req.items() == null || req.items().isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Agrega al menos un producto a la venta");

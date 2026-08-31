@@ -27,7 +27,7 @@ public class ColeccionService {
 
     @Transactional(readOnly = true)
     public List<ColeccionResponse> getAll() {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         return repo.findAllByOrderByOrdenAscNombreAsc().stream()
                 .map(this::toResponse)
                 .toList();
@@ -35,13 +35,13 @@ public class ColeccionService {
 
     @Transactional(readOnly = true)
     public List<Long> getProductoIds(Long colId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         return repo.findProductoIdsByColId(colId);
     }
 
     @Transactional(readOnly = true)
     public ColeccionResponse getById(Long id) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Coleccion c = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Colección no encontrada"));
         return toResponse(c);
@@ -49,7 +49,7 @@ public class ColeccionService {
 
     @Transactional
     public ColeccionResponse create(ColeccionRequest req) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         if (req.nombre() == null || req.nombre().isBlank())
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El nombre es obligatorio");
         if (req.slug() == null || req.slug().isBlank())
@@ -73,7 +73,7 @@ public class ColeccionService {
 
     @Transactional
     public ColeccionResponse update(Long id, ColeccionRequest req) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Coleccion c = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Colección no encontrada"));
         String imagenAnterior = c.getImagenUrl();
@@ -90,7 +90,7 @@ public class ColeccionService {
 
     @Transactional
     public void delete(Long id) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Coleccion c = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Colección no encontrada"));
         // coleccion_productos se borra por CASCADE
@@ -102,7 +102,7 @@ public class ColeccionService {
      *  de ids en el nuevo orden, y cada posición en la lista se vuelve su "orden". */
     @Transactional
     public void reordenar(List<Long> ids) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         for (int i = 0; i < ids.size(); i++) {
             em.createNativeQuery("UPDATE colecciones SET col_orden = :orden WHERE col_id = :id")
                     .setParameter("orden", (short) i)

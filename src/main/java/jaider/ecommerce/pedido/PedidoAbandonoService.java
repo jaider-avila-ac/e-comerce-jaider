@@ -39,7 +39,7 @@ public class PedidoAbandonoService {
 
     @Transactional(readOnly = true)
     public List<Long> pedidosAbandonados(Long tndId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         @SuppressWarnings("unchecked")
         List<Number> ids = em.createNativeQuery("""
                 SELECT ped_id FROM pedidos
@@ -60,7 +60,7 @@ public class PedidoAbandonoService {
      */
     @Transactional
     public void cancelarAbandonado(Long pedId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         String estadoActual = (String) em.createNativeQuery(
                 "SELECT ped_estado::text FROM pedidos WHERE ped_id = :id")
                 .setParameter("id", pedId)

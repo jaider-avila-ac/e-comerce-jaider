@@ -50,7 +50,7 @@ public class NotificacionService {
                                 String entidadTipo, Long entidadId) {
         try {
             TenantContext.set(tndId.toString());
-            tenantSupport.applyTenant(em);
+            tenantSupport.requireTenant(em);
 
             Long id = ((Number) em.createNativeQuery("""
                     INSERT INTO notificaciones_admin
@@ -89,7 +89,7 @@ public class NotificacionService {
                                   String entidadTipo, Long entidadId) {
         try {
             TenantContext.set(tndId.toString());
-            tenantSupport.applyTenant(em);
+            tenantSupport.requireTenant(em);
 
             Long id = ((Number) em.createNativeQuery("""
                     INSERT INTO notificaciones
@@ -130,7 +130,7 @@ public class NotificacionService {
     public void avisarNuevoPedidoPorEmail(Long tndId, Long pedId, String numero) {
         try {
             TenantContext.set(tndId.toString());
-            tenantSupport.applyTenant(em);
+            tenantSupport.requireTenant(em);
 
             String emailDestino = tiendaRepo.findById(tndId)
                     .map(t -> t.getEmailNotificacionPedidos())
@@ -167,7 +167,7 @@ public class NotificacionService {
     public void avisarConfirmacionCompraAlCliente(Long tndId, Long pedId, String numero) {
         try {
             TenantContext.set(tndId.toString());
-            tenantSupport.applyTenant(em);
+            tenantSupport.requireTenant(em);
 
             Object[] pedidoRow;
             try {
@@ -242,7 +242,7 @@ public class NotificacionService {
         List<Long> usrIds;
         try {
             TenantContext.set(tndId.toString());
-            tenantSupport.applyTenant(em);
+            tenantSupport.requireTenant(em);
             usrIds = em.createNativeQuery("SELECT ld_usr_id FROM lista_deseos WHERE ld_prd_id = :prdId")
                     .setParameter("prdId", prdId)
                     .getResultList()
@@ -268,7 +268,7 @@ public class NotificacionService {
         List<Long> usrIds;
         try {
             TenantContext.set(tndId.toString());
-            tenantSupport.applyTenant(em);
+            tenantSupport.requireTenant(em);
             // Solo a quienes no rechazaron promociones (F-07 de la auditoría) — antes se le
             // avisaba una oferta a todo activo sin excepción, sin importar su preferencia.
             // COALESCE trata "sin fila de perfil" como el DEFAULT real de la columna (true).

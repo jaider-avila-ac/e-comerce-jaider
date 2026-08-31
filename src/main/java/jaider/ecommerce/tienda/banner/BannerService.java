@@ -29,19 +29,19 @@ public class BannerService {
 
     @Transactional(readOnly = true)
     public List<BannerResponse> getAll() {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         return repo.findAllByOrderByPosicionAscOrdenAscIdAsc().stream().map(this::toResponse).toList();
     }
 
     @Transactional(readOnly = true)
     public List<BannerResponse> getActivosByPosicion(String posicion) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         return repo.findByPosicionActivos(posicion).stream().map(this::toResponse).toList();
     }
 
     @Transactional
     public BannerResponse create(BannerRequest req) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         String tndId = TenantContext.get();
         if (tndId == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Sin contexto de tenant");
         if (req.url() == null || req.url().isBlank())
@@ -83,7 +83,7 @@ public class BannerService {
 
     @Transactional
     public BannerResponse update(Long id, BannerRequest req) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Banner b = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Banner no encontrado: " + id));
 
@@ -132,7 +132,7 @@ public class BannerService {
 
     @Transactional
     public void reordenar(List<Long> ids) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         for (int i = 0; i < ids.size(); i++) {
             em.createNativeQuery("UPDATE banners SET ban_orden = :orden WHERE ban_id = :id")
                     .setParameter("orden", (short) i)
@@ -143,7 +143,7 @@ public class BannerService {
 
     @Transactional
     public void delete(Long id) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Banner b = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Banner no encontrado: " + id));
         repo.deleteById(id);
