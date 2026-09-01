@@ -1,6 +1,7 @@
 package jaider.ecommerce.pedido;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jaider.ecommerce.geo.ColombiaGeoService;
 import jaider.ecommerce.shared.TenantSupport;
 import jaider.ecommerce.usuario.cliente.ClienteDireccionRequest;
 import jakarta.persistence.EntityManager;
@@ -36,6 +37,7 @@ public class PedidoCreacionService {
     private final TenantSupport tenantSupport;
     private final ObjectMapper objectMapper;
     private final PedidoService pedidoService;
+    private final ColombiaGeoService geoService;
 
     @PersistenceContext
     private EntityManager em;
@@ -545,6 +547,20 @@ public class PedidoCreacionService {
         if (!faltantes.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Esta tienda calcula el envío real — completa en tu dirección: " + String.join(", ", faltantes));
+        }
+
+        // Misma validación de ColombiaGeoService que TiendaClientePerfilService.addDireccion —
+        // acá hace falta aparte porque una dirección inline (sin direccionId) nunca pasa por ese
+        // servicio, y una guardada antes de que este catálogo existiera tampoco quedó validada.
+        String departamento = String.valueOf(direccion.get("departamento"));
+        String municipio = String.valueOf(direccion.get("municipio"));
+        if (!geoService.esDepartamentoValido(departamento)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "El departamento \"" + departamento + "\" no es válido");
+        }
+        if (!geoService.esMunicipioValido(departamento, municipio)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "El municipio \"" + municipio + "\" no pertenece a " + departamento);
         }
     }
 

@@ -3,6 +3,7 @@ package jaider.ecommerce.usuario.cliente;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
 import jakarta.persistence.PersistenceContext;
+import jaider.ecommerce.geo.ColombiaGeoService;
 import jaider.ecommerce.shared.TenantSupport;
 import jaider.ecommerce.shared.interceptor.TenantContext;
 import jaider.ecommerce.tienda.Tienda;
@@ -30,6 +31,7 @@ public class TiendaClientePerfilService {
     private final UsuarioRepository usuarioRepository;
     private final PasswordEncoder passwordEncoder;
     private final TiendaRepository tiendaRepository;
+    private final ColombiaGeoService geoService;
 
     @PersistenceContext
     private EntityManager em;
@@ -356,6 +358,20 @@ public class TiendaClientePerfilService {
         if (!faltantes.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Esta tienda calcula el envío real — completa: " + String.join(", ", faltantes));
+        }
+
+        // El departamento/municipio deben ser un par real de Colombia (ColombiaGeoService, mismo
+        // catálogo DANE/DIVIPOLA que ofrece el frontend) — sin esto, Envia no puede resolver la
+        // ciudad/estado reales al cotizar. No se valida para contra_entrega/fijo: ahí nunca se
+        // usan para nada más que mostrar la dirección, y exigirlo arriesgaría romper direcciones
+        // viejas de Calzacaribe guardadas antes de que este catálogo existiera.
+        if (!geoService.esDepartamentoValido(req.departamento())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "El departamento \"" + req.departamento() + "\" no es válido");
+        }
+        if (!geoService.esMunicipioValido(req.departamento(), req.municipio())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "El municipio \"" + req.municipio() + "\" no pertenece a " + req.departamento());
         }
     }
 

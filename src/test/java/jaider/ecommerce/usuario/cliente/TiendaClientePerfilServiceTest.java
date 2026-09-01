@@ -66,13 +66,34 @@ class TiendaClientePerfilServiceTest {
         Long usrId = crearUsuarioDePrueba(AMPAZ_STUDIO_TND_ID);
 
         ClienteDireccionRequest completa = new ClienteDireccionRequest(
-                "Calle 100 # 10-20", "Apto 501", "Cundinamarca", "Bogotá", "Chapinero", "501",
+                "Calle 100 # 10-20", "Apto 501", "Bogotá D.C.", "Bogotá D.C.", "Chapinero", "501",
                 "Cliente Prueba", "3009876543", "110111");
 
         var direcciones = service.addDireccion(usrId, AMPAZ_STUDIO_TND_ID, completa);
 
         assertThat(direcciones).hasSize(1);
         assertThat(direcciones.get(0).get("codigo_postal")).isEqualTo("110111");
+    }
+
+    @Test
+    void addDireccion_rechazaDepartamentoMunicipioQueNoExisten_enTiendaModoEnvia() {
+        Long usrId = crearUsuarioDePrueba(AMPAZ_STUDIO_TND_ID);
+
+        // "Narnia" no es un departamento real de Colombia.
+        ClienteDireccionRequest depInventado = new ClienteDireccionRequest(
+                "Calle 100 # 10-20", null, "Narnia", "Bogotá D.C.", "Chapinero", null,
+                "Cliente Prueba", "3009876543", "110111");
+        assertThatThrownBy(() -> service.addDireccion(usrId, AMPAZ_STUDIO_TND_ID, depInventado))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("no es válido");
+
+        // Bogotá D.C. es su propio departamento — no un municipio de Cundinamarca.
+        ClienteDireccionRequest parInvalido = new ClienteDireccionRequest(
+                "Calle 100 # 10-20", null, "Cundinamarca", "Bogotá D.C.", "Chapinero", null,
+                "Cliente Prueba", "3009876543", "110111");
+        assertThatThrownBy(() -> service.addDireccion(usrId, AMPAZ_STUDIO_TND_ID, parInvalido))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("no pertenece a");
     }
 
     @Test
