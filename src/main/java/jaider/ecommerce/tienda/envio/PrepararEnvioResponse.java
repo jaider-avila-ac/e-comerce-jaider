@@ -13,5 +13,10 @@ public record PrepararEnvioResponse(
         boolean guiaYaGenerada,
         String transportadoraActual,
         String codigoRastreoActual,
-        String guiaUrlActual
+        String guiaUrlActual,
+        // Corrección de auditoría (2026-09-01): faltaban acá — sin esto, el costo real y el
+        // shipmentId de una guía ya generada solo se veían una vez, en la respuesta inmediata de
+        // generar-guia, y desaparecían al recargar la pantalla.
+        String shipmentIdActual,
+        Long costoRealCentavosActual
 ) {}

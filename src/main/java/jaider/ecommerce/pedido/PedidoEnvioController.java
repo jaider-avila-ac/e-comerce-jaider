@@ -11,6 +11,7 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
@@ -18,8 +19,12 @@ import org.springframework.web.server.ResponseStatusException;
 
 /**
  * "Preparar envío" + generación de guía real con Envia para un pedido — PLAN_INTEGRACION_
- * ENVIA.md, Fase 4. Solo aplica a tiendas en modo 'envia' (ver {@link EnvioGuiaService}); mismo
- * nivel de acceso que el resto de /api/v1/pedidos/** (staff autenticado de esta tienda).
+ * ENVIA.md, Fase 4. Solo aplica a tiendas en modo 'envia' (ver {@link EnvioGuiaService}).
+ * Consultar cotizaciones ({@code preparar}) es de solo lectura, igual que el resto de
+ * /api/v1/pedidos/** (staff autenticado) — pero generar la guía real SÍ cobra de la cuenta de
+ * Envia de la tienda, así que queda restringido a ADMIN, igual que
+ * cancelar/corregir-estado/asignar en {@link PedidoController} (corrección de auditoría,
+ * 2026-09-01 — antes cualquier COLABORADOR/BODEGA podía generarla).
  */
 @RestController
 @RequestMapping("/api/v1/pedidos/{id}/envio")
@@ -39,6 +44,7 @@ public class PedidoEnvioController {
     }
 
     @PostMapping("/generar-guia")
+    @PreAuthorize("hasRole('ADMIN')")
     public GuiaGenerada generarGuia(@PathVariable Long id, @RequestBody GenerarGuiaRequest req,
                                      @AuthenticationPrincipal UserDetails userDetails) {
         return envioGuiaService.generarGuia(tndIdActual(), id, req, resolverAdminId(userDetails));

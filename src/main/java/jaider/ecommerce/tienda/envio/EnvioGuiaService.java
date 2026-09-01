@@ -72,7 +72,8 @@ public class EnvioGuiaService {
 
         return new PrepararEnvioResponse(paquetes, cotizaciones,
                 pedido.getEnviaShipmentId() != null,
-                pedido.getTransportadora(), pedido.getCodigoRastreo(), pedido.getEnviaGuiaUrl());
+                pedido.getTransportadora(), pedido.getCodigoRastreo(), pedido.getEnviaGuiaUrl(),
+                pedido.getEnviaShipmentId(), pedido.getEnviaCostoRealCentavos());
     }
 
     /** Crea el envío REAL y lo cobra de la cuenta de Envia de la tienda — protegido contra doble
