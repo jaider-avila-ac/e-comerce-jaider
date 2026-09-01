@@ -9,7 +9,7 @@ import jaider.ecommerce.catalogo.categoria.CategoriaRepository;
 import jaider.ecommerce.catalogo.subcategoria.SubcategoriaRepository;
 import jaider.ecommerce.infra.CloudinaryService;
 import jaider.ecommerce.notificacion.event.StockDisponibleEvent;
-import jaider.ecommerce.tienda.envio.EspecificacionLogisticaRepository;
+import jaider.ecommerce.tienda.envio.TiendaEmpaqueRepository;
 import jaider.ecommerce.shared.dto.PageResponse;
 import jaider.ecommerce.shared.interceptor.TenantContext;
 import jaider.ecommerce.shared.TenantSupport;
@@ -42,7 +42,7 @@ public class ProductoService {
     private final ProductoImagenRepository imagenRepo;
     private final CategoriaRepository categoriaRepo;
     private final SubcategoriaRepository subcategoriaRepo;
-    private final EspecificacionLogisticaRepository especificacionRepo;
+    private final TiendaEmpaqueRepository empaqueRepo;
     private final TenantSupport tenantSupport;
     private final CatalogCacheService catalogCache;
     private final ApplicationEventPublisher eventPublisher;
@@ -340,15 +340,15 @@ public class ProductoService {
         if (req.fichaTecnica() != null) p.setFichaTecnica(req.fichaTecnica());
         if (req.activo() != null) p.setActivo(req.activo());
 
-        // Especificación logística opcional (PLAN_INTEGRACION_ENVIA.md, Fase 1) — mismo cuidado
-        // que catId/subId: la FK no respeta RLS al validar la referencia, así que sin este
-        // findById() un producto de la tienda A podría terminar apuntando a una especificación
-        // de la tienda B con solo mandar su ID.
-        if (req.especificacionId() != null) {
-            especificacionRepo.findById(req.especificacionId())
-                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Especificación logística no encontrada"));
+        // Empaque opcional (PLAN_INTEGRACION_ENVIA.md, Fase 1) — mismo cuidado que catId/subId:
+        // la FK no respeta RLS al validar la referencia, así que sin este findById() un producto
+        // de la tienda A podría terminar apuntando a un empaque de la tienda B con solo mandar
+        // su ID.
+        if (req.empaqueId() != null) {
+            empaqueRepo.findById(req.empaqueId())
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Empaque no encontrado"));
         }
-        p.setEspecificacionId(req.especificacionId());
+        p.setEmpaqueId(req.empaqueId());
     }
 
     private void saveVariantes(Long prdId, List<VarianteRequest> list) {
@@ -505,7 +505,7 @@ public class ProductoService {
                 stockTotal,
                 variantes,
                 imagenes,
-                p.getEspecificacionId()
+                p.getEmpaqueId()
         );
     }
 

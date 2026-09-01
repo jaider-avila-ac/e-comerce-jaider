@@ -13,8 +13,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Integración real (BD local, sin mocks) del catálogo de empaques — PLAN_INTEGRACION_ENVIA.md,
- * Fase 1. Cubre aislamiento entre tenants (RLS forzado en tienda_empaques) y las validaciones de
- * negocio (dimensiones positivas, rango de cantidad coherente, sin solape entre empaques).
+ * Fase 1. Un empaque junta peso + dimensiones (no hay tabla de peso aparte, ver diseño final en
+ * TiendaEmpaque). Cubre aislamiento entre tenants (RLS forzado) y las validaciones de negocio
+ * (dimensiones positivas, tope de 50cm por lado — límite real de Coordinadora).
  *
  * @Transactional: todo se revierte solo al terminar cada test.
  */
@@ -34,7 +35,7 @@ class EmpaqueServiceTest {
     void tenant1NuncaVeLosEmpaquesDeTenant2_yViceversa() {
         TenantContext.set("2");
         var empaqueTenant2 = service.create(new EmpaqueRequest(
-                "Fixture T2 " + System.nanoTime(), (short) 30, (short) 20, (short) 12, 150, 1, null, (short) 0, true));
+                "Fixture T2 " + System.nanoTime(), (short) 30, (short) 20, (short) 12, 150, (short) 0, true));
 
         TenantContext.set("1");
         var listaTenant1 = service.getAll();
@@ -49,29 +50,26 @@ class EmpaqueServiceTest {
     void dimensionesInvalidas_dan400_noSeGuardaNada() {
         TenantContext.set("1");
         assertThatThrownBy(() -> service.create(new EmpaqueRequest(
-                "Inválido " + System.nanoTime(), (short) 0, (short) 20, (short) 12, 150, 1, null, (short) 0, true)))
+                "Inválido " + System.nanoTime(), (short) 0, (short) 20, (short) 12, 150, (short) 0, true)))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("mayores a 0");
     }
 
     @Test
-    void cantidadMaxMenorQueMin_da400() {
+    void medidaMayorA50cm_dan400_limiteRealDeTransportadoras() {
         TenantContext.set("1");
         assertThatThrownBy(() -> service.create(new EmpaqueRequest(
-                "Rango invertido " + System.nanoTime(), (short) 30, (short) 20, (short) 12, 150, 5, 2, (short) 0, true)))
+                "Demasiado grande " + System.nanoTime(), (short) 60, (short) 20, (short) 12, 150, (short) 0, true)))
                 .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("no puede ser menor");
+                .hasMessageContaining("50cm");
     }
 
     @Test
-    void rangosQueSeSolapan_dan409_noSeGuardaElSegundo() {
+    void pesoNulo_da400() {
         TenantContext.set("1");
-        service.create(new EmpaqueRequest(
-                "Base " + System.nanoTime(), (short) 30, (short) 20, (short) 12, 150, 1, 3, (short) 0, true));
-
         assertThatThrownBy(() -> service.create(new EmpaqueRequest(
-                "Solapado " + System.nanoTime(), (short) 40, (short) 30, (short) 18, 250, 2, 5, (short) 1, true)))
+                "Sin peso " + System.nanoTime(), (short) 30, (short) 20, (short) 12, null, (short) 0, true)))
                 .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("se solapa");
+                .hasMessageContaining("peso");
     }
 }

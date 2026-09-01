@@ -51,16 +51,15 @@ public class Producto {
     @Column(name = "prd_activo", nullable = false)
     private boolean activo = true;
 
-    // Referencia OPCIONAL a una especificación logística reutilizable (peso + dimensiones) —
-    // PLAN_INTEGRACION_ENVIA.md, Fase 1. Normalizada a propósito: muchos productos comparten
-    // exactamente el mismo peso/tamaño físico (ej. varios modelos de tenis "estándar"), así que
-    // el peso/dimensiones viven en su propia tabla (especificaciones_logisticas) y el admin la
-    // crea UNA vez y la reusa en cuantos productos quiera — mismo patrón que prd_cat_id/prd_sub_id
-    // (una FK simple, no un @ManyToOne de JPA, siguiendo la convención del resto de esta clase).
-    // Ningún producto existente la necesita; solo se exige si la tienda activa el envío calculado
-    // con Envia (hoy bloqueado, ver TiendaConfigService).
-    @Column(name = "prd_especificacion_id")
-    private Long especificacionId;
+    // Referencia OPCIONAL al empaque (caja) en que se envía este producto — PLAN_INTEGRACION_
+    // ENVIA.md, Fase 1. Un producto NO tiene peso/dimensiones propias: "las cajas son las que
+    // tienen que tener las medidas... no se mide al zapato, se mide la caja" (decisión explícita
+    // del usuario) — el peso también va en el empaque, no en el producto. Mismo patrón que
+    // prd_cat_id/prd_sub_id (FK simple, no un @ManyToOne de JPA). Ningún producto existente la
+    // necesita; solo se exige si la tienda activa el envío calculado con Envia (hoy bloqueado,
+    // ver TiendaConfigService).
+    @Column(name = "prd_empaque_id")
+    private Long empaqueId;
 
     @Column(name = "prd_oferta_hasta")
     private java.time.OffsetDateTime ofertaHasta;

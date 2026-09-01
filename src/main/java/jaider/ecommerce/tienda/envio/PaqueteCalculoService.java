@@ -11,24 +11,27 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
- * Calcula el "paquete" de un carrito — PLAN_INTEGRACION_ENVIA.md, Fase 1: peso total (suma de
- * las especificaciones logísticas de cada producto × cantidad, más el peso del empaque) y qué
- * empaque de {@code tienda_empaques} cubre la cantidad total de artículos. Este servicio NO se
- * llama todavía desde ningún checkout real (eso es la Fase 3) — es la pieza de cálculo, lista
- * para que esa fase la use.
+ * Arma el arreglo {@code packages[]} que se le manda a Envia.com para cotizar un carrito —
+ * PLAN_INTEGRACION_ENVIA.md, Fase 1. Un producto no tiene peso/dimensiones propias, se le
+ * asigna un {@link TiendaEmpaque} directo — este servicio agrupa el carrito por empaque
+ * (sumando cantidades) y arma UN renglón por cada empaque distinto, con SU peso/dimensiones,
+ * dejando que la propia API de Envia sume todo al cotizar (docs.envia.com/docs/shipping-
+ * multiple-packages: "el sistema suma automáticamente pesos y dimensiones de todos los
+ * paquetes"). Este servicio NO combina/suma nada por su cuenta — solo agrupa.
  *
- * Producto ≠ paquete: nunca se suman las dimensiones de cada producto — el paquete final usa
- * SIEMPRE las dimensiones del empaque elegido, el peso sí es la suma real de los productos.
+ * Todavía no se llama desde ningún checkout real (eso es la Fase 3) — es la pieza de cálculo,
+ * lista para que esa fase la use.
  */
 @Service
 @RequiredArgsConstructor
 public class PaqueteCalculoService {
 
     private final ProductoRepository productoRepo;
-    private final EspecificacionLogisticaRepository especificacionRepo;
     private final TiendaEmpaqueRepository empaqueRepo;
     private final TenantSupport tenantSupport;
 
@@ -36,46 +39,36 @@ public class PaqueteCalculoService {
     private EntityManager em;
 
     @Transactional(readOnly = true)
-    public PaqueteCalculado calcular(List<ItemParaPaquete> items) {
+    public List<PaqueteCalculado> calcular(List<ItemParaPaquete> items) {
         tenantSupport.requireTenant(em);
 
         if (items == null || items.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El carrito está vacío");
         }
 
-        int pesoProductosGramos = 0;
-        int totalArticulos = 0;
+        // LinkedHashMap: conserva el orden en que aparece cada empaque por primera vez —
+        // resultado determinístico, no depende del orden de iteración de un HashMap normal.
+        Map<Long, Integer> cantidadPorEmpaque = new LinkedHashMap<>();
         for (ItemParaPaquete item : items) {
             Producto producto = productoRepo.findById(item.productoId())
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
                             "Producto no encontrado: " + item.productoId()));
-            if (producto.getEspecificacionId() == null) {
+            if (producto.getEmpaqueId() == null) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                        "El producto \"" + producto.getNombre() + "\" no tiene una especificación logística "
-                                + "asignada — no se puede calcular el envío hasta que se le asigne una");
+                        "El producto \"" + producto.getNombre() + "\" no tiene un empaque asignado — "
+                                + "no se puede calcular el envío hasta que se le asigne uno");
             }
-            EspecificacionLogistica esp = especificacionRepo.findById(producto.getEspecificacionId())
-                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                            "La especificación logística del producto \"" + producto.getNombre() + "\" ya no existe"));
-
-            pesoProductosGramos += esp.getPesoGramos() * item.cantidad();
-            totalArticulos += item.cantidad();
+            cantidadPorEmpaque.merge(producto.getEmpaqueId(), item.cantidad(), Integer::sum);
         }
 
-        TiendaEmpaque empaque = elegirEmpaque(totalArticulos);
-        int pesoTotalGramos = pesoProductosGramos + empaque.getPesoGramos();
-
-        return new PaqueteCalculado(pesoTotalGramos, empaque.getId(), empaque.getNombre(),
-                empaque.getLargoCm(), empaque.getAnchoCm(), empaque.getAltoCm());
-    }
-
-    private TiendaEmpaque elegirEmpaque(int totalArticulos) {
-        return empaqueRepo.findByActivoTrueOrderByCantidadMinAsc().stream()
-                .filter(e -> totalArticulos >= e.getCantidadMin()
-                        && (e.getCantidadMax() == null || totalArticulos <= e.getCantidadMax()))
-                .findFirst()
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                        "No hay un empaque configurado que cubra " + totalArticulos + " artículo(s) — "
-                                + "agrega uno en la configuración de empaques"));
+        return cantidadPorEmpaque.entrySet().stream()
+                .map(entry -> {
+                    TiendaEmpaque empaque = empaqueRepo.findById(entry.getKey())
+                            .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                                    "El empaque asignado a un producto ya no existe"));
+                    return new PaqueteCalculado(empaque.getId(), empaque.getNombre(), entry.getValue(),
+                            empaque.getPesoGramos(), empaque.getLargoCm(), empaque.getAnchoCm(), empaque.getAltoCm());
+                })
+                .toList();
     }
 }

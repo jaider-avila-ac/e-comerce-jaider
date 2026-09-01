@@ -17,8 +17,8 @@ public record ProductoRequest(
         Boolean activo,
         List<VarianteRequest> variantes,
         List<ImagenRequest> imagenes,
-        // Referencia opcional a una especificación logística ya creada por la tienda (peso +
-        // dimensiones reutilizables) — PLAN_INTEGRACION_ENVIA.md, Fase 1. Mismo criterio que
-        // subId: siempre se aplica tal cual venga, así que mandar null la quita explícitamente.
-        Long especificacionId
+        // Referencia opcional a un empaque (caja) ya creado por la tienda — PLAN_INTEGRACION_
+        // ENVIA.md, Fase 1. Mismo criterio que subId: siempre se aplica tal cual venga, así que
+        // mandar null lo quita explícitamente.
+        Long empaqueId
 ) {}

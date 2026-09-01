@@ -7,10 +7,20 @@ import lombok.Setter;
 import java.time.OffsetDateTime;
 
 /**
- * Un tamaño/tipo de caja que la tienda usa para empacar pedidos (PLAN_INTEGRACION_ENVIA.md,
- * Fase 1) — ej. "Pequeña", "Mediana", "Grande". El rango [cantidadMin, cantidadMax] indica
- * cuántos artículos del carrito cubre esta caja; lo define cada tienda (no una regla fija tipo
- * "1 par = caja chica"), para que sirva para cualquier tipo de ecommerce, no solo zapatos.
+ * Un empaque (caja) que la tienda usa para enviar sus productos — PLAN_INTEGRACION_ENVIA.md,
+ * Fase 1. Junta peso Y dimensiones (nombre, peso, largo, ancho, alto): un producto no tiene
+ * datos logísticos propios, se le asigna DIRECTO uno de estos empaques
+ * ({@link jaider.ecommerce.catalogo.producto.Producto#getEmpaqueId()}) — decisión explícita del
+ * usuario ("las cajas son las que tienen que tener las medidas, no se mide al zapato, se mide
+ * la caja"; "el peso no va en el producto, va también en la caja"). Si dos productos comparten
+ * caja pero pesan distinto, el admin crea dos empaques con las mismas medidas y distinto peso.
+ *
+ * La API real de Envia.com acepta un renglón por cada empaque distinto del carrito y ELLA
+ * misma suma todo para cotizar (ver PaqueteCalculoService) — por eso esta tabla no necesita
+ * ningún rango de "cuántos artículos cubre".
+ *
+ * Tope de 50cm por lado (ver CHECK de la BD) — límite real publicado por Coordinadora, para que
+ * no se pueda crear un empaque que ninguna transportadora acepte.
  */
 @Entity
 @Table(name = "tienda_empaques")
@@ -40,13 +50,6 @@ public class TiendaEmpaque {
 
     @Column(name = "tep_peso_gramos", nullable = false)
     private Integer pesoGramos;
-
-    @Column(name = "tep_cantidad_min", nullable = false)
-    private Integer cantidadMin = 1;
-
-    /** null = sin límite superior. */
-    @Column(name = "tep_cantidad_max")
-    private Integer cantidadMax;
 
     @Column(name = "tep_orden", nullable = false)
     private Short orden = 0;

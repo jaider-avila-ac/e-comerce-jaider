@@ -7,8 +7,6 @@ public record EmpaqueResponse(
         Short anchoCm,
         Short altoCm,
         Integer pesoGramos,
-        Integer cantidadMin,
-        Integer cantidadMax,
         Short orden,
         boolean activo
 ) {}

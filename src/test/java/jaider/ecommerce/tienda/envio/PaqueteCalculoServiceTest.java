@@ -17,8 +17,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Integración real (BD local, sin mocks) de PLAN_INTEGRACION_ENVIA.md Fase 1: especificaciones
- * logísticas reutilizables + catálogo de empaques + cálculo del paquete de un carrito.
+ * Integración real (BD local, sin mocks) de PLAN_INTEGRACION_ENVIA.md Fase 1: arma el arreglo
+ * {@code packages[]} (un renglón por empaque distinto del carrito, cantidades agrupadas) tal
+ * como lo espera la API real de Envia.com — sin sumar nada nosotros mismos.
  *
  * @Transactional: todos los fixtures (tenant 1, Calzacaribe) se revierten solos al terminar cada
  * test.
@@ -26,9 +27,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @SpringBootTest
 @Transactional
 class PaqueteCalculoServiceTest {
-
-    @Autowired
-    private EspecificacionLogisticaService especificacionService;
 
     @Autowired
     private EmpaqueService empaqueService;
@@ -48,59 +46,61 @@ class PaqueteCalculoServiceTest {
     }
 
     @Test
-    void calculaPesoTotalYEligeElEmpaqueCorrectoSegunCantidad() {
+    void dosProductosConElMismoEmpaque_seAgrupanEnUnSoloRenglonConLaCantidadSumada() {
         TenantContext.set("1");
+        var empaque = empaqueService.create(new EmpaqueRequest(
+                "Mediana " + System.nanoTime(), (short) 40, (short) 30, (short) 18, 250, (short) 0, true));
 
-        var esp = especificacionService.create(new EspecificacionLogisticaRequest(
-                "Tenis estándar " + System.nanoTime(), 850, (short) 32, (short) 20, (short) 12, true));
+        Long prd1 = crearProductoConEmpaque(empaque.id());
+        Long prd2 = crearProductoConEmpaque(empaque.id());
 
-        empaqueService.create(new EmpaqueRequest(
-                "Pequeña " + System.nanoTime(), (short) 30, (short) 20, (short) 12, 150, 1, 1, (short) 0, true));
-        var mediana = empaqueService.create(new EmpaqueRequest(
-                "Mediana " + System.nanoTime(), (short) 40, (short) 30, (short) 18, 250, 2, 2, (short) 1, true));
-        empaqueService.create(new EmpaqueRequest(
-                "Grande " + System.nanoTime(), (short) 50, (short) 40, (short) 30, 400, 3, null, (short) 2, true));
-
-        Long prd1 = crearProductoConEspecificacion(esp.id());
-        Long prd2 = crearProductoConEspecificacion(esp.id());
-
-        // 2 artículos (1 de cada producto) -> caja Mediana, peso = 850+850+250 = 1950g
-        PaqueteCalculado resultado = paqueteCalculoService.calcular(List.of(
-                new ItemParaPaquete(prd1, 1),
-                new ItemParaPaquete(prd2, 1)
+        List<PaqueteCalculado> resultado = paqueteCalculoService.calcular(List.of(
+                new ItemParaPaquete(prd1, 2),
+                new ItemParaPaquete(prd2, 3)
         ));
 
-        assertThat(resultado.pesoTotalGramos()).isEqualTo(850 + 850 + 250);
-        assertThat(resultado.empaqueId()).isEqualTo(mediana.id());
-        assertThat(resultado.largoCm()).isEqualTo((short) 40);
+        // Mismo empaque en ambos productos -> UN solo renglón con cantidad 2+3=5, listo para
+        // mandarlo tal cual al packages[] de Envia (ellos multiplican peso x cantidad, no acá).
+        assertThat(resultado).hasSize(1);
+        PaqueteCalculado renglon = resultado.get(0);
+        assertThat(renglon.empaqueId()).isEqualTo(empaque.id());
+        assertThat(renglon.cantidad()).isEqualTo(5);
+        assertThat(renglon.pesoGramosPorUnidad()).isEqualTo(250);
+        assertThat(renglon.largoCm()).isEqualTo((short) 40);
     }
 
     @Test
-    void productoSinEspecificacionAsignada_dice400ClaroEnVezDeCalcularAlgoInventado() {
+    void dosProductosConEmpaquesDistintos_danDosRenglonesSeparados() {
         TenantContext.set("1");
-        Long prdSinEspec = crearProductoConEspecificacion(null);
+        var pequena = empaqueService.create(new EmpaqueRequest(
+                "Pequeña " + System.nanoTime(), (short) 30, (short) 20, (short) 12, 150, (short) 0, true));
+        var grande = empaqueService.create(new EmpaqueRequest(
+                "Grande " + System.nanoTime(), (short) 50, (short) 40, (short) 30, 400, (short) 1, true));
 
-        assertThatThrownBy(() -> paqueteCalculoService.calcular(List.of(new ItemParaPaquete(prdSinEspec, 1))))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("no tiene una especificación logística asignada");
+        Long prdPequeno = crearProductoConEmpaque(pequena.id());
+        Long prdGrande = crearProductoConEmpaque(grande.id());
+
+        List<PaqueteCalculado> resultado = paqueteCalculoService.calcular(List.of(
+                new ItemParaPaquete(prdPequeno, 1),
+                new ItemParaPaquete(prdGrande, 2)
+        ));
+
+        assertThat(resultado).hasSize(2);
+        assertThat(resultado).anyMatch(r -> r.empaqueId().equals(pequena.id()) && r.cantidad() == 1);
+        assertThat(resultado).anyMatch(r -> r.empaqueId().equals(grande.id()) && r.cantidad() == 2);
     }
 
     @Test
-    void sinNingunEmpaqueQueCubraLaCantidad_dice400ClaroEnVezDeElegirCualquiera() {
+    void productoSinEmpaqueAsignado_dice400ClaroEnVezDeCalcularAlgoInventado() {
         TenantContext.set("1");
-        var esp = especificacionService.create(new EspecificacionLogisticaRequest(
-                "Espec sin empaque " + System.nanoTime(), 500, (short) 20, (short) 15, (short) 10, true));
-        // Un solo empaque que cubre exactamente 1 artículo — pedir 5 no debe "ajustarse solo".
-        empaqueService.create(new EmpaqueRequest(
-                "Única " + System.nanoTime(), (short) 20, (short) 15, (short) 10, 100, 1, 1, (short) 0, true));
-        Long prd = crearProductoConEspecificacion(esp.id());
+        Long prdSinEmpaque = crearProductoConEmpaque(null);
 
-        assertThatThrownBy(() -> paqueteCalculoService.calcular(List.of(new ItemParaPaquete(prd, 5))))
+        assertThatThrownBy(() -> paqueteCalculoService.calcular(List.of(new ItemParaPaquete(prdSinEmpaque, 1))))
                 .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("No hay un empaque configurado");
+                .hasMessageContaining("no tiene un empaque asignado");
     }
 
-    private Long crearProductoConEspecificacion(Long especificacionId) {
+    private Long crearProductoConEmpaque(Long empaqueId) {
         tenantSupport.requireTenant(em); // asegura SET LOCAL app.current_tnd_id aunque sea lo primero que corre en el test
         Long catId = ((Number) em.createNativeQuery(
                 "INSERT INTO categorias (cat_tnd_id, cat_nombre, cat_slug) " +
@@ -108,11 +108,11 @@ class PaqueteCalculoServiceTest {
                 .getSingleResult()).longValue();
 
         return ((Number) em.createNativeQuery(
-                "INSERT INTO productos (prd_tnd_id, prd_cat_id, prd_nombre, prd_slug, prd_precio_centavos, prd_especificacion_id) " +
-                "VALUES (1, :catId, 'Paquete Test Producto', 'paquete-test-producto-" + System.nanoTime() + "', 10000, :especId) " +
+                "INSERT INTO productos (prd_tnd_id, prd_cat_id, prd_nombre, prd_slug, prd_precio_centavos, prd_empaque_id) " +
+                "VALUES (1, :catId, 'Paquete Test Producto', 'paquete-test-producto-" + System.nanoTime() + "', 10000, :empaqueId) " +
                 "RETURNING prd_id")
                 .setParameter("catId", catId)
-                .setParameter("especId", especificacionId)
+                .setParameter("empaqueId", empaqueId)
                 .getSingleResult()).longValue();
     }
 }

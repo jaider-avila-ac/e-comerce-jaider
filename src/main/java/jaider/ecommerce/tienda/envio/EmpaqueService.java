@@ -13,14 +13,18 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.List;
 
 /**
- * CRUD del catálogo de empaques de la tienda actual (PLAN_INTEGRACION_ENVIA.md, Fase 1). Mismo
- * patrón de aislamiento por tenant que el resto de servicios de catálogo (CategoriaService,
- * etc.): {@link TenantSupport#requireTenant} al inicio de cada método, RLS de Postgres hace el
- * resto — un findById() de otra tienda simplemente no aparece, sin necesidad de un WHERE manual.
+ * CRUD del catálogo de empaques de la tienda actual (PLAN_INTEGRACION_ENVIA.md, Fase 1). Un
+ * empaque junta peso + dimensiones — un producto se asigna DIRECTO a uno
+ * ({@link jaider.ecommerce.catalogo.producto.Producto#getEmpaqueId()}), no hay una tabla de
+ * peso aparte (ver {@link TiendaEmpaque}). Mismo patrón de aislamiento por tenant que el resto
+ * de servicios de catálogo: {@link TenantSupport#requireTenant} + RLS de Postgres.
  */
 @Service
 @RequiredArgsConstructor
 public class EmpaqueService {
+
+    /** Coordinadora publica 50cm como arista máxima real — ver CHECK de la BD (chk_tep_medida_maxima). */
+    private static final short MEDIDA_MAXIMA_CM = 50;
 
     private final TiendaEmpaqueRepository repo;
     private final TenantSupport tenantSupport;
@@ -43,11 +47,10 @@ public class EmpaqueService {
         if (req.nombre() == null || req.nombre().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El nombre es obligatorio");
         }
-        validarDimensiones(req);
-
-        int cantidadMin = req.cantidadMin() != null ? req.cantidadMin() : 1;
-        validarRango(cantidadMin, req.cantidadMax());
-        validarSinSolape(null, cantidadMin, req.cantidadMax());
+        validarDimensiones(req.largoCm(), req.anchoCm(), req.altoCm());
+        if (req.pesoGramos() == null || req.pesoGramos() < 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El peso del empaque es obligatorio");
+        }
 
         TiendaEmpaque e = new TiendaEmpaque();
         e.setTndId(Long.parseLong(tndId));
@@ -56,8 +59,6 @@ public class EmpaqueService {
         e.setAnchoCm(req.anchoCm());
         e.setAltoCm(req.altoCm());
         e.setPesoGramos(req.pesoGramos());
-        e.setCantidadMin(cantidadMin);
-        e.setCantidadMax(req.cantidadMax());
         e.setOrden(req.orden() != null ? req.orden() : (short) 0);
         e.setActivo(req.activo() == null || req.activo());
         return toResponse(repo.save(e));
@@ -70,32 +71,19 @@ public class EmpaqueService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Empaque no encontrado"));
 
         if (req.nombre() != null && !req.nombre().isBlank()) e.setNombre(req.nombre().trim());
-        if (req.largoCm() != null) {
-            if (req.largoCm() <= 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El largo debe ser mayor a 0");
-            e.setLargoCm(req.largoCm());
-        }
-        if (req.anchoCm() != null) {
-            if (req.anchoCm() <= 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El ancho debe ser mayor a 0");
-            e.setAnchoCm(req.anchoCm());
-        }
-        if (req.altoCm() != null) {
-            if (req.altoCm() <= 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El alto debe ser mayor a 0");
-            e.setAltoCm(req.altoCm());
+        if (req.largoCm() != null || req.anchoCm() != null || req.altoCm() != null) {
+            short largo = req.largoCm() != null ? req.largoCm() : e.getLargoCm();
+            short ancho = req.anchoCm() != null ? req.anchoCm() : e.getAnchoCm();
+            short alto = req.altoCm() != null ? req.altoCm() : e.getAltoCm();
+            validarDimensiones(largo, ancho, alto);
+            e.setLargoCm(largo);
+            e.setAnchoCm(ancho);
+            e.setAltoCm(alto);
         }
         if (req.pesoGramos() != null) {
             if (req.pesoGramos() < 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El peso no puede ser negativo");
             e.setPesoGramos(req.pesoGramos());
         }
-
-        int nuevoMin = req.cantidadMin() != null ? req.cantidadMin() : e.getCantidadMin();
-        Integer nuevoMax = req.cantidadMax() != null ? req.cantidadMax() : e.getCantidadMax();
-        if (req.cantidadMin() != null || req.cantidadMax() != null) {
-            validarRango(nuevoMin, nuevoMax);
-            validarSinSolape(id, nuevoMin, nuevoMax);
-            e.setCantidadMin(nuevoMin);
-            e.setCantidadMax(nuevoMax);
-        }
-
         if (req.orden() != null) e.setOrden(req.orden());
         if (req.activo() != null) e.setActivo(req.activo());
 
@@ -107,48 +95,23 @@ public class EmpaqueService {
         tenantSupport.requireTenant(em);
         TiendaEmpaque e = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Empaque no encontrado"));
+        // ON DELETE SET NULL en la BD: los productos que lo usaban quedan sin empaque asignado.
         repo.delete(e);
     }
 
-    private void validarDimensiones(EmpaqueRequest req) {
-        if (req.largoCm() == null || req.largoCm() <= 0
-                || req.anchoCm() == null || req.anchoCm() <= 0
-                || req.altoCm() == null || req.altoCm() <= 0) {
+    private void validarDimensiones(Short largoCm, Short anchoCm, Short altoCm) {
+        if (largoCm == null || largoCm <= 0 || anchoCm == null || anchoCm <= 0 || altoCm == null || altoCm <= 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Largo, ancho y alto son obligatorios y deben ser mayores a 0");
         }
-        if (req.pesoGramos() == null || req.pesoGramos() < 0) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "El peso del empaque es obligatorio");
-        }
-    }
-
-    private void validarRango(int cantidadMin, Integer cantidadMax) {
-        if (cantidadMax != null && cantidadMax < cantidadMin) {
+        if (largoCm > MEDIDA_MAXIMA_CM || anchoCm > MEDIDA_MAXIMA_CM || altoCm > MEDIDA_MAXIMA_CM) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "La cantidad máxima no puede ser menor a la mínima");
-        }
-    }
-
-    /** Evita que dos empaques activos de la misma tienda cubran el mismo rango de cantidad de
-     *  artículos — si se solaparan, PaqueteCalculoService no tendría forma determinística de
-     *  elegir cuál usar. idExcluir es el propio registro cuando se está actualizando (no debe
-     *  chocar consigo mismo). */
-    private void validarSinSolape(Long idExcluir, int cantidadMin, Integer cantidadMax) {
-        int maxEfectivo = cantidadMax != null ? cantidadMax : Integer.MAX_VALUE;
-        for (TiendaEmpaque otro : repo.findAllByOrderByOrdenAscNombreAsc()) {
-            if (!otro.isActivo()) continue;
-            if (idExcluir != null && otro.getId().equals(idExcluir)) continue;
-            int otroMaxEfectivo = otro.getCantidadMax() != null ? otro.getCantidadMax() : Integer.MAX_VALUE;
-            boolean solapan = cantidadMin <= otroMaxEfectivo && otro.getCantidadMin() <= maxEfectivo;
-            if (solapan) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT,
-                        "El rango de cantidad se solapa con el empaque \"" + otro.getNombre() + "\"");
-            }
+                    "Ningún lado puede superar " + MEDIDA_MAXIMA_CM + "cm (límite real de las transportadoras)");
         }
     }
 
     private EmpaqueResponse toResponse(TiendaEmpaque e) {
         return new EmpaqueResponse(e.getId(), e.getNombre(), e.getLargoCm(), e.getAnchoCm(), e.getAltoCm(),
-                e.getPesoGramos(), e.getCantidadMin(), e.getCantidadMax(), e.getOrden(), e.isActivo());
+                e.getPesoGramos(), e.getOrden(), e.isActivo());
     }
 }
