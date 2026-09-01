@@ -16,5 +16,9 @@ public record ProductoRequest(
         Map<String, Object> fichaTecnica,
         Boolean activo,
         List<VarianteRequest> variantes,
-        List<ImagenRequest> imagenes
+        List<ImagenRequest> imagenes,
+        // Referencia opcional a una especificación logística ya creada por la tienda (peso +
+        // dimensiones reutilizables) — PLAN_INTEGRACION_ENVIA.md, Fase 1. Mismo criterio que
+        // subId: siempre se aplica tal cual venga, así que mandar null la quita explícitamente.
+        Long especificacionId
 ) {}

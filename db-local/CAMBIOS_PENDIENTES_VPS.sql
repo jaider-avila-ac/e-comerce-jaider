@@ -277,3 +277,79 @@ ALTER TABLE tiendas ADD CONSTRAINT tiendas_tnd_envio_modo_check
     CHECK (tnd_envio_modo::text = ANY (ARRAY['contra_entrega','fijo','envia']::text[]));
 ALTER TABLE tiendas ADD COLUMN tnd_envia_ambiente VARCHAR(20) NOT NULL DEFAULT 'sandbox'
     CHECK (tnd_envia_ambiente IN ('sandbox','produccion'));
+
+-- ============================================================================
+-- 2026-08-31 — PLAN_INTEGRACION_ENVIA.md, Fase 1: especificaciones logísticas reutilizables +
+-- catálogo de empaques por tienda (RLS forzado en ambas, igual que el resto de tablas de
+-- negocio — a diferencia de `tiendas`/`tienda_secretos`, que son cross-tenant a propósito).
+--
+-- CORRECCIÓN DE DISEÑO (pedida por el usuario, misma sesión): la primera versión agregaba
+-- peso/largo/ancho/alto DIRECTO en `productos`. Eso no es la forma normalizada — muchos
+-- productos comparten exactamente el mismo peso/tamaño físico (ej. varios modelos de tenis
+-- "estándar"), así que repetir esos 4 valores en cada fila de producto es redundante. La forma
+-- correcta: una tabla `especificaciones_logisticas` reutilizable (el admin la crea UNA vez,
+-- ej. "Tenis estándar: 850g, 32x20x12cm") y `productos` solo guarda una referencia (FK) a
+-- cuál usa, igual patrón que `prd_cat_id`/`prd_sub_id`. Ningún producto existente necesita
+-- tener una asignada — es opcional, solo se exige si la tienda activa el modo 'envia'
+-- (bloqueado hasta la Fase 3).
+-- ============================================================================
+CREATE TABLE especificaciones_logisticas (
+    esl_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    esl_tnd_id BIGINT NOT NULL REFERENCES tiendas(tnd_id) ON DELETE CASCADE,
+    esl_nombre VARCHAR(80) NOT NULL,
+    esl_peso_gramos INTEGER NOT NULL CHECK (esl_peso_gramos > 0),
+    esl_largo_cm SMALLINT NOT NULL CHECK (esl_largo_cm > 0),
+    esl_ancho_cm SMALLINT NOT NULL CHECK (esl_ancho_cm > 0),
+    esl_alto_cm SMALLINT NOT NULL CHECK (esl_alto_cm > 0),
+    esl_activo BOOLEAN NOT NULL DEFAULT true,
+    esl_creado_en TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(esl_tnd_id, esl_nombre)
+);
+CREATE INDEX idx_esl_tnd_id ON especificaciones_logisticas(esl_tnd_id);
+
+ALTER TABLE especificaciones_logisticas ENABLE ROW LEVEL SECURITY;
+ALTER TABLE especificaciones_logisticas FORCE ROW LEVEL SECURITY;
+CREATE POLICY pol_especificaciones_logisticas ON especificaciones_logisticas
+    USING (esl_tnd_id = fn_current_tnd_id())
+    WITH CHECK (esl_tnd_id = fn_current_tnd_id());
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON especificaciones_logisticas TO calzacaribe_usr;
+GRANT USAGE, SELECT ON SEQUENCE especificaciones_logisticas_esl_id_seq TO calzacaribe_usr;
+ALTER TABLE especificaciones_logisticas OWNER TO ecommerce_owner;
+
+-- ON DELETE SET NULL (no CASCADE): borrar una especificación no debe borrar los productos que
+-- la usan, solo dejarlos sin especificación asignada (vuelven a quedar "sin peso/medidas" hasta
+-- que el admin les asigne otra).
+ALTER TABLE productos ADD COLUMN prd_especificacion_id BIGINT
+    REFERENCES especificaciones_logisticas(esl_id) ON DELETE SET NULL;
+CREATE INDEX idx_prd_especificacion_id ON productos(prd_especificacion_id);
+
+CREATE TABLE tienda_empaques (
+    tep_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    tep_tnd_id BIGINT NOT NULL REFERENCES tiendas(tnd_id) ON DELETE CASCADE,
+    tep_nombre VARCHAR(60) NOT NULL,
+    tep_largo_cm SMALLINT NOT NULL CHECK (tep_largo_cm > 0),
+    tep_ancho_cm SMALLINT NOT NULL CHECK (tep_ancho_cm > 0),
+    tep_alto_cm SMALLINT NOT NULL CHECK (tep_alto_cm > 0),
+    tep_peso_gramos INTEGER NOT NULL CHECK (tep_peso_gramos >= 0),
+    -- Rango de cantidad de artículos del carrito que cubre este empaque — lo define cada
+    -- tienda (no una regla global de "1 par = caja chica"), así sirve para cualquier tipo de
+    -- ecommerce, no solo zapatos. tep_cantidad_max NULL = sin límite superior.
+    tep_cantidad_min INTEGER NOT NULL DEFAULT 1 CHECK (tep_cantidad_min >= 1),
+    tep_cantidad_max INTEGER CHECK (tep_cantidad_max IS NULL OR tep_cantidad_max >= tep_cantidad_min),
+    tep_orden SMALLINT NOT NULL DEFAULT 0,
+    tep_activo BOOLEAN NOT NULL DEFAULT true,
+    tep_creado_en TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(tep_tnd_id, tep_nombre)
+);
+CREATE INDEX idx_tep_tnd_id ON tienda_empaques(tep_tnd_id);
+
+ALTER TABLE tienda_empaques ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tienda_empaques FORCE ROW LEVEL SECURITY;
+CREATE POLICY pol_tienda_empaques ON tienda_empaques
+    USING (tep_tnd_id = fn_current_tnd_id())
+    WITH CHECK (tep_tnd_id = fn_current_tnd_id());
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON tienda_empaques TO calzacaribe_usr;
+GRANT USAGE, SELECT ON SEQUENCE tienda_empaques_tep_id_seq TO calzacaribe_usr;
+ALTER TABLE tienda_empaques OWNER TO ecommerce_owner;
