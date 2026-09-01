@@ -7,6 +7,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Optional;
 
 public interface PedidoRepository extends JpaRepository<Pedido, Long> {
 
@@ -76,6 +77,25 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
                              @Param("codigo") String codigo, @Param("link") String link,
                              @Param("mostrar") String mostrar, @Param("shipmentId") String shipmentId,
                              @Param("guiaUrl") String guiaUrl, @Param("costoRealCentavos") Long costoRealCentavos);
+
+    // PLAN_INTEGRACION_ENVIA.md, Fase 5 — webhook de Envia. A diferencia de updateEstadoSi (que
+    // exige conocer el estado ANTERIOR exacto porque el llamador es un admin que ya leyó el
+    // pedido), acá no hace falta: un webhook puede llegar más de una vez (reintentos normales de
+    // cualquier webhook) o fuera de orden, así que la condición es "todavía no está en un estado
+    // final" en vez de "está exactamente en tal estado" — deliberadamente simple e idempotente,
+    // no reemplaza el flujo de PedidoService (colaborador asignado, etc.), que sigue siendo el
+    // único camino para las transiciones que decide el propio staff (preparando/enviado).
+    @Modifying(clearAutomatically = true)
+    @Query(value = """
+            UPDATE pedidos SET ped_estado = CAST(:estadoNuevo AS estado_pedido)
+            WHERE ped_id = :id
+              AND ped_estado NOT IN (CAST('entregado' AS estado_pedido), CAST('cancelado' AS estado_pedido), CAST('devuelto' AS estado_pedido))
+            """, nativeQuery = true)
+    int avanzarEstadoPorWebhookEnvia(@Param("id") Long id, @Param("estadoNuevo") String estadoNuevo);
+
+    Optional<Pedido> findByTndIdAndCodigoRastreo(Long tndId, String codigoRastreo);
+
+    Optional<Pedido> findByNumeroAndUsrId(String numero, Long usrId);
 
     @Modifying(clearAutomatically = true)
     @Query(value = """

@@ -103,7 +103,7 @@ class TiendaConfigServiceTest {
     void modoEnvia_bloqueadoSinSucursalConOrigen_auqueYaHayaCredenciales() {
         long unico = System.nanoTime();
         Long tndId = provisionarTiendaDePrueba(unico);
-        superadminService.guardarEnvia(tndId, new EnviaCredencialesRequest("token-fake-" + unico),
+        superadminService.guardarEnvia(tndId, new EnviaCredencialesRequest("token-fake-" + unico, null),
                 adminAuditorDePrueba(unico));
 
         TenantContext.set(tndId.toString());
@@ -119,7 +119,7 @@ class TiendaConfigServiceTest {
     void modoEnvia_sePermite_conCredencialesYSucursalConOrigenCompleto() {
         long unico = System.nanoTime();
         Long tndId = provisionarTiendaDePrueba(unico);
-        superadminService.guardarEnvia(tndId, new EnviaCredencialesRequest("token-fake-" + unico),
+        superadminService.guardarEnvia(tndId, new EnviaCredencialesRequest("token-fake-" + unico, null),
                 adminAuditorDePrueba(unico));
 
         // sucursales tiene RLS forzado — hay que fijar el tenant en la sesión ANTES de insertar,

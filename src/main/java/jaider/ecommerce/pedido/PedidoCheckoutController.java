@@ -6,6 +6,8 @@ import jaider.ecommerce.pedido.devolucion.SolicitudDevolucionRequest;
 import jaider.ecommerce.pedido.devolucion.SolicitudDevolucionResponse;
 import jaider.ecommerce.pedido.devolucion.SolicitudDevolucionService;
 import jaider.ecommerce.shared.interceptor.TenantContext;
+import jaider.ecommerce.tienda.envio.EnvioSeguimientoService;
+import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -23,6 +25,7 @@ public class PedidoCheckoutController {
     private final PedidoCheckoutService checkoutService;
     private final PedidoCreacionService pedidoCreacionService;
     private final SolicitudDevolucionService devolucionService;
+    private final EnvioSeguimientoService envioSeguimientoService;
     private final JwtService jwtService;
 
     /** Checkout hospedado: crea el pedido y devuelve la URL de la ventana de pago de Wompi.
@@ -62,6 +65,18 @@ public class PedidoCheckoutController {
             @PathVariable String numero) {
         Long[] ids = extractIds(authHeader);
         return pedidoCreacionService.consultarEstado(ids[0], ids[1], numero);
+    }
+
+    /** Seguimiento detallado en tiempo real (tipo Mercado Libre) — PLAN_INTEGRACION_ENVIA.md,
+     *  Fase 5. Solo tiene datos si la tienda usa envío calculado Y ya se generó una guía real
+     *  para este pedido (Fase 4) — antes de eso, EnvioSeguimientoService responde 400 con un
+     *  mensaje claro en vez de una lista vacía silenciosa. */
+    @GetMapping("/{numero}/seguimiento-detalle")
+    public JsonNode seguimientoDetalle(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @PathVariable String numero) {
+        Long[] ids = extractIds(authHeader);
+        return envioSeguimientoService.seguimientoDetalle(ids[0], ids[1], numero);
     }
 
     /** El cliente confirma que ya recibió su pedido (con o sin envío ya marcado como

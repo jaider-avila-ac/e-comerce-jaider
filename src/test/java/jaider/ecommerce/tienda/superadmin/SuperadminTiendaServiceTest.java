@@ -77,11 +77,14 @@ class SuperadminTiendaServiceTest {
         var privateKeyEstado = estadoWompi.stream().filter(c -> c.campo().equals("PRIVATE_KEY")).findFirst().orElseThrow();
         assertThat(privateKeyEstado.configurada()).isFalse();
 
-        var estadoEnvia = service.guardarEnvia(tndId, new EnviaCredencialesRequest("envia_token_fake"), adminAuditorId);
-        assertThat(estadoEnvia).hasSize(1);
-        assertThat(estadoEnvia.get(0).campo()).isEqualTo("API_TOKEN");
-        assertThat(estadoEnvia.get(0).configurada()).isTrue();
-        assertThat(estadoEnvia.get(0).origen()).isEqualTo("BD");
+        var estadoEnvia = service.guardarEnvia(tndId, new EnviaCredencialesRequest("envia_token_fake", null), adminAuditorId);
+        assertThat(estadoEnvia).extracting(CampoEstadoResponse::campo).contains("API_TOKEN", "WEBHOOK_SECRET");
+        var apiTokenEstado = estadoEnvia.stream().filter(c -> c.campo().equals("API_TOKEN")).findFirst().orElseThrow();
+        assertThat(apiTokenEstado.configurada()).isTrue();
+        assertThat(apiTokenEstado.origen()).isEqualTo("BD");
+        // webhookSecret no se mandó — debe seguir "no configurada", igual que privateKey en Wompi.
+        var webhookSecretEstado = estadoEnvia.stream().filter(c -> c.campo().equals("WEBHOOK_SECRET")).findFirst().orElseThrow();
+        assertThat(webhookSecretEstado.configurada()).isFalse();
         assertThat(estadoEnvia.toString()).doesNotContain("envia_token_fake");
 
         // Resend/Cloudinary siguen sin configurar — activar debe rechazar con 409, no con 500.

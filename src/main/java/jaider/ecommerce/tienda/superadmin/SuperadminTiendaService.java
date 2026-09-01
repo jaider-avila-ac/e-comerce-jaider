@@ -99,8 +99,9 @@ public class SuperadminTiendaService {
                 estadoCampos(tndId, tienda.getSecretAlias(), "WOMPI", "PUBLIC_KEY", "PRIVATE_KEY", "INTEGRITY_KEY", "EVENTS_KEY"),
                 estadoCampos(tndId, tienda.getSecretAlias(), "RESEND", "API_KEY", "FROM"),
                 estadoCampos(tndId, tienda.getSecretAlias(), "CLOUDINARY", "CLOUD_NAME", "API_KEY", "API_SECRET"),
-                estadoCampos(tndId, tienda.getSecretAlias(), "ENVIA", "API_TOKEN"),
-                appBaseUrl + "/api/v1/public/pagos/webhook/wompi"
+                estadoCampos(tndId, tienda.getSecretAlias(), "ENVIA", "API_TOKEN", "WEBHOOK_SECRET"),
+                appBaseUrl + "/api/v1/public/pagos/webhook/wompi",
+                appBaseUrl + "/api/v1/public/envios/webhook/envia/" + tndId
         );
     }
 
@@ -139,9 +140,12 @@ public class SuperadminTiendaService {
 
     @Transactional
     public List<CampoEstadoResponse> guardarEnvia(Long tndId, EnviaCredencialesRequest req, Long adminId) {
-        guardarCampos(tndId, "ENVIA", Map.of("API_TOKEN", req.apiToken()), adminId);
+        Map<String, String> campos = new LinkedHashMap<>();
+        campos.put("API_TOKEN", req.apiToken());
+        if (req.webhookSecret() != null && !req.webhookSecret().isBlank()) campos.put("WEBHOOK_SECRET", req.webhookSecret());
+        guardarCampos(tndId, "ENVIA", campos, adminId);
         Tienda tienda = tiendaObligatoria(tndId);
-        return estadoCampos(tndId, tienda.getSecretAlias(), "ENVIA", "API_TOKEN");
+        return estadoCampos(tndId, tienda.getSecretAlias(), "ENVIA", "API_TOKEN", "WEBHOOK_SECRET");
     }
 
     @Transactional(readOnly = true)

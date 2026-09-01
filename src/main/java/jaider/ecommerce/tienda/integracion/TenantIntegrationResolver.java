@@ -70,7 +70,9 @@ public class TenantIntegrationResolver {
      *  {@code tiendas.tnd_envia_ambiente} (ver Tienda), este resolver solo se encarga del token. */
     public EnviaCredentials envioCredentials(Long tndId) {
         String alias = resolveAlias(tndId);
-        return new EnviaCredentials(requireField(tndId, alias, "ENVIA", "API_TOKEN"));
+        return new EnviaCredentials(
+                requireField(tndId, alias, "ENVIA", "API_TOKEN"),
+                optionalField(tndId, alias, "ENVIA", "WEBHOOK_SECRET"));
     }
 
     private String resolveAlias(Long tndId) {
