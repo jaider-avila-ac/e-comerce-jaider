@@ -400,3 +400,17 @@ ALTER TABLE tienda_transportadoras OWNER TO ecommerce_owner;
 ALTER TABLE pedidos ADD COLUMN ped_envia_shipment_id VARCHAR(50);
 ALTER TABLE pedidos ADD COLUMN ped_envia_guia_url VARCHAR(500);
 ALTER TABLE pedidos ADD COLUMN ped_envia_costo_real_centavos BIGINT;
+
+-- ============================================================================
+-- 2026-09-01 — PLAN_INTEGRACION_ENVIA.md, correcciones de una auditoría estática real (3
+-- críticos + varios altos, ninguno hipotético — se verificó cada uno contra el código real antes
+-- de corregir). Este campo resuelve DOS hallazgos a la vez:
+--   - "Las dimensiones del envío no quedan congeladas en el pedido": generar la guía volvía a
+--     calcular el paquete desde el producto/empaque ACTUALES — si el admin cambia o borra el
+--     empaque después de la compra, la guía real terminaría con medidas distintas a las que se
+--     le cotizaron al cliente (o fallaría). Ahora se congela en el checkout.
+--   - "La cotización cobrada no está vinculada a la guía": no había ningún rastro de qué
+--     transportadora/servicio/precio se cotizó al cliente — el admin podía generar la guía con
+--     cualquier transportadora, incluso una bastante más cara, sin ninguna referencia.
+-- ============================================================================
+ALTER TABLE pedidos ADD COLUMN ped_envio_cotizacion_snapshot JSONB;

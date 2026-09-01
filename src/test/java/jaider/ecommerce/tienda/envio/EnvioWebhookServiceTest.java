@@ -12,10 +12,12 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Integración real (BD local, sin mocks) del webhook de seguimiento — PLAN_INTEGRACION_ENVIA.md,
@@ -24,12 +26,18 @@ import static org.assertj.core.api.Assertions.assertThat;
  * generar guía (esas somos NOSOTROS llamando a Envia; acá es al revés), así que esta prueba
  * simula el payload que Envia mandaría.
  *
+ * Cubre la corrección de auditoría (2026-09-01): el webhook_secret ahora es OBLIGATORIO —
+ * antes, sin uno configurado, cualquiera que supiera el tnd_id y un código de rastreo real podía
+ * marcar un pedido como entregado/devuelto sin autenticarse.
+ *
  * Tienda + pedido de prueba propios (no Calzacaribe, que no tiene Envia configurado) —
  * @Transactional revierte todo solo al terminar cada test.
  */
 @SpringBootTest
 @Transactional
 class EnvioWebhookServiceTest {
+
+    private static final String SECRETO = "secreto-de-prueba-super-seguro";
 
     @Autowired
     private EnvioWebhookService service;
@@ -52,11 +60,11 @@ class EnvioWebhookServiceTest {
         String tracking = "TRACK-DELIVERED-" + unico;
         Long pedId = crearPedidoDePrueba(tndId, tracking);
 
-        service.procesar(tndId, Map.of("trackingNumber", tracking, "status", "Delivered"), null);
+        service.procesar(tndId, Map.of("trackingNumber", tracking, "status", "Delivered"), "Bearer " + SECRETO);
         assertThat(estadoDe(pedId)).isEqualTo("entregado");
 
         // Un segundo webhook con el mismo evento (reintento típico) no debe fallar ni cambiar nada.
-        service.procesar(tndId, Map.of("trackingNumber", tracking, "status", "Delivered"), null);
+        service.procesar(tndId, Map.of("trackingNumber", tracking, "status", "Delivered"), "Bearer " + SECRETO);
         assertThat(estadoDe(pedId)).isEqualTo("entregado");
     }
 
@@ -67,7 +75,7 @@ class EnvioWebhookServiceTest {
         String tracking = "TRACK-RETURNED-" + unico;
         Long pedId = crearPedidoDePrueba(tndId, tracking);
 
-        service.procesar(tndId, Map.of("trackingNumber", tracking, "status", "Returned to sender"), null);
+        service.procesar(tndId, Map.of("trackingNumber", tracking, "status", "Returned to sender"), "Bearer " + SECRETO);
         assertThat(estadoDe(pedId)).isEqualTo("devuelto");
     }
 
@@ -78,7 +86,23 @@ class EnvioWebhookServiceTest {
         String tracking = "TRACK-INTRANSIT-" + unico;
         Long pedId = crearPedidoDePrueba(tndId, tracking);
 
-        service.procesar(tndId, Map.of("trackingNumber", tracking, "status", "In Transit"), null);
+        service.procesar(tndId, Map.of("trackingNumber", tracking, "status", "In Transit"), "Bearer " + SECRETO);
+        assertThat(estadoDe(pedId)).isEqualTo("pagado");
+    }
+
+    // Corrección de auditoría: "Undelivered" y "Delivery exception" contienen la subcadena
+    // "deliver" — el bug original los marcaba como "entregado". Ahora deben quedar ignorados.
+    @Test
+    void statusUndelivered_noSeConfundeConEntregado() {
+        long unico = System.nanoTime();
+        Long tndId = tiendaConEnviaConfigurado(unico);
+        String tracking = "TRACK-UNDELIVERED-" + unico;
+        Long pedId = crearPedidoDePrueba(tndId, tracking);
+
+        service.procesar(tndId, Map.of("trackingNumber", tracking, "status", "Undelivered"), "Bearer " + SECRETO);
+        assertThat(estadoDe(pedId)).isEqualTo("pagado");
+
+        service.procesar(tndId, Map.of("trackingNumber", tracking, "status", "Delivery exception"), "Bearer " + SECRETO);
         assertThat(estadoDe(pedId)).isEqualTo("pagado");
     }
 
@@ -87,7 +111,48 @@ class EnvioWebhookServiceTest {
         long unico = System.nanoTime();
         Long tndId = tiendaConEnviaConfigurado(unico);
         // No debe lanzar excepción aunque el tracking no exista — un webhook siempre "se acepta".
-        service.procesar(tndId, Map.of("trackingNumber", "NO-EXISTE-" + unico, "status", "Delivered"), null);
+        service.procesar(tndId, Map.of("trackingNumber", "NO-EXISTE-" + unico, "status", "Delivered"), "Bearer " + SECRETO);
+    }
+
+    @Test
+    void sinWebhookSecretConfigurado_rechazaConUnauthorized() {
+        long unico = System.nanoTime();
+        // A propósito SIN guardar webhookSecret — antes esto se procesaba igual (hueco real).
+        TenantProvisioningResult creada = superadminService.crearBorrador(new CrearTiendaRequest(
+                "Tienda Webhook Sin Secreto", "Tienda Webhook Sin Secreto SAS", "NIT-" + unico,
+                "tienda-webhook-sinsecreto-" + unico, "tienda-webhook-sinsecreto-" + unico + ".test",
+                "contacto" + unico + "@example.com", null, null,
+                "admin" + unico + "@example.com", "ContraseñaSegura123", "Admin Prueba",
+                null, null, null, null
+        ));
+        Long tndId = creada.tenantId();
+        Number adminAuditorId = (Number) em.createNativeQuery(
+                "SELECT id FROM admin_users WHERE rol = 'superadmin' ORDER BY id LIMIT 1"
+        ).getSingleResult();
+        superadminService.guardarEnvia(tndId, new EnviaCredencialesRequest("token-fake-" + unico, null),
+                adminAuditorId.longValue());
+
+        String tracking = "TRACK-SINSECRETO-" + unico;
+        Long pedId = crearPedidoDePrueba(tndId, tracking);
+
+        assertThatThrownBy(() -> service.procesar(tndId, Map.of("trackingNumber", tracking, "status", "Delivered"), null))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("401");
+        // No debe haber cambiado nada — el rechazo debe ser real, no silencioso.
+        assertThat(estadoDe(pedId)).isEqualTo("pagado");
+    }
+
+    @Test
+    void tokenIncorrecto_rechazaConUnauthorized_noCambiaNada() {
+        long unico = System.nanoTime();
+        Long tndId = tiendaConEnviaConfigurado(unico);
+        String tracking = "TRACK-TOKENMALO-" + unico;
+        Long pedId = crearPedidoDePrueba(tndId, tracking);
+
+        assertThatThrownBy(() -> service.procesar(tndId, Map.of("trackingNumber", tracking, "status", "Delivered"), "Bearer token-incorrecto"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("401");
+        assertThat(estadoDe(pedId)).isEqualTo("pagado");
     }
 
     private Long tiendaConEnviaConfigurado(long unico) {
@@ -102,7 +167,7 @@ class EnvioWebhookServiceTest {
         Number adminAuditorId = (Number) em.createNativeQuery(
                 "SELECT id FROM admin_users WHERE rol = 'superadmin' ORDER BY id LIMIT 1"
         ).getSingleResult();
-        superadminService.guardarEnvia(tndId, new EnviaCredencialesRequest("token-fake-" + unico, null),
+        superadminService.guardarEnvia(tndId, new EnviaCredencialesRequest("token-fake-" + unico, SECRETO),
                 adminAuditorId.longValue());
         return tndId;
     }

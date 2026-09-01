@@ -14,9 +14,13 @@ import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.Map;
 
 /**
@@ -60,18 +64,24 @@ public class EnvioWebhookService {
             return;
         }
 
-        // Verificación opcional (ver EnviaCredentials.webhookSecret): si la tienda configuró un
-        // secreto, el header Authorization debe traerlo tal cual. Sin secreto configurado se
-        // procesa igual (mismo criterio que una integración a medio configurar en otros lados),
-        // pero queda registrado como advertencia.
-        if (creds.webhookSecret() != null && !creds.webhookSecret().isBlank()) {
-            String esperado = "Bearer " + creds.webhookSecret();
-            if (authHeader == null || !esperado.equals(authHeader)) {
-                log.warn("[EnvioWebhook] tenant={} — firma/token inválido, evento rechazado", tndId);
-                return;
-            }
-        } else {
-            log.warn("[EnvioWebhook] tenant={} no tiene webhook_secret configurado — evento procesado sin verificar autenticidad", tndId);
+        // Corrección de auditoría (2026-09-01): antes esta verificación era opcional — si la
+        // tienda no tenía webhook_secret configurado, CUALQUIERA que supiera el tnd_id (visible
+        // en la URL) y un código de rastreo real podía llamar este endpoint y marcar un pedido
+        // como entregado/devuelto sin autenticarse. Y si el secreto SÍ estaba configurado pero no
+        // coincidía, el servicio simplemente retornaba y el controller igual respondía 200 — o
+        // sea que ni siquiera se notaba el rechazo. Ahora el secreto es OBLIGATORIO para poder
+        // procesar cualquier evento, y un secreto ausente/incorrecto lanza 401 de verdad (Spring
+        // lo traduce automáticamente en el controller) en vez de un 200 silencioso.
+        String secreto = creds.webhookSecret();
+        if (secreto == null || secreto.isBlank()) {
+            log.error("[EnvioWebhook] tenant={} no tiene webhook_secret configurado — evento rechazado (configúralo antes de usar el webhook)", tndId);
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,
+                    "Esta tienda no tiene configurado el secreto del webhook de Envia");
+        }
+        // Comparación en tiempo constante — evita filtrar por timing cuánto del secreto coincide.
+        if (authHeader == null || !constantTimeEquals("Bearer " + secreto, authHeader)) {
+            log.warn("[EnvioWebhook] tenant={} — token inválido, evento rechazado", tndId);
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Token inválido");
         }
 
         JsonNode node = objectMapper.valueToTree(body);
@@ -120,14 +130,37 @@ public class EnvioWebhookService {
     }
 
     /** Envia documenta ~28 estados posibles (Created, Picked Up, In Transit, Out for Delivery,
-     *  Delivered, Damaged, Delayed, Lost, Returned, etc.) — a propósito solo se actúa sobre los
-     *  dos que pidió el usuario explícitamente. Los demás quedan solo logueados: no forzar
-     *  "enviado" desde acá evita pisar el flujo de staff que ya lo maneja (PedidoService). */
+     *  Delivered, Damaged, Delayed, Lost, Undelivered, Delivery exception, Returned, etc.) — a
+     *  propósito solo se actúa sobre los dos que pidió el usuario explícitamente. Los demás
+     *  quedan solo logueados: no forzar "enviado" desde acá evita pisar el flujo de staff que ya
+     *  lo maneja (PedidoService).
+     *
+     *  Corrección de auditoría (2026-09-01): la versión anterior usaba
+     *  {@code contains("deliver")}, que también matchea "Undelivered" y "Delivery exception" —
+     *  ambos serían justo lo CONTRARIO de una entrega exitosa, y el bug los marcaba como
+     *  "entregado". Ahora es una comparación exacta contra una lista cerrada de valores
+     *  conocidos, no una subcadena — cualquier variante que Envia use y no esté en esta lista
+     *  simplemente no se reconoce (se loguea, no se actúa), en vez de adivinar por contenido. */
+    private static final java.util.Set<String> ESTADOS_ENTREGADO = java.util.Set.of(
+            "delivered", "entregado");
+    private static final java.util.Set<String> ESTADOS_DEVUELTO = java.util.Set.of(
+            "returned", "returned to sender", "return to sender", "devuelto");
+
     private String mapearEstado(String statusCrudo) {
         String s = statusCrudo.trim().toLowerCase();
-        if (s.contains("deliver")) return "entregado"; // "Delivered"
-        if (s.contains("return")) return "devuelto";   // "Returned"
+        if (ESTADOS_ENTREGADO.contains(s)) return "entregado";
+        if (ESTADOS_DEVUELTO.contains(s)) return "devuelto";
         return null;
+    }
+
+    /** Comparación de tiempo constante (MessageDigest.isEqual está diseñado para esto) — un
+     *  == de String normal terminaría la comparación en el primer carácter distinto, y ese
+     *  tiempo de respuesta ligeramente distinto es, en teoría, una fuga de información que
+     *  permitiría adivinar el secreto carácter por carácter. */
+    private boolean constantTimeEquals(String esperado, String recibido) {
+        return MessageDigest.isEqual(
+                esperado.getBytes(StandardCharsets.UTF_8),
+                recibido.getBytes(StandardCharsets.UTF_8));
     }
 
     /** Acepta tanto el formato v1 (plano) como el v2 (anidado en "data") de Envia — ver el

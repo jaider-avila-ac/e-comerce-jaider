@@ -55,6 +55,15 @@ public class EnvioCotizacionService {
 
     @Transactional(readOnly = true)
     public EnvioCotizacionResponse cotizar(Long usrId, Long tndId, Long direccionId) {
+        return cotizarParaCongelar(usrId, tndId, direccionId).respuesta();
+    }
+
+    /** Igual que {@link #cotizar}, pero además devuelve los paquetes usados — para que el
+     *  checkout pueda CONGELARLOS en el pedido (ver {@code Pedido.envioCotizacionSnapshot} y la
+     *  auditoría 2026-09-01: sin esto, generar la guía real más tarde recalculaba el paquete
+     *  desde el producto/empaque ACTUALES, que pudieron cambiar desde la compra). */
+    @Transactional(readOnly = true)
+    public CotizacionParaCongelar cotizarParaCongelar(Long usrId, Long tndId, Long direccionId) {
         tenantSupport.requireTenant(em);
 
         Tienda tienda = tiendaRepo.findById(tndId)
@@ -82,15 +91,17 @@ public class EnvioCotizacionService {
                     origen, origenGeo, destino, destinoGeo, paquetes, declaradoCop);
             if (cot.isPresent()) {
                 CotizacionCarrier c = cot.get();
-                return new EnvioCotizacionResponse(c.precioCop() * 100L, c.carrier(), c.servicioDescripcion(),
-                        c.tiempoEstimado(), false);
+                EnvioCotizacionResponse resp = new EnvioCotizacionResponse(c.precioCop() * 100L, c.carrier(),
+                        c.servicioDescripcion(), c.servicioCodigo(), c.tiempoEstimado(), false);
+                return new CotizacionParaCongelar(resp, paquetes);
             }
         }
 
         // Ningún carrier respondió — respaldo garantizado, nunca se deja al cliente sin precio.
         log.warn("[EnvioCotizacion] ningún carrier cotizó para tenant={}, usando costo fijo de respaldo", tndId);
-        return new EnvioCotizacionResponse(tienda.getEnvioCostoCentavos(), "estimado", "Envío estándar",
-                "3-5 días hábiles", true);
+        EnvioCotizacionResponse resp = new EnvioCotizacionResponse(tienda.getEnvioCostoCentavos(), "estimado",
+                "Envío estándar", null, "3-5 días hábiles", true);
+        return new CotizacionParaCongelar(resp, paquetes);
     }
 
     List<String> ordenTransportadoras(Long tndId) {

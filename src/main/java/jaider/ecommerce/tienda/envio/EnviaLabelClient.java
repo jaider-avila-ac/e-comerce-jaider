@@ -24,7 +24,7 @@ import java.util.Map;
 @Component
 public class EnviaLabelClient {
 
-    private final RestClient restClient = RestClient.create();
+    private final RestClient restClient = EnviaPayloadHelper.clienteConTimeout();
 
     /** Lanza si Envia rechaza la generación — a diferencia de cotizar, acá NO se debe tragar el
      *  error silenciosamente: si algo sale mal, el admin tiene que enterarse, no debe pensar que
@@ -37,7 +37,7 @@ public class EnviaLabelClient {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("origin", direccionPayload(origen, origenGeo, carrier));
         body.put("destination", direccionPayload(destino, destinoGeo, carrier));
-        body.put("packages", paquetesPayload(paquetes, declaredValueCop));
+        body.put("packages", EnviaPayloadHelper.paquetesPayload(paquetes, declaredValueCop));
         Map<String, Object> shipment = new LinkedHashMap<>();
         shipment.put("type", 1);
         shipment.put("carrier", carrier);
@@ -91,18 +91,4 @@ public class EnviaLabelClient {
         return m;
     }
 
-    private List<Map<String, Object>> paquetesPayload(List<PaqueteCalculado> paquetes, long declaredValueCop) {
-        return paquetes.stream().map(p -> {
-            Map<String, Object> m = new LinkedHashMap<>();
-            m.put("content", p.empaqueNombre());
-            m.put("amount", p.cantidad());
-            m.put("type", "box");
-            m.put("weight", Math.max(1, p.pesoGramosPorUnidad() / 1000.0));
-            m.put("weightUnit", "KG");
-            m.put("lengthUnit", "CM");
-            m.put("dimensions", Map.of("length", p.largoCm(), "width", p.anchoCm(), "height", p.altoCm()));
-            m.put("declaredValue", declaredValueCop);
-            return m;
-        }).toList();
-    }
 }

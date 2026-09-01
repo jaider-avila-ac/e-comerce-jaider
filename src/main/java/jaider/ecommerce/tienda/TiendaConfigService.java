@@ -135,6 +135,19 @@ public class TiendaConfigService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "No se puede activar el envío con Envia: ninguna sucursal activa tiene una dirección de origen completa");
         }
+
+        // Corrección de auditoría (2026-09-01): antes se podía activar 'envia' sin revisar esto,
+        // y el PRIMER cliente que agregara al carrito uno de esos productos se topaba con un
+        // fallo real al calcular el envío (PaqueteCalculoService rechaza cualquier producto sin
+        // empaque asignado) — justo lo que esta validación entera existe para evitar.
+        long productosSinEmpaque = ((Number) em.createNativeQuery(
+                "SELECT COUNT(*) FROM productos WHERE prd_activo = true AND prd_empaque_id IS NULL")
+                .getSingleResult()).longValue();
+        if (productosSinEmpaque > 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "No se puede activar el envío con Envia: " + productosSinEmpaque
+                            + " producto(s) activo(s) todavía no tienen un empaque asignado");
+        }
     }
 
     private boolean tieneOrigenCompleto(Sucursal s) {

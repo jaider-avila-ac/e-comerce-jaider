@@ -82,6 +82,15 @@ public class Pedido {
     @Column(name = "ped_envia_costo_real_centavos")
     private Long enviaCostoRealCentavos;
 
+    // Corrección de auditoría (2026-09-01): congela EN EL CHECKOUT los paquetes (peso/dimensiones)
+    // y la cotización (transportadora/servicio/precio) que de verdad se le mostró al cliente —
+    // antes, generar la guía real volvía a calcular el paquete desde el producto/empaque
+    // ACTUALES (podían haber cambiado) y no dejaba ningún rastro de qué se cotizó. Solo se llena
+    // para tiendas en modo 'envia'; el resto sigue con este campo en null, sin ningún cambio.
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "ped_envio_cotizacion_snapshot", columnDefinition = "jsonb")
+    private Map<String, Object> envioCotizacionSnapshot;
+
     // 'codigo' | 'link' | 'ambos' — qué le muestra la tienda al cliente. Null equivale a
     // "ambos" cuando hay datos de seguimiento, para no perder información ya cargada antes
     // de que existiera esta preferencia.

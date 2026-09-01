@@ -16,7 +16,7 @@ import org.springframework.web.server.ResponseStatusException;
 @Component
 public class EnviaGeocodesClient {
 
-    private final RestClient restClient = RestClient.create();
+    private final RestClient restClient = EnviaPayloadHelper.clienteConTimeout();
 
     public GeocodeResultado resolver(String codigoPostal) {
         JsonNode body;

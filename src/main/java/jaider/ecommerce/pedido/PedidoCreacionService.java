@@ -3,7 +3,9 @@ package jaider.ecommerce.pedido;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jaider.ecommerce.geo.ColombiaGeoService;
 import jaider.ecommerce.shared.TenantSupport;
+import jaider.ecommerce.tienda.envio.CotizacionParaCongelar;
 import jaider.ecommerce.tienda.envio.EnvioCotizacionService;
+import jaider.ecommerce.tienda.envio.PaqueteCalculado;
 import jaider.ecommerce.usuario.cliente.ClienteDireccionRequest;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
@@ -84,14 +86,25 @@ public class PedidoCreacionService {
         boolean envioGratis = !envioContraEntrega && Boolean.TRUE.equals(envioConfig[1])
                 && subtotal >= ((Number) envioConfig[2]).longValue();
         long envio;
+        Map<String, Object> cotizacionSnapshot = null;
         if (envioContraEntrega || envioGratis) {
             envio = 0L;
-        } else if ("envia".equals(envioModo) && direccionId != null) {
+        } else if ("envia".equals(envioModo)) {
+            // Corrección de auditoría (2026-09-01): una dirección INLINE (no guardada) se colaba
+            // por la rama del costo fijo, cobrando algo distinto de lo real — una tienda con
+            // envío calculado exige una dirección guardada, sin excepción, para poder cotizar de
+            // verdad (esto ya es lo único que de hecho usa el frontend real, ver CartPage.jsx).
+            if (direccionId == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Esta tienda calcula el envío real — guarda una dirección antes de pagar");
+            }
             // Lo que se cobra debe coincidir con lo que el carrito ya le mostró al cliente — nunca
             // el costo fijo en silencio para una tienda que activó el cálculo real (PLAN_
             // INTEGRACION_ENVIA.md, Fase 3). cotizar() ya tiene su propio respaldo garantizado si
             // Envia falla, así que esto nunca deja al checkout sin un precio.
-            envio = envioCotizacionService.cotizar(usrId, tndId, direccionId).precioCentavos();
+            var cotizacion = envioCotizacionService.cotizarParaCongelar(usrId, tndId, direccionId);
+            envio = cotizacion.respuesta().precioCentavos();
+            cotizacionSnapshot = construirSnapshotCotizacion(cotizacion);
         } else {
             envio = ((Number) envioConfig[3]).longValue();
         }
@@ -101,9 +114,9 @@ public class PedidoCreacionService {
         Number pedIdNum = (Number) em.createNativeQuery("""
                 INSERT INTO pedidos (ped_tnd_id, ped_usr_id, ped_numero, ped_dir_snapshot,
                                       ped_subtotal_centavos, ped_envio_centavos, ped_total_centavos, ped_notas,
-                                      ped_envio_contra_entrega)
+                                      ped_envio_contra_entrega, ped_envio_cotizacion_snapshot)
                 VALUES (:tndId, :usrId, :numero, CAST(:dirSnapshot AS jsonb), :subtotal, :envio, :total, :notas,
-                        :envioContraEntrega)
+                        :envioContraEntrega, CAST(:cotizacionSnapshot AS jsonb))
                 RETURNING ped_id
                 """)
                 .setParameter("tndId", tndId)
@@ -115,6 +128,7 @@ public class PedidoCreacionService {
                 .setParameter("total", total)
                 .setParameter("notas", (notas != null && !notas.isBlank()) ? notas.trim() : null)
                 .setParameter("envioContraEntrega", envioContraEntrega)
+                .setParameter("cotizacionSnapshot", cotizacionSnapshot != null ? toJson(cotizacionSnapshot) : null)
                 .getSingleResult();
         Long pedId = pedIdNum.longValue();
 
@@ -606,6 +620,38 @@ public class PedidoCreacionService {
             if (count.longValue() == 0) return candidato;
         }
         throw new IllegalStateException("No se pudo generar un número de pedido único");
+    }
+
+    /** Corrección de auditoría (2026-09-01): congela en el pedido EXACTAMENTE lo que se cotizó
+     *  (paquetes con su peso/dimensiones ya resueltas, transportadora, servicio y precio) — sin
+     *  esto, generar la guía real más tarde recalculaba el paquete desde el producto/empaque
+     *  ACTUALES, que pudieron cambiar o borrarse desde la compra, y no quedaba ningún rastro de
+     *  qué se le prometió al cliente. Ver Pedido.envioCotizacionSnapshot / EnvioGuiaService. */
+    private Map<String, Object> construirSnapshotCotizacion(CotizacionParaCongelar cotizacion) {
+        List<Map<String, Object>> paquetes = cotizacion.paquetes().stream()
+                .map(this::paqueteAMapa)
+                .toList();
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("paquetes", paquetes);
+        snapshot.put("transportadora", cotizacion.respuesta().transportadora());
+        snapshot.put("servicio_codigo", cotizacion.respuesta().servicioCodigo());
+        snapshot.put("servicio_descripcion", cotizacion.respuesta().servicio());
+        snapshot.put("precio_centavos", cotizacion.respuesta().precioCentavos());
+        snapshot.put("estimado", cotizacion.respuesta().estimado());
+        snapshot.put("cotizado_en", java.time.OffsetDateTime.now().toString());
+        return snapshot;
+    }
+
+    private Map<String, Object> paqueteAMapa(PaqueteCalculado p) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("empaque_id", p.empaqueId());
+        m.put("empaque_nombre", p.empaqueNombre());
+        m.put("cantidad", p.cantidad());
+        m.put("peso_gramos_por_unidad", p.pesoGramosPorUnidad());
+        m.put("largo_cm", p.largoCm());
+        m.put("ancho_cm", p.anchoCm());
+        m.put("alto_cm", p.altoCm());
+        return m;
     }
 
     private String toJson(Map<String, Object> data) {

@@ -25,7 +25,7 @@ import java.util.Map;
 @Component
 public class EnviaTrackClient {
 
-    private final RestClient restClient = RestClient.create();
+    private final RestClient restClient = EnviaPayloadHelper.clienteConTimeout();
 
     public JsonNode rastrear(String host, String apiToken, String trackingNumber) {
         return restClient.post()
