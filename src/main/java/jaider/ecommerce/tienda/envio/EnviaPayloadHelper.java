@@ -66,7 +66,12 @@ final class EnviaPayloadHelper {
             m.put("content", p.empaqueNombre());
             m.put("amount", p.cantidad());
             m.put("type", "box");
-            m.put("weight", Math.max(1, p.pesoGramosPorUnidad() / 1000.0));
+            // Corrección de auditoría (2026-09-01, tercera vuelta): el Math.max(1, ...) anterior
+            // forzaba un mínimo de 1 KG por renglón sin ninguna justificación documentada — un
+            // empaque real de 150g (habitual en calzado/ropa liviana) se cotizaba y cobraba como
+            // si pesara 1000g, 6.6× más de lo real. Se manda el peso real configurado, sin piso
+            // artificial (el peso mínimo real de Envia, si existe, es cosa de su propia API).
+            m.put("weight", p.pesoGramosPorUnidad() / 1000.0);
             m.put("weightUnit", "KG");
             m.put("lengthUnit", "CM");
             m.put("dimensions", Map.of("length", p.largoCm(), "width", p.anchoCm(), "height", p.altoCm()));

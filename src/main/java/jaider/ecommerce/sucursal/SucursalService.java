@@ -1,6 +1,7 @@
 package jaider.ecommerce.sucursal;
 
 import jaider.ecommerce.shared.TenantSupport;
+import jaider.ecommerce.shared.interceptor.TenantContext;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
@@ -54,6 +55,29 @@ public class SucursalService {
             String v = req.whatsapp().trim();
             s.setWhatsapp(v.isBlank() ? null : v);
         }
+        // Corrección de auditoría (2026-09-01, tercera vuelta): valida el estado RESULTANTE
+        // (activo + origen) ANTES de tocar la entidad — vaciar el origen o desactivar esta
+        // sucursal, en una tienda ya en modo 'envia', puede dejar CERO sucursales activas con
+        // dirección de origen completa (el checkout se rompe para el primer cliente que compre,
+        // ver EnvioCotizacionService.cargarDireccionOrigen). Solo bloquea si esta era de verdad
+        // la ÚLTIMA con origen completo; otra sucursal activa con origen completo sigue
+        // permitiendo la edición sin problema. Se valida sobre variables locales, nunca sobre la
+        // entidad ya mutada, para no dejarla a medio cambiar en memoria si esto lanza.
+        boolean activoResultante = req.activo() != null ? req.activo() : s.isActivo();
+        boolean origenCompletoResultante = tieneOrigenCompleto(
+                req.envioOrigenNombre() != null ? blankToNull(req.envioOrigenNombre()) : s.getEnvioOrigenNombre(),
+                req.envioOrigenTelefono() != null ? blankToNull(req.envioOrigenTelefono()) : s.getEnvioOrigenTelefono(),
+                req.envioOrigenDireccion() != null ? blankToNull(req.envioOrigenDireccion()) : s.getEnvioOrigenDireccion(),
+                req.envioOrigenMunicipio() != null ? blankToNull(req.envioOrigenMunicipio()) : s.getEnvioOrigenMunicipio(),
+                req.envioOrigenDepartamento() != null ? blankToNull(req.envioOrigenDepartamento()) : s.getEnvioOrigenDepartamento(),
+                req.envioOrigenCodigoPostal() != null ? blankToNull(req.envioOrigenCodigoPostal()) : s.getEnvioOrigenCodigoPostal());
+        if (!(activoResultante && origenCompletoResultante) && tiendaEnModoEnvia()
+                && sucursalRepository.findByActivoTrueOrderByNombreAsc().stream()
+                        .noneMatch(otra -> !otra.getId().equals(s.getId()) && tieneOrigenCompleto(otra))) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Esta tienda calcula el envío real y necesita al menos una sucursal activa con dirección de origen completa — completa otra antes de dejar esta incompleta o inactiva");
+        }
+
         if (req.activo() != null) {
             s.setActivo(req.activo());
         }
@@ -75,5 +99,30 @@ public class SucursalService {
     private String blankToNull(String v) {
         String trimmed = v.trim();
         return trimmed.isBlank() ? null : trimmed;
+    }
+
+    private boolean tieneOrigenCompleto(Sucursal s) {
+        return tieneOrigenCompleto(s.getEnvioOrigenNombre(), s.getEnvioOrigenTelefono(),
+                s.getEnvioOrigenDireccion(), s.getEnvioOrigenMunicipio(),
+                s.getEnvioOrigenDepartamento(), s.getEnvioOrigenCodigoPostal());
+    }
+
+    private boolean tieneOrigenCompleto(String nombre, String telefono, String direccion,
+                                         String municipio, String departamento, String codigoPostal) {
+        return noBlank(nombre) && noBlank(telefono) && noBlank(direccion)
+                && noBlank(municipio) && noBlank(departamento) && noBlank(codigoPostal);
+    }
+
+    private boolean noBlank(String v) {
+        return v != null && !v.isBlank();
+    }
+
+    private boolean tiendaEnModoEnvia() {
+        String tndId = TenantContext.get();
+        if (tndId == null) return false;
+        Object modo = em.createNativeQuery("SELECT tnd_envio_modo FROM tiendas WHERE tnd_id = :tndId")
+                .setParameter("tndId", Long.parseLong(tndId))
+                .getSingleResult();
+        return "envia".equals(modo);
     }
 }

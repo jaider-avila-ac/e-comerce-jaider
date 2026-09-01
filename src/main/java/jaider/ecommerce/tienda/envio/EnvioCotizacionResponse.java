@@ -13,5 +13,9 @@ public record EnvioCotizacionResponse(
         // para congelar EXACTAMENTE qué se cotizó (ver CotizacionParaCongelar / auditoría 2026-09-01).
         String servicioCodigo,
         String tiempoEstimado,
-        boolean estimado
+        boolean estimado,
+        // Corrección de auditoría (2026-09-01, tercera vuelta): token opaco y firmado con ESTA
+        // cotización exacta — el checkout debe devolverlo tal cual para confirmar que cobra lo
+        // mismo que se mostró, en vez de volver a cotizar desde cero. Ver CotizacionTokenService.
+        String token
 ) {}

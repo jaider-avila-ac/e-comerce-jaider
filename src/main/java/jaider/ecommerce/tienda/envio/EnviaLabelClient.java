@@ -63,14 +63,32 @@ public class EnviaLabelClient {
             throw new IllegalStateException("Envia respondió sin datos de guía");
         }
         JsonNode primero = data.get(0);
+
+        // Corrección de auditoría (2026-09-01, tercera vuelta): antes se aceptaba CUALQUIER
+        // respuesta con meta="generate" y un array data no vacío, incluso con shipmentId/
+        // trackingNumber/label vacíos o totalPrice en 0 — eso dejaba un pedido marcado como "con
+        // guía real" sin ningún dato usable (ni para rastrear, ni para descargar el PDF, ni el
+        // costo real cobrado). Ahora se valida cada campo obligatorio antes de devolver nada —
+        // si Envia mandó una respuesta incompleta, se trata como un fallo real (mismo camino que
+        // cualquier otro error: EnvioGuiaService libera la reserva y el admin puede reintentar).
+        String shipmentId = primero.path("shipmentId").asText("");
+        String trackingNumber = primero.path("trackingNumber").asText("");
+        String label = primero.path("label").asText("");
+        long totalPrice = primero.path("totalPrice").asLong(0);
+        if (shipmentId.isBlank() || trackingNumber.isBlank() || label.isBlank() || totalPrice <= 0) {
+            throw new IllegalStateException(
+                    "Envia respondió una guía incompleta (shipmentId=\"" + shipmentId + "\" trackingNumber=\""
+                            + trackingNumber + "\" label=\"" + label + "\" totalPrice=" + totalPrice + ")");
+        }
+
         return new GuiaGenerada(
                 primero.path("carrier").asText(carrier),
                 primero.path("service").asText(servicio),
-                primero.path("shipmentId").asText(""),
-                primero.path("trackingNumber").asText(""),
+                shipmentId,
+                trackingNumber,
                 primero.path("trackUrl").asText(""),
-                primero.path("label").asText(""),
-                primero.path("totalPrice").asLong(0)
+                label,
+                totalPrice
         );
     }
 

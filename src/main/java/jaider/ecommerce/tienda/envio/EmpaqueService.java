@@ -85,6 +85,15 @@ public class EmpaqueService {
             e.setPesoGramos(req.pesoGramos());
         }
         if (req.orden() != null) e.setOrden(req.orden());
+        // Corrección de auditoría (2026-09-01, tercera vuelta): desactivar un empaque que
+        // productos ACTIVOS siguen usando, en una tienda ya en modo 'envia', rompería el checkout
+        // para el primer cliente que compre uno de esos productos (mismo riesgo que activar
+        // 'envia' sin validar — ver TiendaConfigService.validarListaParaEnvia — pero acá ocurría
+        // DESPUÉS de la activación, sin ninguna revalidación).
+        if (Boolean.FALSE.equals(req.activo()) && productosActivosUsando(id) > 0 && tiendaEnModoEnvia()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "No se puede desactivar: " + productosActivosUsando(id) + " producto(s) activo(s) todavía lo usan y esta tienda calcula el envío real");
+        }
         if (req.activo() != null) e.setActivo(req.activo());
 
         return toResponse(repo.save(e));
@@ -95,8 +104,31 @@ public class EmpaqueService {
         tenantSupport.requireTenant(em);
         TiendaEmpaque e = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Empaque no encontrado"));
-        // ON DELETE SET NULL en la BD: los productos que lo usaban quedan sin empaque asignado.
+        // Corrección de auditoría (2026-09-01, tercera vuelta): antes, ON DELETE SET NULL dejaba
+        // en silencio a los productos que lo usaban sin ningún empaque — en una tienda ya en modo
+        // 'envia', eso rompe el checkout para el primer cliente que compre uno de esos productos.
+        long productosAfectados = productosActivosUsando(id);
+        if (productosAfectados > 0 && tiendaEnModoEnvia()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "No se puede eliminar: " + productosAfectados + " producto(s) activo(s) todavía lo usan y esta tienda calcula el envío real — reasígnalos a otro empaque primero");
+        }
         repo.delete(e);
+    }
+
+    private long productosActivosUsando(Long empaqueId) {
+        return ((Number) em.createNativeQuery(
+                "SELECT COUNT(*) FROM productos WHERE prd_activo = true AND prd_empaque_id = :empaqueId")
+                .setParameter("empaqueId", empaqueId)
+                .getSingleResult()).longValue();
+    }
+
+    private boolean tiendaEnModoEnvia() {
+        String tndId = TenantContext.get();
+        if (tndId == null) return false;
+        Object modo = em.createNativeQuery("SELECT tnd_envio_modo FROM tiendas WHERE tnd_id = :tndId")
+                .setParameter("tndId", Long.parseLong(tndId))
+                .getSingleResult();
+        return "envia".equals(modo);
     }
 
     private void validarDimensiones(Short largoCm, Short anchoCm, Short altoCm) {

@@ -4,8 +4,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jaider.ecommerce.geo.ColombiaGeoService;
 import jaider.ecommerce.shared.TenantSupport;
 import jaider.ecommerce.tienda.envio.CotizacionParaCongelar;
-import jaider.ecommerce.tienda.envio.EnvioCotizacionService;
+import jaider.ecommerce.tienda.envio.CotizacionTokenService;
+import jaider.ecommerce.tienda.envio.EnvioCotizacionResponse;
+import jaider.ecommerce.tienda.envio.ItemParaPaquete;
 import jaider.ecommerce.tienda.envio.PaqueteCalculado;
+import jaider.ecommerce.tienda.envio.PaqueteCalculoService;
 import jaider.ecommerce.usuario.cliente.ClienteDireccionRequest;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
@@ -41,7 +44,8 @@ public class PedidoCreacionService {
     private final ObjectMapper objectMapper;
     private final PedidoService pedidoService;
     private final ColombiaGeoService geoService;
-    private final EnvioCotizacionService envioCotizacionService;
+    private final CotizacionTokenService cotizacionTokenService;
+    private final PaqueteCalculoService paqueteCalculoService;
 
     @PersistenceContext
     private EntityManager em;
@@ -65,7 +69,8 @@ public class PedidoCreacionService {
 
     @Transactional
     public PedidoCreado crearDesdeCarrito(Long usrId, Long tndId, Long direccionId,
-                                           ClienteDireccionRequest direccionInline, String notas) {
+                                           ClienteDireccionRequest direccionInline, String notas,
+                                           String cotizacionToken) {
         tenantSupport.requireTenant(em);
 
         List<ItemCarrito> items = cargarCarritoValidado(usrId);
@@ -98,13 +103,24 @@ public class PedidoCreacionService {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                         "Esta tienda calcula el envío real — guarda una dirección antes de pagar");
             }
-            // Lo que se cobra debe coincidir con lo que el carrito ya le mostró al cliente — nunca
-            // el costo fijo en silencio para una tienda que activó el cálculo real (PLAN_
-            // INTEGRACION_ENVIA.md, Fase 3). cotizar() ya tiene su propio respaldo garantizado si
-            // Envia falla, así que esto nunca deja al checkout sin un precio.
-            var cotizacion = envioCotizacionService.cotizarParaCongelar(usrId, tndId, direccionId);
-            envio = cotizacion.respuesta().precioCentavos();
-            cotizacionSnapshot = construirSnapshotCotizacion(cotizacion);
+            // Corrección de auditoría (2026-09-01, tercera vuelta): antes se volvía a cotizar
+            // desde cero acá — si la tarifa cambiaba o respondía otra transportadora entre la
+            // cotización que vio el cliente en el carrito y este momento, se cobraba algo
+            // DISTINTO de lo que se mostró. Ahora se EXIGE el token firmado que devolvió esa
+            // cotización (CotizacionTokenService) — nunca se vuelve a llamar a Envia acá, así que
+            // lo cobrado es matemáticamente lo mismo que lo mostrado. Los paquetes (dimensiones)
+            // sí se recalculan del carrito actual — son puramente derivados del carrito, no de
+            // ninguna respuesta de Envia, así que no hay riesgo de inconsistencia ahí.
+            var firmada = cotizacionTokenService.verificar(cotizacionToken, usrId, direccionId)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                            "La cotización de envío expiró o cambió — vuelve a tu carrito para confirmar el precio actualizado"));
+            envio = firmada.precioCentavos();
+            List<PaqueteCalculado> paquetes = paqueteCalculoService.calcular(
+                    items.stream().map(i -> new ItemParaPaquete(i.prdId(), i.cantidad())).toList());
+            EnvioCotizacionResponse respuestaCongelada = new EnvioCotizacionResponse(firmada.precioCentavos(),
+                    firmada.carrier(), firmada.servicioDescripcion(), firmada.servicioCodigo(),
+                    firmada.tiempoEstimado(), firmada.estimado(), null);
+            cotizacionSnapshot = construirSnapshotCotizacion(new CotizacionParaCongelar(respuestaCongelada, paquetes));
         } else {
             envio = ((Number) envioConfig[3]).longValue();
         }

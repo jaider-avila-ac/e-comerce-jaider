@@ -103,7 +103,7 @@ class TiendaConfigServiceTest {
     void modoEnvia_bloqueadoSinSucursalConOrigen_auqueYaHayaCredenciales() {
         long unico = System.nanoTime();
         Long tndId = provisionarTiendaDePrueba(unico);
-        superadminService.guardarEnvia(tndId, new EnviaCredencialesRequest("token-fake-" + unico, null),
+        superadminService.guardarEnvia(tndId, new EnviaCredencialesRequest("token-fake-" + unico, "secreto-" + unico),
                 adminAuditorDePrueba(unico));
 
         TenantContext.set(tndId.toString());
@@ -115,11 +115,32 @@ class TiendaConfigServiceTest {
                 .hasMessageContaining("ninguna sucursal activa");
     }
 
+    // Corrección de auditoría (2026-09-01, tercera vuelta): sin WEBHOOK_SECRET, la cotización y
+    // la generación de guías funcionan bien, pero TODOS los webhooks de Envia se rechazan de
+    // entrada (EnvioWebhookService lo exige desde la auditoría anterior) — el seguimiento
+    // automático de entregado/devuelto nunca actualizaría el pedido.
     @Test
-    void modoEnvia_sePermite_conCredencialesYSucursalConOrigenCompleto() {
+    void modoEnvia_bloqueadoSinWebhookSecret_aunqueYaHayaTokenYSucursal() {
         long unico = System.nanoTime();
         Long tndId = provisionarTiendaDePrueba(unico);
         superadminService.guardarEnvia(tndId, new EnviaCredencialesRequest("token-fake-" + unico, null),
+                adminAuditorDePrueba(unico));
+
+        TenantContext.set(tndId.toString());
+        tenantSupport.requireTenant(em);
+        crearSucursalConOrigenCompleto(tndId);
+
+        assertThatThrownBy(() -> service.updateConfig(new TiendaConfigRequest(
+                "envia", null, null, null, null, null, null, null, null, null, null)))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("WEBHOOK_SECRET");
+    }
+
+    @Test
+    void modoEnvia_sePermite_conCredencialesWebhookSecretYSucursalConOrigenCompleto() {
+        long unico = System.nanoTime();
+        Long tndId = provisionarTiendaDePrueba(unico);
+        superadminService.guardarEnvia(tndId, new EnviaCredencialesRequest("token-fake-" + unico, "secreto-" + unico),
                 adminAuditorDePrueba(unico));
 
         // sucursales tiene RLS forzado — hay que fijar el tenant en la sesión ANTES de insertar,

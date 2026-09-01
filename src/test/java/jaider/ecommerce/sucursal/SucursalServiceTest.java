@@ -58,6 +58,27 @@ class SucursalServiceTest {
                 .hasMessageContaining("no encontrada");
     }
 
+    // Corrección de auditoría (2026-09-01, tercera vuelta): vaciar el origen de la ÚNICA
+    // sucursal con dirección completa, en una tienda YA en modo 'envia' (Ampaz Studio tiene
+    // exactamente una: "Principal"), rompía el checkout para el primer cliente que comprara —
+    // sin ninguna revalidación después de la activación inicial.
+    @Test
+    void actualizar_bloqueaVaciarElOrigenDeLaUnicaSucursalConOrigenCompleto_enTiendaEnvia() {
+        TenantContext.set("58");
+        Long sucursalId = service.listar().stream()
+                .filter(s -> "Principal".equals(s.nombre()))
+                .findFirst().orElseThrow().id();
+
+        assertThatThrownBy(() -> service.actualizar(sucursalId, new SucursalUpdateRequest(
+                null, null, null, null, null, "", null, null, null, null)))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("al menos una sucursal activa con dirección de origen completa");
+
+        // No debe haber quedado a medio cambiar.
+        var sinTocar = service.listar().stream().filter(s -> s.id().equals(sucursalId)).findFirst().orElseThrow();
+        assertThat(sinTocar.envioOrigenDireccion()).isNotBlank();
+    }
+
     @Test
     void actualizar_deOtraTienda_noSeVe() {
         TenantContext.set("1"); // Calzacaribe

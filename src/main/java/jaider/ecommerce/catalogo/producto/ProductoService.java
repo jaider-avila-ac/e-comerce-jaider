@@ -349,6 +349,25 @@ public class ProductoService {
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Empaque no encontrado"));
         }
         p.setEmpaqueId(req.empaqueId());
+
+        // Corrección de auditoría (2026-09-01, tercera vuelta): un producto ACTIVO sin empaque,
+        // en una tienda ya en modo 'envia', rompe el checkout para el primer cliente que lo
+        // compre (PaqueteCalculoService rechaza cualquier producto sin empaque) — mismo riesgo
+        // que activar 'envia' sin validar (ver TiendaConfigService.validarListaParaEnvia), pero
+        // acá podía ocurrir DESPUÉS de la activación, sin ninguna revalidación.
+        if (p.isActivo() && p.getEmpaqueId() == null && tiendaEnModoEnvia()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Esta tienda calcula el envío real — asigna un empaque antes de activar este producto");
+        }
+    }
+
+    private boolean tiendaEnModoEnvia() {
+        String tndId = TenantContext.get();
+        if (tndId == null) return false;
+        Object modo = em.createNativeQuery("SELECT tnd_envio_modo FROM tiendas WHERE tnd_id = :tndId")
+                .setParameter("tndId", Long.parseLong(tndId))
+                .getSingleResult();
+        return "envia".equals(modo);
     }
 
     private void saveVariantes(Long prdId, List<VarianteRequest> list) {

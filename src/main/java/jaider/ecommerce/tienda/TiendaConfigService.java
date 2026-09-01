@@ -119,11 +119,20 @@ public class TiendaConfigService {
     // su dirección de origen completa (de dónde recoge la transportadora). Sin esto, el checkout
     // fallaría para el primer cliente que compre con este modo activo.
     private void validarListaParaEnvia(Long tndId) {
+        jaider.ecommerce.tienda.integracion.EnviaCredentials creds;
         try {
-            integrationResolver.envioCredentials(tndId);
+            creds = integrationResolver.envioCredentials(tndId);
         } catch (IllegalStateException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "No se puede activar el envío con Envia: falta configurar el token de Envia para esta tienda");
+        }
+        // Corrección de auditoría (2026-09-01, tercera vuelta): sin WEBHOOK_SECRET, la cotización
+        // y la generación de guías funcionan bien, pero TODOS los webhooks de Envia se rechazan
+        // (EnvioWebhookService los exige desde la corrección de la auditoría anterior) — el
+        // seguimiento automático de entregado/devuelto simplemente nunca actualizaría el pedido.
+        if (creds.webhookSecret() == null || creds.webhookSecret().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "No se puede activar el envío con Envia: falta configurar el WEBHOOK_SECRET para esta tienda");
         }
 
         // sucursales sí tiene RLS forzado (a diferencia de tiendas) — hay que fijar el tenant en

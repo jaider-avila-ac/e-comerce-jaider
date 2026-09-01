@@ -77,7 +77,7 @@ public class PedidoCheckoutService {
                 idmId -> {
                     PaymentGateway gateway = gatewayFactory.forTenant(tndId);
                     PedidoCreado pedido = pedidoCreacionService.crearDesdeCarrito(
-                            usrId, tndId, req.direccionId(), req.direccionInline(), req.notas());
+                            usrId, tndId, req.direccionId(), req.direccionInline(), req.notas(), req.cotizacionToken());
 
                     String referencia = gateway.generarReferencia(tndId, pedido.pedId());
                     pedidoCreacionService.crearPago(pedido.pedId(), usrId, referencia, pedido.totalCentavos(), null);
@@ -114,7 +114,7 @@ public class PedidoCheckoutService {
     private PagoTarjetaResponse pagarConTarjetaReal(Long usrId, Long tndId, CheckoutTarjetaRequest req, Long idmId) {
         PaymentGateway gateway = gatewayFactory.forTenant(tndId);
         PedidoCreado pedido = pedidoCreacionService.crearDesdeCarrito(
-                usrId, tndId, req.direccionId(), req.direccionInline(), req.notas());
+                usrId, tndId, req.direccionId(), req.direccionInline(), req.notas(), req.cotizacionToken());
 
         String referencia = gateway.generarReferencia(tndId, pedido.pedId());
         Long pagoId = pedidoCreacionService.crearPago(pedido.pedId(), usrId, referencia, pedido.totalCentavos(), "CARD");

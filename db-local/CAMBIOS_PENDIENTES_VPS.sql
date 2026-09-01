@@ -414,3 +414,22 @@ ALTER TABLE pedidos ADD COLUMN ped_envia_costo_real_centavos BIGINT;
 --     cualquier transportadora, incluso una bastante más cara, sin ninguna referencia.
 -- ============================================================================
 ALTER TABLE pedidos ADD COLUMN ped_envio_cotizacion_snapshot JSONB;
+
+-- ============================================================================
+-- 2026-09-01 — PLAN_INTEGRACION_ENVIA.md, tercera auditoría (crítico + varios altos, todos
+-- verificados contra el código real antes de corregir).
+--
+-- ped_envia_ambiente congela el ambiente (sandbox/producción) usado para generar ESTA guía real
+-- — sin esto, el seguimiento (EnvioSeguimientoService) siempre consultaba el ambiente ACTUAL de
+-- la tienda: si el admin cambiaba sandbox↔producción DESPUÉS de generar guías, el seguimiento de
+-- esas guías se rompía (una guía de sandbox no existe en la cuenta de producción de Envia, y
+-- viceversa). Se llena solo al generar la guía real; pedidos anteriores a este fix quedan NULL
+-- (EnvioSeguimientoService cae al ambiente actual de la tienda para esos, con advertencia).
+--
+-- El resto de las correcciones de esta auditoría (idempotencia de la generación de guía,
+-- validación de la respuesta de Envia, vínculo firmado entre la cotización mostrada y la
+-- cobrada, exigir WEBHOOK_SECRET al activar, no permitir generar guía para pedidos entregados,
+-- y que "preparar envío" no dependa de Envia cuando la guía ya existe) son solo de código —
+-- no requieren cambios de esquema.
+-- ============================================================================
+ALTER TABLE pedidos ADD COLUMN ped_envia_ambiente VARCHAR(20);

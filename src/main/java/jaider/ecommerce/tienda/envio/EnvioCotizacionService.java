@@ -49,6 +49,7 @@ public class EnvioCotizacionService {
     private final PaqueteCalculoService paqueteCalculoService;
     private final EnviaGeocodesClient geocodesClient;
     private final EnviaRateClient rateClient;
+    private final CotizacionTokenService tokenService;
 
     @PersistenceContext
     private EntityManager em;
@@ -91,16 +92,21 @@ public class EnvioCotizacionService {
                     origen, origenGeo, destino, destinoGeo, paquetes, declaradoCop);
             if (cot.isPresent()) {
                 CotizacionCarrier c = cot.get();
-                EnvioCotizacionResponse resp = new EnvioCotizacionResponse(c.precioCop() * 100L, c.carrier(),
-                        c.servicioDescripcion(), c.servicioCodigo(), c.tiempoEstimado(), false);
+                long precioCentavos = c.precioCop() * 100L;
+                String token = tokenService.firmar(usrId, direccionId, new CotizacionTokenService.CotizacionFirmada(
+                        c.carrier(), c.servicioCodigo(), c.servicioDescripcion(), c.tiempoEstimado(), precioCentavos, false));
+                EnvioCotizacionResponse resp = new EnvioCotizacionResponse(precioCentavos, c.carrier(),
+                        c.servicioDescripcion(), c.servicioCodigo(), c.tiempoEstimado(), false, token);
                 return new CotizacionParaCongelar(resp, paquetes);
             }
         }
 
         // Ningún carrier respondió — respaldo garantizado, nunca se deja al cliente sin precio.
         log.warn("[EnvioCotizacion] ningún carrier cotizó para tenant={}, usando costo fijo de respaldo", tndId);
+        String tokenRespaldo = tokenService.firmar(usrId, direccionId, new CotizacionTokenService.CotizacionFirmada(
+                "estimado", null, "Envío estándar", "3-5 días hábiles", tienda.getEnvioCostoCentavos(), true));
         EnvioCotizacionResponse resp = new EnvioCotizacionResponse(tienda.getEnvioCostoCentavos(), "estimado",
-                "Envío estándar", null, "3-5 días hábiles", true);
+                "Envío estándar", null, "3-5 días hábiles", true, tokenRespaldo);
         return new CotizacionParaCongelar(resp, paquetes);
     }
 

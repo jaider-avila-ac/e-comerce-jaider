@@ -82,6 +82,13 @@ public class Pedido {
     @Column(name = "ped_envia_costo_real_centavos")
     private Long enviaCostoRealCentavos;
 
+    // Corrección de auditoría (2026-09-01, tercera vuelta): congela el ambiente (sandbox/
+    // producción) usado para generar ESTA guía real — sin esto, el seguimiento (EnvioSeguimiento
+    // Service) consultaba siempre el ambiente ACTUAL de la tienda, así que una guía de sandbox
+    // dejaba de poder rastrearse si el admin cambiaba la tienda a producción después (y viceversa).
+    @Column(name = "ped_envia_ambiente", length = 20)
+    private String enviaAmbiente;
+
     // Corrección de auditoría (2026-09-01): congela EN EL CHECKOUT los paquetes (peso/dimensiones)
     // y la cotización (transportadora/servicio/precio) que de verdad se le mostró al cliente —
     // antes, generar la guía real volvía a calcular el paquete desde el producto/empaque
