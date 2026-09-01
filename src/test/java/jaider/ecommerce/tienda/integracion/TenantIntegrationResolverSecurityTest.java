@@ -73,6 +73,20 @@ class TenantIntegrationResolverSecurityTest {
     }
 
     @Test
+    void envia_niCalzacaribeNiTenant2TienenCredencialesConfiguradas_fallanLimpioLosDos() {
+        // A diferencia de Wompi/Resend/Cloudinary, Calzacaribe NO usa Envia (PLAN_INTEGRACION_
+        // ENVIA.md: envío calculado es opcional, solo para tiendas nuevas que lo activen) — hoy
+        // ningún tenant local tiene ENVIA_*_API_TOKEN configurado, así que ambos deben fallar
+        // limpio, nunca con un 500 opaco ni con un valor inventado.
+        assertThatThrownBy(() -> resolver.envioCredentials(1L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("ENVIA_CALZADO_CARIBE_API_TOKEN");
+        assertThatThrownBy(() -> resolver.envioCredentials(2L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("ENVIA_TIENDA_TEST_B_API_TOKEN");
+    }
+
+    @Test
     void tenant2SinTiendaEnBd_lanzaAntesDeSiquieraMirarVariablesDeEntorno() {
         assertThatThrownBy(() -> resolver.mediaCredentials(999_999L))
                 .isInstanceOf(IllegalStateException.class)

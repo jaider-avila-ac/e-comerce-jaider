@@ -9,13 +9,13 @@ import org.springframework.web.client.RestClient;
 import java.util.List;
 
 /**
- * Prueba en vivo, sin cobrar/enviar/subir nada real, que las 3 integraciones de una tienda
- * (Cloudinary/Resend/Wompi) están correctamente configuradas — PLAN_MEJORAS_API_ECOMMERCE_
+ * Prueba en vivo, sin cobrar/enviar/subir nada real, que las integraciones de una tienda
+ * (Cloudinary/Resend/Wompi/Envia) están correctamente configuradas — PLAN_MEJORAS_API_ECOMMERCE_
  * MULTITENANT.md §14 ("health checks de integraciones por tenant") y §15 (pasos 5-8 del
  * aprovisionamiento de una tienda nueva, que reutiliza este mismo servicio).
  *
  * Nunca lanza — cada chequeo atrapa su propio error y lo reporta como {@link IntegracionSalud};
- * una integración mal configurada no debe romper la consulta de las otras dos.
+ * una integración mal configurada no debe romper la consulta de las demás.
  */
 @Component
 @RequiredArgsConstructor
@@ -26,7 +26,7 @@ public class TenantIntegrationHealthService {
     private final WompiGatewayFactory wompiGatewayFactory;
 
     public List<IntegracionSalud> chequear(Long tndId) {
-        return List.of(chequearCloudinary(tndId), chequearResend(tndId), chequearWompi(tndId));
+        return List.of(chequearCloudinary(tndId), chequearResend(tndId), chequearWompi(tndId), chequearEnvia(tndId));
     }
 
     private IntegracionSalud chequearCloudinary(Long tndId) {
@@ -62,6 +62,33 @@ public class TenantIntegrationHealthService {
             return new IntegracionSalud("wompi", true, "OK");
         } catch (Exception e) {
             return new IntegracionSalud("wompi", false, mensajeSeguro(e));
+        }
+    }
+
+    /** GET /carrier de la API de consultas de Envia — solo lista transportadoras disponibles
+     *  para Colombia, de solo lectura, no crea ninguna guía ni genera ningún cargo. Fuente:
+     *  docs.envia.com/reference/carriers-by-country.
+     *
+     *  OJO (verificado en vivo, 2026-08-31): la documentación sugiere un host separado de
+     *  sandbox para esta API ("queries-test.envia.com"), pero probando contra el real ese host
+     *  responde 404 "No such app" — no existe. Solo queries.envia.com es real (confirmado:
+     *  responde 401 "Missing authentication" con www-authenticate: Bearer sin token). Esta API
+     *  de consultas es de referencia pura (lista de transportadoras/países), no crea nada, así
+     *  que no necesita distinguir sandbox/producción por host — el token sandbox/producción de
+     *  Tienda.getEnviaAmbiente() sigue siendo el que de verdad separa los dos ambientes en el
+     *  resto de la API de Envia (cotizar/generar guía, Fase 3), no este chequeo. */
+    private IntegracionSalud chequearEnvia(Long tndId) {
+        try {
+            EnviaCredentials creds = integrationResolver.envioCredentials(tndId);
+            RestClient.create()
+                    .get()
+                    .uri("https://queries.envia.com/carrier?country_code=CO")
+                    .header("Authorization", "Bearer " + creds.apiToken())
+                    .retrieve()
+                    .toBodilessEntity();
+            return new IntegracionSalud("envia", true, "OK");
+        } catch (Exception e) {
+            return new IntegracionSalud("envia", false, mensajeSeguro(e));
         }
     }
 

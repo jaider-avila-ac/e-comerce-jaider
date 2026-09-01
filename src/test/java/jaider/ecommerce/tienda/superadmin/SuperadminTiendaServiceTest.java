@@ -55,9 +55,10 @@ class SuperadminTiendaServiceTest {
 
         Long tndId = creada.tenantId();
 
-        // Aún no hay nada guardado — las 3 integraciones deben verse "no configurada".
+        // Aún no hay nada guardado — las 4 integraciones deben verse "no configurada".
         TiendaDetalleResponse antes = service.detalle(tndId);
         assertThat(antes.wompi()).allMatch(c -> !c.configurada());
+        assertThat(antes.envia()).allMatch(c -> !c.configurada());
 
         var estadoWompi = service.guardarWompi(tndId, new WompiCredencialesRequest(
                 "pub_test_fake", null, "integrity_test_fake", "events_test_fake"), adminAuditorId);
@@ -75,6 +76,13 @@ class SuperadminTiendaServiceTest {
         // privateKey es opcional y no se mandó — debe seguir "no configurada".
         var privateKeyEstado = estadoWompi.stream().filter(c -> c.campo().equals("PRIVATE_KEY")).findFirst().orElseThrow();
         assertThat(privateKeyEstado.configurada()).isFalse();
+
+        var estadoEnvia = service.guardarEnvia(tndId, new EnviaCredencialesRequest("envia_token_fake"), adminAuditorId);
+        assertThat(estadoEnvia).hasSize(1);
+        assertThat(estadoEnvia.get(0).campo()).isEqualTo("API_TOKEN");
+        assertThat(estadoEnvia.get(0).configurada()).isTrue();
+        assertThat(estadoEnvia.get(0).origen()).isEqualTo("BD");
+        assertThat(estadoEnvia.toString()).doesNotContain("envia_token_fake");
 
         // Resend/Cloudinary siguen sin configurar — activar debe rechazar con 409, no con 500.
         assertThatThrownBy(() -> service.activar(tndId))

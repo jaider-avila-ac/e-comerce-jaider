@@ -72,6 +72,13 @@ public class SuperadminTiendaController {
         return service.guardarCloudinary(id, req, adminIdDe(principal));
     }
 
+    @PutMapping("/{id}/integraciones/envia")
+    public List<CampoEstadoResponse> guardarEnvia(@PathVariable Long id,
+                                                   @Valid @RequestBody EnviaCredencialesRequest req,
+                                                   @AuthenticationPrincipal UserDetails principal) {
+        return service.guardarEnvia(id, req, adminIdDe(principal));
+    }
+
     @PostMapping("/{id}/integraciones/verificar")
     public List<IntegracionSalud> verificar(@PathVariable Long id) {
         return service.verificar(id);

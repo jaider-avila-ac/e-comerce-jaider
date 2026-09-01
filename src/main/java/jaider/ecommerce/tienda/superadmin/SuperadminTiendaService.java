@@ -99,6 +99,7 @@ public class SuperadminTiendaService {
                 estadoCampos(tndId, tienda.getSecretAlias(), "WOMPI", "PUBLIC_KEY", "PRIVATE_KEY", "INTEGRITY_KEY", "EVENTS_KEY"),
                 estadoCampos(tndId, tienda.getSecretAlias(), "RESEND", "API_KEY", "FROM"),
                 estadoCampos(tndId, tienda.getSecretAlias(), "CLOUDINARY", "CLOUD_NAME", "API_KEY", "API_SECRET"),
+                estadoCampos(tndId, tienda.getSecretAlias(), "ENVIA", "API_TOKEN"),
                 appBaseUrl + "/api/v1/public/pagos/webhook/wompi"
         );
     }
@@ -134,6 +135,13 @@ public class SuperadminTiendaService {
         guardarCampos(tndId, "CLOUDINARY", campos, adminId);
         Tienda tienda = tiendaObligatoria(tndId);
         return estadoCampos(tndId, tienda.getSecretAlias(), "CLOUDINARY", "CLOUD_NAME", "API_KEY", "API_SECRET");
+    }
+
+    @Transactional
+    public List<CampoEstadoResponse> guardarEnvia(Long tndId, EnviaCredencialesRequest req, Long adminId) {
+        guardarCampos(tndId, "ENVIA", Map.of("API_TOKEN", req.apiToken()), adminId);
+        Tienda tienda = tiendaObligatoria(tndId);
+        return estadoCampos(tndId, tienda.getSecretAlias(), "ENVIA", "API_TOKEN");
     }
 
     @Transactional(readOnly = true)

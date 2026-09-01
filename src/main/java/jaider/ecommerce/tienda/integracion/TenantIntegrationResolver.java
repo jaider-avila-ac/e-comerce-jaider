@@ -10,8 +10,8 @@ import org.springframework.stereotype.Component;
 import java.util.Optional;
 
 /**
- * Resuelve las credenciales de las integraciones externas (Cloudinary, Resend, Wompi) de UNA
- * tienda a partir de su {@code tnd_id} — ver
+ * Resuelve las credenciales de las integraciones externas (Cloudinary, Resend, Wompi, Envia) de
+ * UNA tienda a partir de su {@code tnd_id} — ver
  * PLAN_MEJORAS_API_ECOMMERCE_MULTITENANT.md §6.3.
  *
  * Dos fuentes posibles, en este orden (decisión explícita del usuario, 2026-08-31):
@@ -63,6 +63,14 @@ public class TenantIntegrationResolver {
                 optionalField(tndId, alias, "WOMPI", "PRIVATE_KEY"),
                 requireField(tndId, alias, "WOMPI", "INTEGRITY_KEY"),
                 requireField(tndId, alias, "WOMPI", "EVENTS_KEY"));
+    }
+
+    /** PLAN_INTEGRACION_ENVIA.md, Fase 2 — token único (no hay llave pública/privada separada
+     *  como en Wompi). El ambiente (sandbox/producción) NO es un secreto, vive en
+     *  {@code tiendas.tnd_envia_ambiente} (ver Tienda), este resolver solo se encarga del token. */
+    public EnviaCredentials envioCredentials(Long tndId) {
+        String alias = resolveAlias(tndId);
+        return new EnviaCredentials(requireField(tndId, alias, "ENVIA", "API_TOKEN"));
     }
 
     private String resolveAlias(Long tndId) {
