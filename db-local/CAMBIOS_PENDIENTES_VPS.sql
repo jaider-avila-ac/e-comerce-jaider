@@ -335,3 +335,25 @@ ALTER TABLE tienda_empaques OWNER TO ecommerce_owner;
 ALTER TABLE productos ADD COLUMN prd_empaque_id BIGINT
     REFERENCES tienda_empaques(tep_id) ON DELETE SET NULL;
 CREATE INDEX idx_prd_empaque_id ON productos(prd_empaque_id);
+
+-- ============================================================================
+-- 2026-08-31 — PLAN_INTEGRACION_ENVIA.md, Fase 3: código postal del cliente (Envia lo exige
+-- sí o sí para cotizar en Colombia, confirmado con una llamada real) + dirección de ORIGEN
+-- (desde dónde recoge la transportadora) — opcional, solo se exige si la tienda activa el
+-- modo 'envia'.
+--
+-- CORRECCIÓN (pedida por el usuario en la misma sesión): la dirección de origen NO va en
+-- `tiendas` — una tienda puede tener varias sucursales físicas (ver [[sucursales_tiendas_
+-- fisicas]]), y `sucursales` ya es la entidad correcta para "ubicación física". Cada sucursal
+-- puede tener su propia dirección de recogida, aunque hoy (Fase 3) todavía no se elige cuál
+-- usar — se deja disponible para cuando haga falta, en vez de duplicar el concepto en tiendas.
+-- ============================================================================
+ALTER TABLE clientes_direcciones ADD COLUMN cd_codigo_postal VARCHAR(10);
+
+ALTER TABLE sucursales ADD COLUMN suc_envio_origen_nombre VARCHAR(150);
+ALTER TABLE sucursales ADD COLUMN suc_envio_origen_telefono VARCHAR(40);
+ALTER TABLE sucursales ADD COLUMN suc_envio_origen_direccion VARCHAR(255);
+ALTER TABLE sucursales ADD COLUMN suc_envio_origen_complemento VARCHAR(255);
+ALTER TABLE sucursales ADD COLUMN suc_envio_origen_departamento VARCHAR(100);
+ALTER TABLE sucursales ADD COLUMN suc_envio_origen_municipio VARCHAR(100);
+ALTER TABLE sucursales ADD COLUMN suc_envio_origen_codigo_postal VARCHAR(10);

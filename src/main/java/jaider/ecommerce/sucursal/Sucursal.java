@@ -34,6 +34,32 @@ public class Sucursal {
     @Column(name = "suc_whatsapp", length = 20)
     private String whatsapp;
 
+    // Dirección de ORIGEN para envíos (desde dónde la transportadora recoge el paquete) —
+    // PLAN_INTEGRACION_ENVIA.md, Fase 3. Va en `sucursales` y no en `tiendas` a propósito: una
+    // tienda puede tener varias sucursales físicas, cada una un punto de recogida distinto.
+    // Opcionales — todavía no hay un endpoint que las escriba (Fase 3 solo las deja disponibles,
+    // la lógica que elige de cuál sucursal recoger es de una fase posterior).
+    @Column(name = "suc_envio_origen_nombre", length = 150)
+    private String envioOrigenNombre;
+
+    @Column(name = "suc_envio_origen_telefono", length = 40)
+    private String envioOrigenTelefono;
+
+    @Column(name = "suc_envio_origen_direccion", length = 255)
+    private String envioOrigenDireccion;
+
+    @Column(name = "suc_envio_origen_complemento", length = 255)
+    private String envioOrigenComplemento;
+
+    @Column(name = "suc_envio_origen_departamento", length = 100)
+    private String envioOrigenDepartamento;
+
+    @Column(name = "suc_envio_origen_municipio", length = 100)
+    private String envioOrigenMunicipio;
+
+    @Column(name = "suc_envio_origen_codigo_postal", length = 10)
+    private String envioOrigenCodigoPostal;
+
     @Column(name = "suc_creado_en", nullable = false, updatable = false)
     private OffsetDateTime creadoEn;
 }

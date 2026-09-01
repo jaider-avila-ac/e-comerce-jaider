@@ -210,11 +210,11 @@ public class TiendaClientePerfilService {
         em.createNativeQuery("""
             INSERT INTO clientes_direcciones (
                 cd_usr_id, cd_tnd_id, cd_direccion, cd_complemento, cd_departamento, cd_municipio,
-                cd_barrio, cd_apartamento, cd_contacto_nombre, cd_contacto_telefono
+                cd_barrio, cd_apartamento, cd_contacto_nombre, cd_contacto_telefono, cd_codigo_postal
             )
             VALUES (
                 :usrId, :tndId, :direccion, :complemento, :departamento, :municipio,
-                :barrio, :apartamento, :contactoNombre, :contactoTelefono
+                :barrio, :apartamento, :contactoNombre, :contactoTelefono, :codigoPostal
             )
             """)
             .setParameter("usrId", usrId)
@@ -227,6 +227,7 @@ public class TiendaClientePerfilService {
             .setParameter("apartamento", clean(req.apartamento()))
             .setParameter("contactoNombre", clean(req.contactoNombre()))
             .setParameter("contactoTelefono", clean(req.contactoTelefono()))
+            .setParameter("codigoPostal", clean(req.codigoPostal()))
             .executeUpdate();
 
         return getDirecciones(usrId, tndId);
@@ -246,7 +247,8 @@ public class TiendaClientePerfilService {
                 cd_barrio = :barrio,
                 cd_apartamento = :apartamento,
                 cd_contacto_nombre = :contactoNombre,
-                cd_contacto_telefono = :contactoTelefono
+                cd_contacto_telefono = :contactoTelefono,
+                cd_codigo_postal = :codigoPostal
             WHERE cd_id = :direccionId
               AND cd_usr_id = :usrId
               AND cd_tnd_id = :tndId
@@ -262,6 +264,7 @@ public class TiendaClientePerfilService {
             .setParameter("apartamento", clean(req.apartamento()))
             .setParameter("contactoNombre", clean(req.contactoNombre()))
             .setParameter("contactoTelefono", clean(req.contactoTelefono()))
+            .setParameter("codigoPostal", clean(req.codigoPostal()))
             .executeUpdate();
 
         if (updated == 0) {
@@ -296,7 +299,7 @@ public class TiendaClientePerfilService {
     private List<Map<String, Object>> getDirecciones(Long usrId, Long tndId) {
         List<Object[]> rows = em.createNativeQuery("""
             SELECT cd_id, cd_direccion, cd_complemento, cd_departamento, cd_municipio,
-                   cd_barrio, cd_apartamento, cd_contacto_nombre, cd_contacto_telefono
+                   cd_barrio, cd_apartamento, cd_contacto_nombre, cd_contacto_telefono, cd_codigo_postal
             FROM clientes_direcciones
             WHERE cd_usr_id = :usrId
               AND cd_tnd_id = :tndId
@@ -317,6 +320,7 @@ public class TiendaClientePerfilService {
             direccion.put("apartamento", value(row[6]));
             direccion.put("contacto_nombre", value(row[7]));
             direccion.put("contacto_telefono", value(row[8]));
+            direccion.put("codigo_postal", value(row[9]));
             return direccion;
         }).toList();
     }

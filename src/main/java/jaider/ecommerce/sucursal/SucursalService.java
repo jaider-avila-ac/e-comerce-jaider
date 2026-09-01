@@ -26,7 +26,10 @@ public class SucursalService {
     public List<SucursalResponse> listar() {
         tenantSupport.requireTenant(em);
         return sucursalRepository.findByActivoTrueOrderByNombreAsc().stream()
-                .map(s -> new SucursalResponse(s.getId(), s.getNombre(), s.getWhatsapp()))
+                .map(s -> new SucursalResponse(s.getId(), s.getNombre(), s.getWhatsapp(),
+                        s.getEnvioOrigenNombre(), s.getEnvioOrigenTelefono(), s.getEnvioOrigenDireccion(),
+                        s.getEnvioOrigenComplemento(), s.getEnvioOrigenDepartamento(), s.getEnvioOrigenMunicipio(),
+                        s.getEnvioOrigenCodigoPostal()))
                 .toList();
     }
 }

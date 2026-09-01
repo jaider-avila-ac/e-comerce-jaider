@@ -1,6 +1,13 @@
 package jaider.ecommerce.tienda;
 
+import jaider.ecommerce.shared.TenantSupport;
 import jaider.ecommerce.shared.interceptor.TenantContext;
+import jaider.ecommerce.tienda.aprovisionamiento.TenantProvisioningResult;
+import jaider.ecommerce.tienda.superadmin.CrearTiendaRequest;
+import jaider.ecommerce.tienda.superadmin.EnviaCredencialesRequest;
+import jaider.ecommerce.tienda.superadmin.SuperadminTiendaService;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,10 +19,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Integración real (BD local, sin mocks) de PLAN_INTEGRACION_ENVIA.md Fase 0: el esquema ya
- * acepta el modo de envío "envia" (columna + CHECK de BD), pero activarlo debe seguir bloqueado
- * a nivel de aplicación hasta que la Fase 3 construya el cálculo real — si no, el checkout caería
- * en silencio al costo fijo, como si fuera un envío calculado de verdad.
+ * Integración real (BD local, sin mocks) de PLAN_INTEGRACION_ENVIA.md: el esquema acepta el modo
+ * de envío "envia" (columna + CHECK de BD), pero activarlo exige que ya exista lo que el cálculo
+ * real necesita (Fase 3) — credenciales de Envia configuradas y al menos una sucursal activa con
+ * su dirección de origen completa. Calzacaribe (tienda 1) no tiene ninguna de las dos cosas
+ * configuradas, así que sigue bloqueado en la práctica, pero ahora con un mensaje que refleja la
+ * razón real (falta configuración) en vez del bloqueo genérico de "todavía no disponible".
  *
  * @Transactional: los cambios sobre la tienda 1 (Calzacaribe) se revierten solos al terminar.
  */
@@ -26,20 +35,29 @@ class TiendaConfigServiceTest {
     @Autowired
     private TiendaConfigService service;
 
+    @Autowired
+    private SuperadminTiendaService superadminService;
+
+    @Autowired
+    private TenantSupport tenantSupport;
+
+    @PersistenceContext
+    private EntityManager em;
+
     @AfterEach
     void limpiarContexto() {
         TenantContext.clear();
     }
 
     @Test
-    void modoEnvia_bloqueadoHastaFase3_conMensajeClaroNoGenerico() {
+    void modoEnvia_bloqueadoSinCredenciales_conMensajeClaroNoGenerico() {
         TenantContext.set("1");
         TiendaConfigResponse antes = service.getConfig();
 
         assertThatThrownBy(() -> service.updateConfig(new TiendaConfigRequest(
                 "envia", null, null, null, null, null, null, null, null, null, null)))
                 .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("todavía no está disponible");
+                .hasMessageContaining("falta configurar el token de Envia");
 
         // No debe haber quedado a medio cambiar.
         assertThat(service.getConfig().envioModo()).isEqualTo(antes.envioModo());
@@ -79,5 +97,77 @@ class TiendaConfigServiceTest {
         // Deja el ambiente como estaba (sandbox es el valor por defecto real de Calzacaribe).
         service.updateConfig(new TiendaConfigRequest(
                 null, null, null, null, null, null, null, null, null, null, "sandbox"));
+    }
+
+    @Test
+    void modoEnvia_bloqueadoSinSucursalConOrigen_auqueYaHayaCredenciales() {
+        long unico = System.nanoTime();
+        Long tndId = provisionarTiendaDePrueba(unico);
+        superadminService.guardarEnvia(tndId, new EnviaCredencialesRequest("token-fake-" + unico),
+                adminAuditorDePrueba(unico));
+
+        TenantContext.set(tndId.toString());
+
+        // Hay credenciales, pero ninguna sucursal con dirección de origen completa todavía.
+        assertThatThrownBy(() -> service.updateConfig(new TiendaConfigRequest(
+                "envia", null, null, null, null, null, null, null, null, null, null)))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("ninguna sucursal activa");
+    }
+
+    @Test
+    void modoEnvia_sePermite_conCredencialesYSucursalConOrigenCompleto() {
+        long unico = System.nanoTime();
+        Long tndId = provisionarTiendaDePrueba(unico);
+        superadminService.guardarEnvia(tndId, new EnviaCredencialesRequest("token-fake-" + unico),
+                adminAuditorDePrueba(unico));
+
+        // sucursales tiene RLS forzado — hay que fijar el tenant en la sesión ANTES de insertar,
+        // o la política WITH CHECK rechaza la fila.
+        TenantContext.set(tndId.toString());
+        tenantSupport.requireTenant(em);
+        crearSucursalConOrigenCompleto(tndId);
+
+        TiendaConfigResponse resultado = service.updateConfig(new TiendaConfigRequest(
+                "envia", null, null, null, null, null, null, null, null, null, null));
+
+        assertThat(resultado.envioModo()).isEqualTo("envia");
+    }
+
+    private Long provisionarTiendaDePrueba(long unico) {
+        TenantProvisioningResult creada = superadminService.crearBorrador(new CrearTiendaRequest(
+                "Tienda Config Test", "Tienda Config Test SAS", "NIT-" + unico, "tienda-config-test-" + unico,
+                "tienda-config-test-" + unico + ".test", "contacto" + unico + "@example.com", null, null,
+                "admin" + unico + "@example.com", "ContraseñaSegura123", "Admin Prueba",
+                null, null, null, null
+        ));
+        return creada.tenantId();
+    }
+
+    private Long adminAuditorDePrueba(long unico) {
+        // Igual patrón que SuperadminTiendaServiceTest: el actor de auditoría siempre es un
+        // superadmin real, visible bajo RLS sin importar el tenant activo.
+        return ((Number) em.createNativeQuery("""
+                INSERT INTO admin_users (email, password, nombre, rol, tienda_id, activo)
+                VALUES (:email, 'x', 'Superadmin Test', CAST('superadmin' AS rol_empleado), NULL, true)
+                RETURNING id
+                """)
+                .setParameter("email", "superadmin-config-test-" + unico + "@example.com")
+                .getSingleResult()).longValue();
+    }
+
+    private void crearSucursalConOrigenCompleto(Long tndId) {
+        em.createNativeQuery("""
+                INSERT INTO sucursales (suc_tnd_id, suc_nombre, suc_activo,
+                        suc_envio_origen_nombre, suc_envio_origen_telefono, suc_envio_origen_direccion,
+                        suc_envio_origen_departamento, suc_envio_origen_municipio, suc_envio_origen_codigo_postal,
+                        suc_creado_en)
+                VALUES (:tndId, 'Principal', true,
+                        'Ampaz Studio', '3000000000', 'Calle Falsa 123',
+                        'Magdalena', 'Santa Marta', '470001',
+                        now())
+                """)
+                .setParameter("tndId", tndId)
+                .executeUpdate();
     }
 }

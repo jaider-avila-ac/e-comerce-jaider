@@ -8,6 +8,9 @@ public record ClienteDireccionRequest(
         String barrio,
         String apartamento,
         String contactoNombre,
-        String contactoTelefono
+        String contactoTelefono,
+        // PLAN_INTEGRACION_ENVIA.md, Fase 3 — Envia lo exige sí o sí para cotizar en Colombia
+        // (confirmado con una llamada real a su API, no es una suposición).
+        String codigoPostal
 ) {
 }

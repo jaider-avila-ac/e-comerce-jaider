@@ -498,7 +498,7 @@ public class PedidoCreacionService {
             try {
                 row = (Object[]) em.createNativeQuery("""
                         SELECT cd_direccion, cd_complemento, cd_departamento, cd_municipio,
-                               cd_barrio, cd_apartamento, cd_contacto_nombre, cd_contacto_telefono
+                               cd_barrio, cd_apartamento, cd_contacto_nombre, cd_contacto_telefono, cd_codigo_postal
                         FROM clientes_direcciones
                         WHERE cd_id = :id AND cd_usr_id = :usrId AND cd_tnd_id = :tndId
                         """)
@@ -510,13 +510,13 @@ public class PedidoCreacionService {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Dirección no encontrada");
             }
             return direccionMap((String) row[0], (String) row[1], (String) row[2], (String) row[3],
-                    (String) row[4], (String) row[5], (String) row[6], (String) row[7]);
+                    (String) row[4], (String) row[5], (String) row[6], (String) row[7], (String) row[8]);
         }
 
         if (inline != null && inline.direccion() != null && !inline.direccion().isBlank()) {
             return direccionMap(inline.direccion(), inline.complemento(), inline.departamento(),
                     inline.municipio(), inline.barrio(), inline.apartamento(),
-                    inline.contactoNombre(), inline.contactoTelefono());
+                    inline.contactoNombre(), inline.contactoTelefono(), inline.codigoPostal());
         }
 
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Debes indicar una dirección de envío");
@@ -524,7 +524,7 @@ public class PedidoCreacionService {
 
     private Map<String, Object> direccionMap(String direccion, String complemento, String departamento,
                                               String municipio, String barrio, String apartamento,
-                                              String contactoNombre, String contactoTelefono) {
+                                              String contactoNombre, String contactoTelefono, String codigoPostal) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("direccion", direccion);
         m.put("complemento", complemento);
@@ -534,6 +534,8 @@ public class PedidoCreacionService {
         m.put("apartamento", apartamento);
         m.put("contacto_nombre", contactoNombre);
         m.put("contacto_telefono", contactoTelefono);
+        // PLAN_INTEGRACION_ENVIA.md, Fase 3/4 — necesario para generar la guía real más adelante.
+        m.put("codigo_postal", codigoPostal);
         return m;
     }
 

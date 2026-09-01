@@ -1,6 +1,12 @@
 package jaider.ecommerce.tienda;
 
+import jaider.ecommerce.shared.TenantSupport;
 import jaider.ecommerce.shared.interceptor.TenantContext;
+import jaider.ecommerce.sucursal.Sucursal;
+import jaider.ecommerce.sucursal.SucursalRepository;
+import jaider.ecommerce.tienda.integracion.TenantIntegrationResolver;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -11,10 +17,16 @@ import org.springframework.web.server.ResponseStatusException;
 @RequiredArgsConstructor
 public class TiendaConfigService {
 
-    private static final java.util.Set<String> MODOS_ENVIO_VALIDOS = java.util.Set.of("contra_entrega", "fijo");
+    private static final java.util.Set<String> MODOS_ENVIO_VALIDOS = java.util.Set.of("contra_entrega", "fijo", "envia");
     private static final java.util.Set<String> AMBIENTES_ENVIA_VALIDOS = java.util.Set.of("sandbox", "produccion");
 
     private final TiendaRepository repo;
+    private final TenantIntegrationResolver integrationResolver;
+    private final SucursalRepository sucursalRepository;
+    private final TenantSupport tenantSupport;
+
+    @PersistenceContext
+    private EntityManager em;
 
     @Transactional(readOnly = true)
     public TiendaConfigResponse getConfig() {
@@ -27,17 +39,15 @@ public class TiendaConfigService {
 
         if (req.envioModo() != null) {
             String modo = req.envioModo().trim();
-            // PLAN_INTEGRACION_ENVIA.md: el esquema ya acepta 'envia' (columna + CHECK de BD),
-            // pero el cálculo real es de la Fase 3 — hasta que exista, activarlo dejaría el
-            // checkout cobrando el costo fijo en silencio, como si fuera un envío calculado de
-            // verdad. Se bloquea acá con un mensaje claro, no con el genérico de "modo inválido".
-            if ("envia".equals(modo)) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                        "El envío calculado con Envia todavía no está disponible");
-            }
             if (!MODOS_ENVIO_VALIDOS.contains(modo)) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                         "Modo de envío inválido: " + modo);
+            }
+            // PLAN_INTEGRACION_ENVIA.md, Fase 3: activar 'envia' exige que ya exista lo que el
+            // cálculo real necesita — nunca lo dejamos pasar "a medias" (checkout se rompería
+            // para el primer cliente que compre). Se valida acá, no solo en el checkout.
+            if ("envia".equals(modo)) {
+                validarListaParaEnvia(tienda.getId());
             }
             tienda.setEnvioModo(modo);
         }
@@ -102,6 +112,42 @@ public class TiendaConfigService {
 
         repo.save(tienda);
         return toResponse(tienda);
+    }
+
+    // PLAN_INTEGRACION_ENVIA.md, Fase 3 — activar 'envia' exige que ya exista lo que el cálculo
+    // real va a necesitar: credenciales de Envia configuradas y al menos una sucursal activa con
+    // su dirección de origen completa (de dónde recoge la transportadora). Sin esto, el checkout
+    // fallaría para el primer cliente que compre con este modo activo.
+    private void validarListaParaEnvia(Long tndId) {
+        try {
+            integrationResolver.envioCredentials(tndId);
+        } catch (IllegalStateException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "No se puede activar el envío con Envia: falta configurar el token de Envia para esta tienda");
+        }
+
+        // sucursales sí tiene RLS forzado (a diferencia de tiendas) — hay que fijar el tenant en
+        // la sesión antes de consultarla o la lista vuelve vacía en silencio.
+        tenantSupport.requireTenant(em);
+        boolean haySucursalConOrigen = sucursalRepository.findByActivoTrueOrderByNombreAsc().stream()
+                .anyMatch(this::tieneOrigenCompleto);
+        if (!haySucursalConOrigen) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "No se puede activar el envío con Envia: ninguna sucursal activa tiene una dirección de origen completa");
+        }
+    }
+
+    private boolean tieneOrigenCompleto(Sucursal s) {
+        return noBlank(s.getEnvioOrigenNombre())
+                && noBlank(s.getEnvioOrigenTelefono())
+                && noBlank(s.getEnvioOrigenDireccion())
+                && noBlank(s.getEnvioOrigenDepartamento())
+                && noBlank(s.getEnvioOrigenMunicipio())
+                && noBlank(s.getEnvioOrigenCodigoPostal());
+    }
+
+    private boolean noBlank(String v) {
+        return v != null && !v.isBlank();
     }
 
     private Tienda currentTienda() {
