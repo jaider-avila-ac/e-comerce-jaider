@@ -357,3 +357,33 @@ ALTER TABLE sucursales ADD COLUMN suc_envio_origen_complemento VARCHAR(255);
 ALTER TABLE sucursales ADD COLUMN suc_envio_origen_departamento VARCHAR(100);
 ALTER TABLE sucursales ADD COLUMN suc_envio_origen_municipio VARCHAR(100);
 ALTER TABLE sucursales ADD COLUMN suc_envio_origen_codigo_postal VARCHAR(10);
+
+-- ============================================================================
+-- 2026-08-31 — PLAN_INTEGRACION_ENVIA.md, Fase 3: cotización real en checkout — orden de
+-- transportadoras configurable POR TIENDA (pedido explícito del usuario: "ese orden lo pueda
+-- decidir el administrador"). Si una tienda no configura nada, EnvioCotizacionService usa un
+-- orden por defecto (Servientrega, Coordinadora, InterRapidísimo — los 3 confirmados cotizando
+-- en vivo; "envia"/Envía Colombia queda fuera del default hasta confirmar que de verdad presta
+-- servicio, ver memoria de la sesión) — la tabla existe para que el admin lo cambie, no para
+-- que sea obligatoria.
+-- ============================================================================
+CREATE TABLE tienda_transportadoras (
+    ttr_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    ttr_tnd_id BIGINT NOT NULL REFERENCES tiendas(tnd_id) ON DELETE CASCADE,
+    ttr_carrier VARCHAR(40) NOT NULL,
+    ttr_orden SMALLINT NOT NULL DEFAULT 0,
+    ttr_activo BOOLEAN NOT NULL DEFAULT true,
+    ttr_creado_en TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(ttr_tnd_id, ttr_carrier)
+);
+CREATE INDEX idx_ttr_tnd_id ON tienda_transportadoras(ttr_tnd_id);
+
+ALTER TABLE tienda_transportadoras ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tienda_transportadoras FORCE ROW LEVEL SECURITY;
+CREATE POLICY pol_tienda_transportadoras ON tienda_transportadoras
+    USING (ttr_tnd_id = fn_current_tnd_id())
+    WITH CHECK (ttr_tnd_id = fn_current_tnd_id());
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON tienda_transportadoras TO calzacaribe_usr;
+GRANT USAGE, SELECT ON SEQUENCE tienda_transportadoras_ttr_id_seq TO calzacaribe_usr;
+ALTER TABLE tienda_transportadoras OWNER TO ecommerce_owner;
