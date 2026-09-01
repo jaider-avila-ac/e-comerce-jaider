@@ -71,6 +71,17 @@ public class Pedido {
     @Column(name = "ped_codigo_rastreo", length = 100)
     private String codigoRastreo;
 
+    // PLAN_INTEGRACION_ENVIA.md, Fase 4 — solo se llenan cuando la guía se generó de verdad con
+    // Envia (POST /ship/generate/), no cuando el admin la registra a mano (contra_entrega/fijo).
+    @Column(name = "ped_envia_shipment_id", length = 50)
+    private String enviaShipmentId;
+
+    @Column(name = "ped_envia_guia_url", length = 500)
+    private String enviaGuiaUrl;
+
+    @Column(name = "ped_envia_costo_real_centavos")
+    private Long enviaCostoRealCentavos;
+
     // 'codigo' | 'link' | 'ambos' — qué le muestra la tienda al cliente. Null equivale a
     // "ambos" cuando hay datos de seguimiento, para no perder información ya cargada antes
     // de que existiera esta preferencia.

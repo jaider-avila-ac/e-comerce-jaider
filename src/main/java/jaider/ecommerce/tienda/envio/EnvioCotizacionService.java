@@ -82,7 +82,7 @@ public class EnvioCotizacionService {
                     origen, origenGeo, destino, destinoGeo, paquetes, declaradoCop);
             if (cot.isPresent()) {
                 CotizacionCarrier c = cot.get();
-                return new EnvioCotizacionResponse(c.precioCop() * 100L, c.carrier(), c.servicio(),
+                return new EnvioCotizacionResponse(c.precioCop() * 100L, c.carrier(), c.servicioDescripcion(),
                         c.tiempoEstimado(), false);
             }
         }
@@ -93,7 +93,7 @@ public class EnvioCotizacionService {
                 "3-5 días hábiles", true);
     }
 
-    private List<String> ordenTransportadoras(Long tndId) {
+    List<String> ordenTransportadoras(Long tndId) {
         List<TiendaTransportadora> configuradas = transportadoraRepo.findAllByActivoTrueOrderByOrdenAscCarrierAsc();
         if (configuradas.isEmpty()) return ORDEN_POR_DEFECTO;
         return configuradas.stream().map(TiendaTransportadora::getCarrier).toList();
@@ -154,7 +154,7 @@ public class EnvioCotizacionService {
                 (String) row[3], (String) row[4], codigoPostal);
     }
 
-    private DireccionEnvia cargarDireccionOrigen(Long tndId) {
+    DireccionEnvia cargarDireccionOrigen(Long tndId) {
         Sucursal sucursal = sucursalRepo.findByActivoTrueOrderByNombreAsc().stream()
                 .filter(this::tieneOrigenCompleto)
                 .findFirst()

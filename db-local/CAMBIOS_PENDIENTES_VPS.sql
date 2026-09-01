@@ -387,3 +387,16 @@ CREATE POLICY pol_tienda_transportadoras ON tienda_transportadoras
 GRANT SELECT, INSERT, UPDATE, DELETE ON tienda_transportadoras TO calzacaribe_usr;
 GRANT USAGE, SELECT ON SEQUENCE tienda_transportadoras_ttr_id_seq TO calzacaribe_usr;
 ALTER TABLE tienda_transportadoras OWNER TO ecommerce_owner;
+
+-- ============================================================================
+-- 2026-08-31 — PLAN_INTEGRACION_ENVIA.md, Fase 4: generación de guía REAL desde el panel del
+-- admin (POST /ship/generate/ de Envia — a diferencia de /ship/rate/, esto SÍ cobra de la
+-- cuenta de la tienda en Envia). Se reutilizan las columnas de seguimiento que YA existían
+-- (ped_transportadora/ped_codigo_rastreo/ped_link_seguimiento, hasta ahora llenadas a mano por
+-- el admin) — se llenan solas cuando se genera la guía real. Estas 3 columnas nuevas son lo que
+-- NO existía: el id interno de Envia (para poder cancelar más adelante), la URL del PDF
+-- imprimible, y el costo real cobrado (puede diferir un poco de la cotización de la Fase 3).
+-- ============================================================================
+ALTER TABLE pedidos ADD COLUMN ped_envia_shipment_id VARCHAR(50);
+ALTER TABLE pedidos ADD COLUMN ped_envia_guia_url VARCHAR(500);
+ALTER TABLE pedidos ADD COLUMN ped_envia_costo_real_centavos BIGINT;

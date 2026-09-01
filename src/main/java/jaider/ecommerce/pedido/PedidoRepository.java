@@ -58,6 +58,25 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
                             @Param("codigo") String codigo, @Param("link") String link,
                             @Param("mostrar") String mostrar);
 
+    // PLAN_INTEGRACION_ENVIA.md, Fase 4 — igual que updateSeguimiento, pero además de las
+    // columnas de seguimiento ya existentes guarda las 3 nuevas de la guía real generada con
+    // Envia. UPDATE explícito (no repo.save()) por la misma razón que el resto de este
+    // repositorio: repo.save() reescribe TODAS las columnas, incluida ped_estado, que Postgres
+    // no deja bindear como varchar sin CAST (es un enum nativo) — cualquier UPDATE de esta tabla
+    // pasa por consultas nativas explícitas, nunca por una entidad completa.
+    @Modifying(clearAutomatically = true)
+    @Query(value = """
+            UPDATE pedidos SET ped_transportadora = :transportadora, ped_codigo_rastreo = :codigo,
+                                ped_link_seguimiento = :link, ped_mostrar_seguimiento = :mostrar,
+                                ped_envia_shipment_id = :shipmentId, ped_envia_guia_url = :guiaUrl,
+                                ped_envia_costo_real_centavos = :costoRealCentavos
+            WHERE ped_id = :id
+            """, nativeQuery = true)
+    void registrarGuiaEnvia(@Param("id") Long id, @Param("transportadora") String transportadora,
+                             @Param("codigo") String codigo, @Param("link") String link,
+                             @Param("mostrar") String mostrar, @Param("shipmentId") String shipmentId,
+                             @Param("guiaUrl") String guiaUrl, @Param("costoRealCentavos") Long costoRealCentavos);
+
     @Modifying(clearAutomatically = true)
     @Query(value = """
             UPDATE pedidos

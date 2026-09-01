@@ -76,6 +76,7 @@ public class EnviaRateClient {
 
             return Optional.of(new CotizacionCarrier(
                     mejor.path("carrier").asText(carrier),
+                    mejor.path("service").asText(""),
                     mejor.path("serviceDescription").asText(mejor.path("service").asText("")),
                     mejorPrecio,
                     mejor.path("deliveryEstimate").asText("")
