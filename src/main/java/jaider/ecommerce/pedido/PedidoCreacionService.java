@@ -3,6 +3,7 @@ package jaider.ecommerce.pedido;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jaider.ecommerce.geo.ColombiaGeoService;
 import jaider.ecommerce.shared.TenantSupport;
+import jaider.ecommerce.tienda.envio.EnvioCotizacionService;
 import jaider.ecommerce.usuario.cliente.ClienteDireccionRequest;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
@@ -38,6 +39,7 @@ public class PedidoCreacionService {
     private final ObjectMapper objectMapper;
     private final PedidoService pedidoService;
     private final ColombiaGeoService geoService;
+    private final EnvioCotizacionService envioCotizacionService;
 
     @PersistenceContext
     private EntityManager em;
@@ -81,7 +83,18 @@ public class PedidoCreacionService {
         boolean envioContraEntrega = "contra_entrega".equals(envioModo);
         boolean envioGratis = !envioContraEntrega && Boolean.TRUE.equals(envioConfig[1])
                 && subtotal >= ((Number) envioConfig[2]).longValue();
-        long envio = envioContraEntrega || envioGratis ? 0L : ((Number) envioConfig[3]).longValue();
+        long envio;
+        if (envioContraEntrega || envioGratis) {
+            envio = 0L;
+        } else if ("envia".equals(envioModo) && direccionId != null) {
+            // Lo que se cobra debe coincidir con lo que el carrito ya le mostró al cliente — nunca
+            // el costo fijo en silencio para una tienda que activó el cálculo real (PLAN_
+            // INTEGRACION_ENVIA.md, Fase 3). cotizar() ya tiene su propio respaldo garantizado si
+            // Envia falla, así que esto nunca deja al checkout sin un precio.
+            envio = envioCotizacionService.cotizar(usrId, tndId, direccionId).precioCentavos();
+        } else {
+            envio = ((Number) envioConfig[3]).longValue();
+        }
         long total = subtotal + envio;
         String numero = generarNumeroUnico();
 
