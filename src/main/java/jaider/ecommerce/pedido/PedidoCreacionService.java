@@ -63,18 +63,20 @@ public class PedidoCreacionService {
         tenantSupport.requireTenant(em);
 
         List<ItemCarrito> items = cargarCarritoValidado(usrId);
-        Map<String, Object> dirSnapshot = resolverDireccion(usrId, tndId, direccionId, direccionInline);
 
-        long subtotal = items.stream().mapToLong(i -> i.precioCentavos() * i.cantidad()).sum();
         Object[] envioConfig = (Object[]) em.createNativeQuery("""
                 SELECT tnd_envio_modo, tnd_envio_gratis_activo, tnd_envio_gratis_desde_centavos, tnd_envio_costo_centavos
                 FROM tiendas WHERE tnd_id = :tndId
                 """).setParameter("tndId", tndId).getSingleResult();
+        String envioModo = (String) envioConfig[0];
+        Map<String, Object> dirSnapshot = resolverDireccion(usrId, tndId, direccionId, direccionInline, envioModo);
+
+        long subtotal = items.stream().mapToLong(i -> i.precioCentavos() * i.cantidad()).sum();
         // "contra entrega" (default — ver Tienda.envioModo): el envío no se cobra en el checkout
         // online, el cliente le paga al transportador al recibir. Se guarda el modo vigente al
         // momento de la compra en el propio pedido (ped_envio_contra_entrega) para que quede fijo
         // en el historial aunque el admin cambie la configuración después.
-        boolean envioContraEntrega = "contra_entrega".equals(envioConfig[0]);
+        boolean envioContraEntrega = "contra_entrega".equals(envioModo);
         boolean envioGratis = !envioContraEntrega && Boolean.TRUE.equals(envioConfig[1])
                 && subtotal >= ((Number) envioConfig[2]).longValue();
         long envio = envioContraEntrega || envioGratis ? 0L : ((Number) envioConfig[3]).longValue();
@@ -492,7 +494,8 @@ public class PedidoCreacionService {
     // ── Dirección de envío ───────────────────────────────────────────────────
 
     private Map<String, Object> resolverDireccion(Long usrId, Long tndId, Long direccionId,
-                                                    ClienteDireccionRequest inline) {
+                                                    ClienteDireccionRequest inline, String envioModo) {
+        Map<String, Object> resultado;
         if (direccionId != null) {
             Object[] row;
             try {
@@ -509,17 +512,40 @@ public class PedidoCreacionService {
             } catch (NoResultException e) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Dirección no encontrada");
             }
-            return direccionMap((String) row[0], (String) row[1], (String) row[2], (String) row[3],
+            resultado = direccionMap((String) row[0], (String) row[1], (String) row[2], (String) row[3],
                     (String) row[4], (String) row[5], (String) row[6], (String) row[7], (String) row[8]);
-        }
-
-        if (inline != null && inline.direccion() != null && !inline.direccion().isBlank()) {
-            return direccionMap(inline.direccion(), inline.complemento(), inline.departamento(),
+        } else if (inline != null && inline.direccion() != null && !inline.direccion().isBlank()) {
+            resultado = direccionMap(inline.direccion(), inline.complemento(), inline.departamento(),
                     inline.municipio(), inline.barrio(), inline.apartamento(),
                     inline.contactoNombre(), inline.contactoTelefono(), inline.codigoPostal());
+        } else {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Debes indicar una dirección de envío");
         }
 
-        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Debes indicar una dirección de envío");
+        // PLAN_INTEGRACION_ENVIA.md, Fase 3 — una tienda en modo 'envia' necesita estos campos
+        // completos sí o sí para poder calcular el precio real (una dirección guardada antes de
+        // que la tienda activara este modo, o llenada a medias, no debe llegar hasta acá sin que
+        // se note). contra_entrega/fijo no lo necesitan y no se ven afectados.
+        if ("envia".equals(envioModo)) {
+            validarDireccionParaEnvia(resultado);
+        }
+        return resultado;
+    }
+
+    private static final List<String> CAMPOS_ENVIA = List.of(
+            "direccion", "municipio", "departamento", "codigo_postal", "contacto_nombre", "contacto_telefono");
+
+    private void validarDireccionParaEnvia(Map<String, Object> direccion) {
+        List<String> faltantes = CAMPOS_ENVIA.stream()
+                .filter(campo -> {
+                    Object valor = direccion.get(campo);
+                    return valor == null || String.valueOf(valor).isBlank();
+                })
+                .toList();
+        if (!faltantes.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Esta tienda calcula el envío real — completa en tu dirección: " + String.join(", ", faltantes));
+        }
     }
 
     private Map<String, Object> direccionMap(String direccion, String complemento, String departamento,

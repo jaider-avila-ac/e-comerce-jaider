@@ -5,6 +5,8 @@ import jakarta.persistence.NoResultException;
 import jakarta.persistence.PersistenceContext;
 import jaider.ecommerce.shared.TenantSupport;
 import jaider.ecommerce.shared.interceptor.TenantContext;
+import jaider.ecommerce.tienda.Tienda;
+import jaider.ecommerce.tienda.TiendaRepository;
 import jaider.ecommerce.usuario.Usuario;
 import jaider.ecommerce.usuario.UsuarioRepository;
 import lombok.RequiredArgsConstructor;
@@ -27,6 +29,7 @@ public class TiendaClientePerfilService {
     private final TenantSupport tenantSupport;
     private final UsuarioRepository usuarioRepository;
     private final PasswordEncoder passwordEncoder;
+    private final TiendaRepository tiendaRepository;
 
     @PersistenceContext
     private EntityManager em;
@@ -206,6 +209,7 @@ public class TiendaClientePerfilService {
         tenantSupport.requireTenant(em);
         ensureTenant(tndId);
         requireUsuario(usrId, tndId);
+        validarCamposParaEnvia(tndId, req);
 
         em.createNativeQuery("""
             INSERT INTO clientes_direcciones (
@@ -237,6 +241,7 @@ public class TiendaClientePerfilService {
     public List<Map<String, Object>> updateDireccion(Long usrId, Long tndId, Long direccionId, ClienteDireccionRequest req) {
         tenantSupport.requireTenant(em);
         ensureTenant(tndId);
+        validarCamposParaEnvia(tndId, req);
 
         int updated = em.createNativeQuery("""
             UPDATE clientes_direcciones
@@ -323,6 +328,35 @@ public class TiendaClientePerfilService {
             direccion.put("codigo_postal", value(row[9]));
             return direccion;
         }).toList();
+    }
+
+    // PLAN_INTEGRACION_ENVIA.md, Fase 3 — sin esto, una dirección guardada con campos vacíos
+    // pasaría el checkout sin error (resolverDireccion() de PedidoCreacionService solo valida
+    // que exista, no que esté completa) y el precio de envío real no se podría calcular después.
+    // Solo aplica para tiendas en modo 'envia' — contra_entrega/fijo no lo necesitan y siguen
+    // aceptando direcciones parciales como siempre (Calzacaribe no se ve afectada).
+    private void validarCamposParaEnvia(Long tndId, ClienteDireccionRequest req) {
+        Tienda tienda = tiendaRepository.findById(tndId).orElse(null);
+        if (tienda == null || !"envia".equals(tienda.getEnvioModo())) {
+            return;
+        }
+        // LinkedHashMap (no Map.of): los valores pueden venir null y Map.of los rechaza.
+        Map<String, String> requeridos = new LinkedHashMap<>();
+        requeridos.put("dirección", req.direccion());
+        requeridos.put("municipio", req.municipio());
+        requeridos.put("departamento", req.departamento());
+        requeridos.put("código postal", req.codigoPostal());
+        requeridos.put("nombre de contacto", req.contactoNombre());
+        requeridos.put("teléfono de contacto", req.contactoTelefono());
+
+        List<String> faltantes = requeridos.entrySet().stream()
+                .filter(e -> e.getValue() == null || e.getValue().isBlank())
+                .map(Map.Entry::getKey)
+                .toList();
+        if (!faltantes.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Esta tienda calcula el envío real — completa: " + String.join(", ", faltantes));
+        }
     }
 
     private void requireUsuario(Long usrId, Long tndId) {
