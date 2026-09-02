@@ -345,8 +345,12 @@ public class ProductoService {
         // de la tienda A podría terminar apuntando a un empaque de la tienda B con solo mandar
         // su ID.
         if (req.empaqueId() != null) {
-            empaqueRepo.findById(req.empaqueId())
+            var empaque = empaqueRepo.findById(req.empaqueId())
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Empaque no encontrado"));
+            if (!empaque.isActivo() && tiendaEnModoEnvia()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Esta tienda calcula el envío real — selecciona un empaque activo");
+            }
         }
         p.setEmpaqueId(req.empaqueId());
 

@@ -149,13 +149,16 @@ public class TiendaConfigService {
         // y el PRIMER cliente que agregara al carrito uno de esos productos se topaba con un
         // fallo real al calcular el envío (PaqueteCalculoService rechaza cualquier producto sin
         // empaque asignado) — justo lo que esta validación entera existe para evitar.
-        long productosSinEmpaque = ((Number) em.createNativeQuery(
-                "SELECT COUNT(*) FROM productos WHERE prd_activo = true AND prd_empaque_id IS NULL")
+        long productosSinEmpaque = ((Number) em.createNativeQuery("""
+                SELECT COUNT(*) FROM productos p
+                LEFT JOIN tienda_empaques te ON te.tep_id = p.prd_empaque_id
+                WHERE p.prd_activo = true AND (p.prd_empaque_id IS NULL OR te.tep_activo = false)
+                """)
                 .getSingleResult()).longValue();
         if (productosSinEmpaque > 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "No se puede activar el envío con Envia: " + productosSinEmpaque
-                            + " producto(s) activo(s) todavía no tienen un empaque asignado");
+                            + " producto(s) activo(s) no tienen un empaque activo asignado");
         }
     }
 

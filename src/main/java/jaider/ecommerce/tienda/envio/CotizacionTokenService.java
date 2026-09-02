@@ -9,7 +9,12 @@ import org.springframework.stereotype.Service;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.Comparator;
 import java.util.Date;
+import java.util.HexFormat;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -44,12 +49,14 @@ public class CotizacionTokenService {
     public record CotizacionFirmada(String carrier, String servicioCodigo, String servicioDescripcion,
                                      String tiempoEstimado, long precioCentavos, boolean estimado) {}
 
-    public String firmar(Long usrId, Long direccionId, CotizacionFirmada c) {
+    public String firmar(Long usrId, Long tndId, Long direccionId, String huellaCarrito, CotizacionFirmada c) {
         Date now = new Date();
         return Jwts.builder()
                 .claim("typ", TYP)
                 .claim("usr_id", usrId)
+                .claim("tnd_id", tndId)
                 .claim("dir_id", direccionId)
+                .claim("carrito_hash", huellaCarrito)
                 .claim("carrier", c.carrier())
                 .claim("servicio_codigo", c.servicioCodigo())
                 .claim("servicio_desc", c.servicioDescripcion())
@@ -65,12 +72,15 @@ public class CotizacionTokenService {
     /** Vacío si el token es inválido, venció, o no corresponde a este usuario/dirección exactos
      *  — nunca lanza, el llamador decide qué mensaje darle al cliente (siempre "vuelve a tu
      *  carrito y confirma el precio actualizado", nunca detalles técnicos). */
-    public Optional<CotizacionFirmada> verificar(String token, Long usrId, Long direccionId) {
+    public Optional<CotizacionFirmada> verificar(String token, Long usrId, Long tndId, Long direccionId,
+                                                  String huellaCarrito) {
         if (token == null || token.isBlank()) return Optional.empty();
         try {
             Claims c = Jwts.parser().verifyWith(key).build().parseSignedClaims(token).getPayload();
             if (!TYP.equals(c.get("typ"))) return Optional.empty();
-            if (!usrId.equals(numero(c.get("usr_id"))) || !direccionId.equals(numero(c.get("dir_id")))) {
+            if (!usrId.equals(numero(c.get("usr_id"))) || !tndId.equals(numero(c.get("tnd_id")))
+                    || !direccionId.equals(numero(c.get("dir_id")))
+                    || !MessageDigest.isEqual(bytes(huellaCarrito), bytes((String) c.get("carrito_hash")))) {
                 return Optional.empty();
             }
             return Optional.of(new CotizacionFirmada(
@@ -83,6 +93,35 @@ public class CotizacionTokenService {
         } catch (JwtException | IllegalArgumentException | ClassCastException | NullPointerException e) {
             return Optional.empty();
         }
+    }
+
+    /** Huella de todo lo que puede modificar una tarifa: paquetes armados y valor declarado. */
+    public String huellaCotizacion(List<PaqueteCalculado> paquetes, long subtotalCentavos, String destino) {
+        StringBuilder canonical = new StringBuilder().append(subtotalCentavos).append('|').append(normalizar(destino));
+        paquetes.stream().sorted(Comparator.comparing(PaqueteCalculado::empaqueId)).forEach(p -> canonical
+                .append('|').append(p.empaqueId()).append(':').append(p.cantidad())
+                .append(':').append(p.pesoGramosPorUnidad()).append(':').append(p.largoCm())
+                .append(':').append(p.anchoCm()).append(':').append(p.altoCm()));
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(canonical.toString().getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 no disponible", e);
+        }
+    }
+
+    public String claveDestino(String nombre, String telefono, String direccion, String municipio,
+                               String departamento, String codigoPostal) {
+        return String.join("|", normalizar(nombre), normalizar(telefono), normalizar(direccion),
+                normalizar(municipio), normalizar(departamento), normalizar(codigoPostal));
+    }
+
+    private String normalizar(String value) {
+        return value == null ? "" : value.trim().toLowerCase(java.util.Locale.ROOT);
+    }
+
+    private byte[] bytes(String value) {
+        return value == null ? new byte[0] : value.getBytes(StandardCharsets.UTF_8);
     }
 
     private Long numero(Object o) {

@@ -99,6 +99,17 @@ class EnvioGuiaTransaccionesServiceTest {
         assertThat(transacciones.reservar(pedId)).isEqualTo(1);
     }
 
+    @Test
+    void resultadoIncierto_bloqueaReintentosHastaReconciliacion() {
+        TenantContext.set("1");
+        Long pedId = crearPedidoDePruebaComprometido();
+
+        assertThat(transacciones.reservar(pedId)).isEqualTo(1);
+        assertThat(transacciones.marcarResultadoIncierto(pedId)).isEqualTo(1);
+        assertThat(leerShipmentId(pedId)).isEqualTo("RESULTADO_INCIERTO");
+        assertThat(transacciones.reservar(pedId)).isEqualTo(0);
+    }
+
     private String leerShipmentId(Long pedId) {
         TransactionTemplate tx = new TransactionTemplate(txManager);
         return tx.execute(status -> {

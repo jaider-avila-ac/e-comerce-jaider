@@ -79,6 +79,11 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
            nativeQuery = true)
     void liberarReservaGuiaEnvia(@Param("id") Long id);
 
+    @Modifying(clearAutomatically = true)
+    @Query(value = "UPDATE pedidos SET ped_envia_shipment_id = 'RESULTADO_INCIERTO' WHERE ped_id = :id AND ped_envia_shipment_id = 'RESERVANDO'",
+           nativeQuery = true)
+    int marcarResultadoInciertoGuiaEnvia(@Param("id") Long id);
+
     // Corrección de auditoría (2026-09-01, tercera vuelta): reemplaza 'RESERVANDO' por el
     // shipmentId REAL apenas Envia lo confirma — antes de intentar guardar el resto de los
     // datos descriptivos (transportadora/tracking/PDF/costo). Es la escritura MÍNIMA que importa:

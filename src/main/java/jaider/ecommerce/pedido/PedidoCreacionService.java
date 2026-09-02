@@ -111,12 +111,17 @@ public class PedidoCreacionService {
             // lo cobrado es matemáticamente lo mismo que lo mostrado. Los paquetes (dimensiones)
             // sí se recalculan del carrito actual — son puramente derivados del carrito, no de
             // ninguna respuesta de Envia, así que no hay riesgo de inconsistencia ahí.
-            var firmada = cotizacionTokenService.verificar(cotizacionToken, usrId, direccionId)
-                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                            "La cotización de envío expiró o cambió — vuelve a tu carrito para confirmar el precio actualizado"));
-            envio = firmada.precioCentavos();
             List<PaqueteCalculado> paquetes = paqueteCalculoService.calcular(
                     items.stream().map(i -> new ItemParaPaquete(i.prdId(), i.cantidad())).toList());
+            String claveDestino = cotizacionTokenService.claveDestino(
+                    valor(dirSnapshot, "contacto_nombre"), valor(dirSnapshot, "contacto_telefono"),
+                    valor(dirSnapshot, "direccion"), valor(dirSnapshot, "municipio"),
+                    valor(dirSnapshot, "departamento"), valor(dirSnapshot, "codigo_postal"));
+            String huellaCarrito = cotizacionTokenService.huellaCotizacion(paquetes, subtotal, claveDestino);
+            var firmada = cotizacionTokenService.verificar(cotizacionToken, usrId, tndId, direccionId, huellaCarrito)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                            "La cotización de envío expiró o el carrito cambió — vuelve al carrito para confirmar el precio actualizado"));
+            envio = firmada.precioCentavos();
             EnvioCotizacionResponse respuestaCongelada = new EnvioCotizacionResponse(firmada.precioCentavos(),
                     firmada.carrier(), firmada.servicioDescripcion(), firmada.servicioCodigo(),
                     firmada.tiempoEstimado(), firmada.estimado(), null);
@@ -179,6 +184,11 @@ public class PedidoCreacionService {
 
         log.info("[Checkout] Pedido {} ({}) creado para usuario {} — total {} centavos", pedId, numero, usrId, total);
         return new PedidoCreado(pedId, numero, total);
+    }
+
+    private String valor(Map<String, Object> map, String key) {
+        Object value = map.get(key);
+        return value != null ? String.valueOf(value) : null;
     }
 
     @Transactional

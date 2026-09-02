@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.client.RestClientResponseException;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -43,18 +44,20 @@ public class EnvioGuiaService {
     private final EnviaLabelClient labelClient;
 
     public PrepararEnvioResponse preparar(Long tndId, Long pedidoId) {
-        EnvioGuiaTransaccionesService.DatosGuia datos = transacciones.cargarDatosParaGuia(tndId, pedidoId);
-        Pedido pedido = datos.pedido();
+        EnvioGuiaTransaccionesService.PedidoPreparado preparado = transacciones.cargarPedidoPreparado(tndId, pedidoId);
+        Pedido pedido = preparado.pedido();
 
         // Corrección de auditoría (2026-09-01, tercera vuelta): si el pedido YA tiene una guía
         // real generada, no hace falta volver a geocodificar ni cotizar con Envia para mostrar
         // sus datos — antes, una caída de Envia, credenciales vencidas o un origen dañado
         // impedían al admin consultar en el panel una guía que YA está guardada.
         if (pedido.getEnviaShipmentId() != null) {
-            return new PrepararEnvioResponse(datos.paquetes(), List.of(), true,
+            return new PrepararEnvioResponse(preparado.paquetes(), List.of(), true,
                     pedido.getTransportadora(), pedido.getCodigoRastreo(), pedido.getEnviaGuiaUrl(),
                     pedido.getEnviaShipmentId(), pedido.getEnviaCostoRealCentavos());
         }
+
+        EnvioGuiaTransaccionesService.DatosGuia datos = transacciones.cargarDatosParaGuia(tndId, pedidoId);
 
         GeocodeResultado origenGeo = geocodesClient.resolver(datos.origen().codigoPostal());
         GeocodeResultado destinoGeo = geocodesClient.resolver(datos.destino().codigoPostal());
@@ -88,14 +91,15 @@ public class EnvioGuiaService {
         EnvioGuiaTransaccionesService.DatosGuia datos = transacciones.cargarDatosParaGuia(tndId, pedidoId);
         Pedido pedido = datos.pedido();
 
+        // Todo lo que todavía puede fallar sin cobrar se resuelve antes de tomar la reserva.
+        GeocodeResultado origenGeo = geocodesClient.resolver(datos.origen().codigoPostal());
+        GeocodeResultado destinoGeo = geocodesClient.resolver(datos.destino().codigoPostal());
+
         int reservado = transacciones.reservar(pedido.getId());
         if (reservado == 0) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "Este pedido ya tiene una guía generada o en proceso — no se puede generar otra");
+                    "Este pedido ya tiene una guía generada, incierta o en proceso — no se puede generar otra");
         }
-
-        GeocodeResultado origenGeo = geocodesClient.resolver(datos.origen().codigoPostal());
-        GeocodeResultado destinoGeo = geocodesClient.resolver(datos.destino().codigoPostal());
 
         GuiaGenerada guia;
         try {
@@ -106,10 +110,21 @@ public class EnvioGuiaService {
             log.info("[EnvioGuia] Envia confirmó el envío — pedido={} tenant={} carrier={} shipmentId={} tracking={}",
                     pedidoId, tndId, guia.carrier(), guia.shipmentId(), guia.trackingNumber());
         } catch (Exception e) {
-            // Envia NO confirmó ningún envío — libera la reserva para que este pedido pueda
-            // reintentar limpio.
-            transacciones.liberarReserva(pedido.getId());
+            boolean definitivo = rechazoDefinitivo(e);
+            if (definitivo) {
+                transacciones.liberarReserva(pedido.getId());
+            } else {
+                // Timeout, corte de red, 5xx o respuesta incompleta: Envia pudo haber cobrado.
+                // Se bloquea cualquier reintento hasta reconciliar por orderReference/shipmentId.
+                transacciones.marcarResultadoIncierto(pedido.getId());
+                log.error("[EnvioGuia][RESULTADO_INCIERTO] pedido={} tenant={} — no reintentar automáticamente: {}",
+                        pedidoId, tndId, e.getMessage());
+            }
             log.error("[EnvioGuia] falló generar guía real para pedido {} (tenant {}): {}", pedidoId, tndId, e.getMessage());
+            if (!definitivo) {
+                throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                        "El resultado de Envia es incierto. No vuelvas a generar la guía; un administrador debe reconciliarla.");
+            }
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
                     "Envia no pudo generar la guía: " + e.getMessage());
         }
@@ -117,6 +132,7 @@ public class EnvioGuiaService {
         // A partir de acá Envia YA cobró de verdad — confirmarShipmentIdTx() se reintenta varias
         // veces (cada intento en su propia transacción REQUIRES_NEW) antes de darse por vencido,
         // porque un fallo transitorio de BD en este punto NO puede tratarse como "no pasó nada".
+        boolean shipmentConfirmado = false;
         for (int intento = 1; intento <= REINTENTOS_CONFIRMAR; intento++) {
             try {
                 int filas = transacciones.confirmarShipmentIdTx(pedido.getId(), guia.shipmentId());
@@ -125,8 +141,10 @@ public class EnvioGuiaService {
                                     "(shipmentId={} tracking={} costo={}) pero la fila no estaba en RESERVANDO " +
                                     "al confirmar — revisar manualmente si esta guía quedó registrada.",
                             pedidoId, tndId, guia.shipmentId(), guia.trackingNumber(), guia.totalPriceCop());
+                } else {
+                    shipmentConfirmado = true;
+                    break;
                 }
-                break;
             } catch (Exception e) {
                 log.error("[EnvioGuia] intento {}/{} fallido al confirmar shipmentId real para pedido={} tenant={}: {}",
                         intento, REINTENTOS_CONFIRMAR, pedidoId, tndId, e.getMessage());
@@ -142,11 +160,21 @@ public class EnvioGuiaService {
             }
         }
 
+        if (!shipmentConfirmado) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "Envia generó la guía, pero no fue posible confirmar su registro local. No vuelvas a generarla; requiere reconciliación manual.");
+        }
+
         transacciones.registrarDetalleGuia(pedido.getId(), tndId, guia, datos.tienda().getEnviaAmbiente());
 
         log.info("[EnvioGuia] guía real generada — pedido={} tenant={} carrier={} tracking={} admin={}",
                 pedidoId, tndId, guia.carrier(), guia.trackingNumber(), adminId);
         return guia;
+    }
+
+    private boolean rechazoDefinitivo(Exception e) {
+        if (e instanceof EnviaGuiaRechazadaException) return true;
+        return e instanceof RestClientResponseException response && response.getStatusCode().is4xxClientError();
     }
 
     private void dormir(long ms) {

@@ -76,10 +76,13 @@ public class EnvioCotizacionService {
 
         List<ItemParaPaquete> items = cargarCarrito(usrId);
         List<PaqueteCalculado> paquetes = paqueteCalculoService.calcular(items);
-        long declaradoCop = subtotalCarrito(usrId) / 100L;
-
+        long subtotalCentavos = subtotalCarrito(usrId);
+        long declaradoCop = subtotalCentavos / 100L;
         DireccionEnvia destino = cargarDireccionDestino(usrId, tndId, direccionId);
         DireccionEnvia origen = cargarDireccionOrigen(tndId);
+        String huellaCarrito = tokenService.huellaCotizacion(paquetes, subtotalCentavos,
+                tokenService.claveDestino(destino.nombre(), destino.telefono(), destino.calle(),
+                        destino.municipio(), destino.departamento(), destino.codigoPostal()));
 
         GeocodeResultado origenGeo = geocodesClient.resolver(origen.codigoPostal());
         GeocodeResultado destinoGeo = geocodesClient.resolver(destino.codigoPostal());
@@ -93,7 +96,8 @@ public class EnvioCotizacionService {
             if (cot.isPresent()) {
                 CotizacionCarrier c = cot.get();
                 long precioCentavos = c.precioCop() * 100L;
-                String token = tokenService.firmar(usrId, direccionId, new CotizacionTokenService.CotizacionFirmada(
+                String token = tokenService.firmar(usrId, tndId, direccionId, huellaCarrito,
+                        new CotizacionTokenService.CotizacionFirmada(
                         c.carrier(), c.servicioCodigo(), c.servicioDescripcion(), c.tiempoEstimado(), precioCentavos, false));
                 EnvioCotizacionResponse resp = new EnvioCotizacionResponse(precioCentavos, c.carrier(),
                         c.servicioDescripcion(), c.servicioCodigo(), c.tiempoEstimado(), false, token);
@@ -103,7 +107,8 @@ public class EnvioCotizacionService {
 
         // Ningún carrier respondió — respaldo garantizado, nunca se deja al cliente sin precio.
         log.warn("[EnvioCotizacion] ningún carrier cotizó para tenant={}, usando costo fijo de respaldo", tndId);
-        String tokenRespaldo = tokenService.firmar(usrId, direccionId, new CotizacionTokenService.CotizacionFirmada(
+        String tokenRespaldo = tokenService.firmar(usrId, tndId, direccionId, huellaCarrito,
+                new CotizacionTokenService.CotizacionFirmada(
                 "estimado", null, "Envío estándar", "3-5 días hábiles", tienda.getEnvioCostoCentavos(), true));
         EnvioCotizacionResponse resp = new EnvioCotizacionResponse(tienda.getEnvioCostoCentavos(), "estimado",
                 "Envío estándar", null, "3-5 días hábiles", true, tokenRespaldo);

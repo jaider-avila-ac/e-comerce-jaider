@@ -56,11 +56,11 @@ public class EnviaLabelClient {
 
         if (respuesta == null || !"generate".equals(respuesta.path("meta").asText())) {
             String detalle = respuesta != null ? respuesta.path("error").path("message").asText("respuesta inesperada") : "sin respuesta";
-            throw new IllegalStateException("Envia no generó la guía: " + detalle);
+            throw new EnviaGuiaRechazadaException("Envia no generó la guía: " + detalle);
         }
         JsonNode data = respuesta.path("data");
         if (!data.isArray() || data.isEmpty()) {
-            throw new IllegalStateException("Envia respondió sin datos de guía");
+            throw new EnviaGuiaRechazadaException("Envia respondió sin datos de guía");
         }
         JsonNode primero = data.get(0);
 
@@ -76,7 +76,7 @@ public class EnviaLabelClient {
         String label = primero.path("label").asText("");
         long totalPrice = primero.path("totalPrice").asLong(0);
         if (shipmentId.isBlank() || trackingNumber.isBlank() || label.isBlank() || totalPrice <= 0) {
-            throw new IllegalStateException(
+            throw new EnviaGuiaResultadoInciertoException(
                     "Envia respondió una guía incompleta (shipmentId=\"" + shipmentId + "\" trackingNumber=\""
                             + trackingNumber + "\" label=\"" + label + "\" totalPrice=" + totalPrice + ")");
         }

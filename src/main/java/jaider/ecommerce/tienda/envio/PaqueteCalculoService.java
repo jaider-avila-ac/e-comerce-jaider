@@ -66,6 +66,10 @@ public class PaqueteCalculoService {
                     TiendaEmpaque empaque = empaqueRepo.findById(entry.getKey())
                             .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
                                     "El empaque asignado a un producto ya no existe"));
+                    if (!empaque.isActivo()) {
+                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                                "El empaque \"" + empaque.getNombre() + "\" está inactivo");
+                    }
                     return new PaqueteCalculado(empaque.getId(), empaque.getNombre(), entry.getValue(),
                             empaque.getPesoGramos(), empaque.getLargoCm(), empaque.getAnchoCm(), empaque.getAltoCm());
                 })

@@ -62,7 +62,21 @@ public class EnvioGuiaTransaccionesService {
      *  {@link EnvioGuiaService}, fuera de esta transacción de solo lectura. */
     public record DatosGuia(Pedido pedido, Tienda tienda, List<PaqueteCalculado> paquetes,
                              DireccionEnvia destino, DireccionEnvia origen,
-                             EnviaCredentials creds, String host, long declaradoCop) {}
+                              EnviaCredentials creds, String host, long declaradoCop) {}
+
+    public record PedidoPreparado(Pedido pedido, List<PaqueteCalculado> paquetes) {}
+
+    /** Lectura mínima para mostrar una guía histórica. No depende del modo, origen ni credenciales actuales. */
+    @Transactional(readOnly = true)
+    public PedidoPreparado cargarPedidoPreparado(Long tndId, Long pedidoId) {
+        tenantSupport.requireTenant(em);
+        Pedido pedido = pedidoRepo.findById(pedidoId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pedido no encontrado"));
+        if (!tndId.equals(pedido.getTndId())) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Pedido no encontrado");
+        }
+        return new PedidoPreparado(pedido, paquetesDelPedido(pedido, pedido.getEnviaShipmentId() == null));
+    }
 
     @Transactional(readOnly = true)
     public DatosGuia cargarDatosParaGuia(Long tndId, Long pedidoId) {
@@ -70,7 +84,7 @@ public class EnvioGuiaTransaccionesService {
         Pedido pedido = pedidoObligatorio(tndId, pedidoId);
         Tienda tienda = tiendaEnModoEnvia(tndId);
 
-        List<PaqueteCalculado> paquetes = paquetesDelPedido(pedido);
+        List<PaqueteCalculado> paquetes = paquetesDelPedido(pedido, true);
         DireccionEnvia destino = direccionDesdeSnapshot(pedido);
         DireccionEnvia origen = cotizacionService.cargarDireccionOrigen(tndId);
         EnviaCredentials creds = integrationResolver.envioCredentials(tndId);
@@ -90,6 +104,12 @@ public class EnvioGuiaTransaccionesService {
     public void liberarReserva(Long pedidoId) {
         tenantSupport.requireTenant(em);
         pedidoRepo.liberarReservaGuiaEnvia(pedidoId);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public int marcarResultadoIncierto(Long pedidoId) {
+        tenantSupport.requireTenant(em);
+        return pedidoRepo.marcarResultadoInciertoGuiaEnvia(pedidoId);
     }
 
     /** Paso crítico: persiste el shipmentId REAL apenas Envia lo confirma. A partir de este
@@ -161,10 +181,13 @@ public class EnvioGuiaTransaccionesService {
      *  ANTES de este fix no tienen ese snapshot todavía (era null) — para esos, y solo para esos,
      *  se recalcula como antes (con una advertencia en el log). */
     @SuppressWarnings("unchecked")
-    private List<PaqueteCalculado> paquetesDelPedido(Pedido pedido) {
+    private List<PaqueteCalculado> paquetesDelPedido(Pedido pedido, boolean permitirRecalculoLegacy) {
         Map<String, Object> snapshot = pedido.getEnvioCotizacionSnapshot();
         Object paquetesRaw = snapshot != null ? snapshot.get("paquetes") : null;
         if (!(paquetesRaw instanceof List<?> lista) || lista.isEmpty()) {
+            if (!permitirRecalculoLegacy) {
+                return List.of();
+            }
             log.warn("[EnvioGuia] pedido={} sin paquetes congelados (pedido anterior a esta corrección) — recalculando desde el catálogo actual",
                     pedido.getId());
             return paqueteCalculoService.calcular(itemsDelPedido(pedido.getId()));
