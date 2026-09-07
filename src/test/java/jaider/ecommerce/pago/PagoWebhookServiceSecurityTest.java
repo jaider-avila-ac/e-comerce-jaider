@@ -43,9 +43,10 @@ class PagoWebhookServiceSecurityTest {
 
     @Test
     void referenciaDeTenantSinCredencialesWompi_lanza400AntesDeVerificarFirma() {
-        // Tenant 2 ("Tienda Test B") no tiene NINGUNA credencial Wompi configurada a propósito
-        // (ver Fase 1) — ni siquiera llega a intentar verificar una firma.
-        Map<String, Object> evento = construirEvento("ECM-2-1-fixture", "checksum-cualquiera",
+        // Tenant 3 ("Tienda Test B", renumerado de 2 a 3 el 2026-09-07 para liberar el id=2 para
+        // Ampaz Studio) no tiene NINGUNA credencial Wompi configurada a propósito (ver Fase 1) —
+        // ni siquiera llega a intentar verificar una firma.
+        Map<String, Object> evento = construirEvento("ECM-3-1-fixture", "checksum-cualquiera",
                 List.of("transaction.id"), 1_000_000L);
 
         assertThatThrownBy(() -> webhookService.procesarWebhook(evento))

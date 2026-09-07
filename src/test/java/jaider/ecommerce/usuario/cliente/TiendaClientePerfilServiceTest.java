@@ -21,9 +21,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * medias pasaría el checkout en silencio (ver también PedidoCreacionServiceTest, que cubre el
  * mismo gate del lado del checkout).
  *
- * Se usa la tienda "Ampaz Studio" (tenant 58, envio_modo='envia', creada como fixture real y
- * persistente para las pruebas de Envia) y Calzacaribe (tenant 1, contra_entrega) para probar
- * que NO hay regresión ahí.
+ * Se usa la tienda "Ampaz Studio" (tenant 2, envio_modo='envia', creada como fixture real y
+ * persistente para las pruebas de Envia; renumerado de 58 a 2 el 2026-09-07) y Calzacaribe
+ * (tenant 1, contra_entrega) para probar que NO hay regresión ahí.
  *
  * @Transactional: todo lo creado acá (usuario de prueba, direcciones) se revierte solo.
  */
@@ -31,7 +31,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Transactional
 class TiendaClientePerfilServiceTest {
 
-    private static final long AMPAZ_STUDIO_TND_ID = 58L;
+    private static final long AMPAZ_STUDIO_TND_ID = 2L;
     private static final long CALZACARIBE_TND_ID = 1L;
 
     @Autowired

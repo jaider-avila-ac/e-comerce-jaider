@@ -33,13 +33,13 @@ class TransportadoraServiceTest {
 
     @Test
     void tenant1NuncaVeLasTransportadorasDeTenant2_yViceversa() {
-        TenantContext.set("2");
+        TenantContext.set("3");
         var t2 = service.create(new TransportadoraRequest("coordinadora", (short) 0, true));
 
         TenantContext.set("1");
         assertThat(service.getAll()).noneMatch(t -> t.id().equals(t2.id()));
 
-        TenantContext.set("2");
+        TenantContext.set("3");
         assertThat(service.getAll()).anyMatch(t -> t.id().equals(t2.id()));
     }
 

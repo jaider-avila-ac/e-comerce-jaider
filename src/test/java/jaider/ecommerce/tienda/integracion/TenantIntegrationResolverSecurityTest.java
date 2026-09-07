@@ -34,8 +34,9 @@ class TenantIntegrationResolverSecurityTest {
     private TenantIntegrationResolver resolver;
 
     // Tenant 1 = Calzacaribe (alias CALZADO_CARIBE) — credenciales reales configuradas hoy.
-    // Tenant 2 = "Tienda Test B" (alias TIENDA_TEST_B) — sin NINGUNA credencial, a propósito,
-    // desde que se creó en Fase 0 — es el tenant "negativo" de estas pruebas.
+    // Tenant 3 = "Tienda Test B" (alias TIENDA_TEST_B, renumerado de 2 a 3 el 2026-09-07 para
+    // liberar el id=2 para Ampaz Studio) — sin NINGUNA credencial, a propósito, desde que se
+    // creó en Fase 0 — es el tenant "negativo" de estas pruebas.
 
     @Test
     void wompi_tenant1ResuelveCredencialesReales_tenant2FallaLimpioSinCaerATenant1() {
@@ -44,7 +45,7 @@ class TenantIntegrationResolverSecurityTest {
         assertThat(creds.integrityKey()).isNotBlank();
         assertThat(creds.eventsKey()).isNotBlank();
 
-        assertThatThrownBy(() -> resolver.paymentCredentials(2L))
+        assertThatThrownBy(() -> resolver.paymentCredentials(3L))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("WOMPI_TIENDA_TEST_B_PUBLIC_KEY");
     }
@@ -55,7 +56,7 @@ class TenantIntegrationResolverSecurityTest {
         assertThat(creds.apiKey()).isNotBlank();
         assertThat(creds.from()).isNotBlank();
 
-        assertThatThrownBy(() -> resolver.emailCredentials(2L))
+        assertThatThrownBy(() -> resolver.emailCredentials(3L))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("RESEND_TIENDA_TEST_B_API_KEY");
     }
@@ -67,7 +68,7 @@ class TenantIntegrationResolverSecurityTest {
         assertThat(creds.apiKey()).isNotBlank();
         assertThat(creds.apiSecret()).isNotBlank();
 
-        assertThatThrownBy(() -> resolver.mediaCredentials(2L))
+        assertThatThrownBy(() -> resolver.mediaCredentials(3L))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("CLOUDINARY_TIENDA_TEST_B_CLOUD_NAME");
     }
@@ -81,7 +82,7 @@ class TenantIntegrationResolverSecurityTest {
         assertThatThrownBy(() -> resolver.envioCredentials(1L))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("ENVIA_CALZADO_CARIBE_API_TOKEN");
-        assertThatThrownBy(() -> resolver.envioCredentials(2L))
+        assertThatThrownBy(() -> resolver.envioCredentials(3L))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("ENVIA_TIENDA_TEST_B_API_TOKEN");
     }

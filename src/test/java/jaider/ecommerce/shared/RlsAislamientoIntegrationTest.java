@@ -19,11 +19,12 @@ import static org.assertj.core.api.Assertions.assertThat;
  * verificado a mano con curl durante cada fase, nunca quedó como suite automática que proteja
  * contra una regresión futura.
  *
- * Usa el tenant 1 (Calzacaribe, con catálogo real) y el tenant 2 ("Tienda Test B", que en la BD
- * local NO tiene catálogo propio — solo existe para este tipo de prueba cruzada). Cada test crea
- * su propio fixture del tenant 2 y verifica el aislamiento en ambas direcciones: que el tenant 1
- * nunca vea el fixture del tenant 2, y que el tenant 2 sí vea el suyo (para descartar que la
- * política simplemente esté bloqueando todo).
+ * Usa el tenant 1 (Calzacaribe, con catálogo real) y el tenant 3 ("Tienda Test B", que en la BD
+ * local NO tiene catálogo propio — solo existe para este tipo de prueba cruzada; renumerado de 2
+ * a 3 el 2026-09-07 para dejar el id=2 libre para Ampaz Studio, la segunda tienda real). Cada
+ * test crea su propio fixture del tenant 3 y verifica el aislamiento en ambas direcciones: que el
+ * tenant 1 nunca vea el fixture del tenant 3, y que el tenant 3 sí vea el suyo (para descartar que
+ * la política simplemente esté bloqueando todo).
  *
  * @Transactional en cada test: Spring hace rollback automático al final del método, así que
  * estos fixtures nunca quedan persistidos de verdad en la BD local.
@@ -45,50 +46,50 @@ class RlsAislamientoIntegrationTest {
 
     @Test
     void categorias_tenant1NuncaVeElFixtureDeTenant2_yTenant2SiVeElSuyo() {
-        fijarTenant("2");
+        fijarTenant("3");
         Long catFixtureId = insertar(
                 "INSERT INTO categorias (cat_tnd_id, cat_nombre, cat_slug) " +
-                "VALUES (2, 'RLS Test Fixture', 'rls-test-fixture-cat') RETURNING cat_id");
+                "VALUES (3, 'RLS Test Fixture', 'rls-test-fixture-cat') RETURNING cat_id");
 
         fijarTenant("1");
         assertThat(distinctTndIds("categorias", "cat_tnd_id")).containsExactly(1L);
         assertThat(existePorId("categorias", "cat_id", catFixtureId)).isFalse();
 
-        fijarTenant("2");
-        assertThat(distinctTndIds("categorias", "cat_tnd_id")).containsExactly(2L);
+        fijarTenant("3");
+        assertThat(distinctTndIds("categorias", "cat_tnd_id")).containsExactly(3L);
         assertThat(existePorId("categorias", "cat_id", catFixtureId)).isTrue();
     }
 
     @Test
     void productos_tenant1NuncaVeElFixtureDeTenant2_yTenant2SiVeElSuyo() {
-        fijarTenant("2");
+        fijarTenant("3");
         Long catId = insertar(
                 "INSERT INTO categorias (cat_tnd_id, cat_nombre, cat_slug) " +
-                "VALUES (2, 'RLS Test Cat Prod', 'rls-test-cat-prod') RETURNING cat_id");
+                "VALUES (3, 'RLS Test Cat Prod', 'rls-test-cat-prod') RETURNING cat_id");
         Long prdFixtureId = insertarConParametro(
                 "INSERT INTO productos (prd_tnd_id, prd_cat_id, prd_nombre, prd_slug, prd_precio_centavos) " +
-                "VALUES (2, :catId, 'RLS Test Producto', 'rls-test-producto', 10000) RETURNING prd_id",
+                "VALUES (3, :catId, 'RLS Test Producto', 'rls-test-producto', 10000) RETURNING prd_id",
                 "catId", catId);
 
         fijarTenant("1");
         assertThat(distinctTndIds("productos", "prd_tnd_id")).containsExactly(1L);
         assertThat(existePorId("productos", "prd_id", prdFixtureId)).isFalse();
 
-        fijarTenant("2");
+        fijarTenant("3");
         assertThat(existePorId("productos", "prd_id", prdFixtureId)).isTrue();
     }
 
     @Test
     void colecciones_tenant1NuncaVeElFixtureDeTenant2_yTenant2SiVeElSuyo() {
-        fijarTenant("2");
+        fijarTenant("3");
         Long colFixtureId = insertar(
                 "INSERT INTO colecciones (col_tnd_id, col_nombre, col_slug) " +
-                "VALUES (2, 'RLS Test Coleccion', 'rls-test-coleccion') RETURNING col_id");
+                "VALUES (3, 'RLS Test Coleccion', 'rls-test-coleccion') RETURNING col_id");
 
         fijarTenant("1");
         assertThat(existePorId("colecciones", "col_id", colFixtureId)).isFalse();
 
-        fijarTenant("2");
+        fijarTenant("3");
         assertThat(existePorId("colecciones", "col_id", colFixtureId)).isTrue();
     }
 
@@ -102,15 +103,15 @@ class RlsAislamientoIntegrationTest {
         fijarTenant("1");
         Long usr1 = insertarUsuarioGoogle("rls-test-1@example.com", googleIdCompartido, 1L);
 
-        fijarTenant("2");
-        Long usr2 = insertarUsuarioGoogle("rls-test-2@example.com", googleIdCompartido, 2L);
+        fijarTenant("3");
+        Long usr2 = insertarUsuarioGoogle("rls-test-2@example.com", googleIdCompartido, 3L);
 
         assertThat(usr1).isNotEqualTo(usr2);
 
         // Y el aislamiento normal también aplica acá: cada tenant solo ve su propio usuario.
         fijarTenant("1");
         assertThat(existePorId("usuarios", "usr_id", usr2)).isFalse();
-        fijarTenant("2");
+        fijarTenant("3");
         assertThat(existePorId("usuarios", "usr_id", usr1)).isFalse();
     }
 

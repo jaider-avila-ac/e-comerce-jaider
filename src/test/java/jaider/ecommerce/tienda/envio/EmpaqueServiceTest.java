@@ -49,7 +49,9 @@ class EmpaqueServiceTest {
 
     @Test
     void tenant1NuncaVeLosEmpaquesDeTenant2_yViceversa() {
-        TenantContext.set("2");
+        // tenant 3 ("Tienda Test B") — renumerado de 2 a 3 el 2026-09-07 para liberar el id=2
+        // para Ampaz Studio, la segunda tienda real; acá solo hace falta OTRO tenant cualquiera.
+        TenantContext.set("3");
         var empaqueTenant2 = service.create(new EmpaqueRequest(
                 "Fixture T2 " + System.nanoTime(), (short) 30, (short) 20, (short) 12, 150, (short) 0, true));
 
@@ -57,7 +59,7 @@ class EmpaqueServiceTest {
         var listaTenant1 = service.getAll();
         assertThat(listaTenant1).noneMatch(e -> e.id().equals(empaqueTenant2.id()));
 
-        TenantContext.set("2");
+        TenantContext.set("3");
         var listaTenant2 = service.getAll();
         assertThat(listaTenant2).anyMatch(e -> e.id().equals(empaqueTenant2.id()));
     }
@@ -90,12 +92,12 @@ class EmpaqueServiceTest {
     }
 
     // Corrección de auditoría (2026-09-01, tercera vuelta): desactivar/eliminar un empaque que un
-    // producto ACTIVO sigue usando, en una tienda YA en modo 'envia' (Ampaz Studio, tenant 58),
-    // rompía el checkout para el primer cliente que comprara ese producto — sin ninguna
-    // revalidación después de la activación inicial.
+    // producto ACTIVO sigue usando, en una tienda YA en modo 'envia' (Ampaz Studio, tenant 2 —
+    // renumerado de 58 a 2 el 2026-09-07), rompía el checkout para el primer cliente que comprara
+    // ese producto — sin ninguna revalidación después de la activación inicial.
     @Test
     void desactivarEmpaqueUsadoPorProductoActivo_bloqueaEnTiendaEnvia() {
-        TenantContext.set("58");
+        TenantContext.set("2");
         tenantSupport.requireTenant(em);
         var empaque = service.create(new EmpaqueRequest(
                 "Fixture guard " + System.nanoTime(), (short) 30, (short) 20, (short) 12, 150, (short) 0, true));
@@ -112,7 +114,7 @@ class EmpaqueServiceTest {
 
     @Test
     void eliminarEmpaqueUsadoPorProductoActivo_bloqueaEnTiendaEnvia() {
-        TenantContext.set("58");
+        TenantContext.set("2");
         tenantSupport.requireTenant(em);
         var empaque = service.create(new EmpaqueRequest(
                 "Fixture guard 2 " + System.nanoTime(), (short) 30, (short) 20, (short) 12, 150, (short) 0, true));
@@ -129,7 +131,7 @@ class EmpaqueServiceTest {
     private Long crearCategoriaFixture() {
         Number catId = (Number) em.createNativeQuery("""
                 INSERT INTO categorias (cat_tnd_id, cat_nombre, cat_slug)
-                VALUES (58, 'Categoria fixture guard', :slug)
+                VALUES (2, 'Categoria fixture guard', :slug)
                 RETURNING cat_id
                 """)
                 .setParameter("slug", "categoria-fixture-guard-" + System.nanoTime())

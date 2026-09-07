@@ -2,6 +2,7 @@ HELP.md
 target/
 .env
 .env.local-db
+.env.backup*
 backups/
 .mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/

@@ -33,7 +33,7 @@ class SucursalServiceTest {
 
     @Test
     void actualizar_soloTocaLosCamposQueVienen() {
-        TenantContext.set("58"); // Ampaz Studio — ya tiene una sucursal "Principal"
+        TenantContext.set("2"); // Ampaz Studio — ya tiene una sucursal "Principal"
         Long sucursalId = service.listar().stream()
                 .filter(s -> "Principal".equals(s.nombre()))
                 .findFirst().orElseThrow().id();
@@ -51,7 +51,7 @@ class SucursalServiceTest {
 
     @Test
     void actualizar_sucursalInexistente_da404() {
-        TenantContext.set("58");
+        TenantContext.set("2");
         assertThatThrownBy(() -> service.actualizar(999999L, new SucursalUpdateRequest(
                 null, null, null, null, null, null, null, null, null, null)))
                 .isInstanceOf(ResponseStatusException.class)
@@ -64,7 +64,7 @@ class SucursalServiceTest {
     // sin ninguna revalidación después de la activación inicial.
     @Test
     void actualizar_bloqueaVaciarElOrigenDeLaUnicaSucursalConOrigenCompleto_enTiendaEnvia() {
-        TenantContext.set("58");
+        TenantContext.set("2");
         Long sucursalId = service.listar().stream()
                 .filter(s -> "Principal".equals(s.nombre()))
                 .findFirst().orElseThrow().id();
