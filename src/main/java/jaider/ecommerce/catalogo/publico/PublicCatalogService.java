@@ -40,15 +40,28 @@ public class PublicCatalogService {
 
     // ─── Categorías ────────────────────────────────────────────────────────
 
+    // No se listan categorías/subcategorías vacías en la tienda — confunden al cliente (entra y
+    // no hay nada) y no aportan como filtro. "Vacía" = sin ni un producto ACTIVO, sin importar
+    // cuántos productos inactivos/agotados tenga por debajo.
     @Transactional(readOnly = true)
     public List<PublicCategoriaResponse> getCategorias() {
         tenantSupport.requireTenant(em);
+
+        List<Producto> activos = prodRepo.findActivos();
+        Set<Long> catIdsConProductos = activos.stream().map(Producto::getCatId).collect(Collectors.toSet());
+        Set<Long> subIdsConProductos = activos.stream()
+                .map(Producto::getSubId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
         return catRepo.findAllByOrderByOrdenAscNombreAsc().stream()
                 .filter(Categoria::isActivo)
+                .filter(cat -> catIdsConProductos.contains(cat.getId()))
                 .map(cat -> {
                     List<String> subcats = subRepo.findByCatIdOrderByOrdenAscNombreAsc(cat.getId())
                             .stream()
                             .filter(Subcategoria::isActivo)
+                            .filter(sub -> subIdsConProductos.contains(sub.getId()))
                             .map(Subcategoria::getNombre)
                             .toList();
                     // Si la categoría no tiene imagen propia, usar la primera imagen de sus productos
