@@ -26,14 +26,14 @@ public class CarritoService {
 
     @Transactional
     public Map<String, Object> getCarrito(Long usrId, Long tndId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Long carId = ensureCarrito(usrId);
         return buildCarrito(carId, tndId);
     }
 
     @Transactional
     public Map<String, Object> addItem(Long usrId, Long tndId, Long prdId, String talla, String color, int cantidad) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Long carId = ensureCarrito(usrId);
         Long varId = resolveVarId(prdId, talla, color);
 
@@ -100,7 +100,7 @@ public class CarritoService {
 
     @Transactional
     public Map<String, Object> updateItem(Long usrId, Long tndId, Long itemId, int cantidad) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Long carId = ensureCarrito(usrId);
 
         if (cantidad <= 0) {
@@ -152,7 +152,7 @@ public class CarritoService {
 
     @Transactional
     public Map<String, Object> removeItem(Long usrId, Long tndId, Long itemId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Long carId = ensureCarrito(usrId);
 
         int deleted = em.createNativeQuery("DELETE FROM carrito_items WHERE ci_id = :id AND ci_car_id = :carId")
@@ -167,7 +167,7 @@ public class CarritoService {
 
     @Transactional
     public Map<String, Object> clear(Long usrId, Long tndId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Long carId = ensureCarrito(usrId);
         em.createNativeQuery("DELETE FROM carrito_items WHERE ci_car_id = :carId")
             .setParameter("carId", carId)
@@ -303,7 +303,7 @@ public class CarritoService {
 
     @Transactional(readOnly = true)
     public List<ValidarItemResult> validar(List<ValidarCarritoRequest.Item> items) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         List<ValidarItemResult> result = new ArrayList<>();
 

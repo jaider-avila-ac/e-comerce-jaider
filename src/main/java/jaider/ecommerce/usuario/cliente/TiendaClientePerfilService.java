@@ -3,8 +3,11 @@ package jaider.ecommerce.usuario.cliente;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
 import jakarta.persistence.PersistenceContext;
+import jaider.ecommerce.geo.ColombiaGeoService;
 import jaider.ecommerce.shared.TenantSupport;
 import jaider.ecommerce.shared.interceptor.TenantContext;
+import jaider.ecommerce.tienda.Tienda;
+import jaider.ecommerce.tienda.TiendaRepository;
 import jaider.ecommerce.usuario.Usuario;
 import jaider.ecommerce.usuario.UsuarioRepository;
 import lombok.RequiredArgsConstructor;
@@ -27,13 +30,15 @@ public class TiendaClientePerfilService {
     private final TenantSupport tenantSupport;
     private final UsuarioRepository usuarioRepository;
     private final PasswordEncoder passwordEncoder;
+    private final TiendaRepository tiendaRepository;
+    private final ColombiaGeoService geoService;
 
     @PersistenceContext
     private EntityManager em;
 
     @Transactional
     public Map<String, Object> getPerfil(Long usrId, Long tndId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         ensureTenant(tndId);
         return fetchPerfil(usrId, tndId, true);
     }
@@ -85,7 +90,7 @@ public class TiendaClientePerfilService {
 
     @Transactional
     public Map<String, Object> updatePerfil(Long usrId, Long tndId, ClientePerfilRequest req) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         ensureTenant(tndId);
         requireUsuario(usrId, tndId);
 
@@ -175,7 +180,7 @@ public class TiendaClientePerfilService {
      *  usuario NO logueado vía código de correo). Exige la contraseña actual. */
     @Transactional
     public void cambiarPassword(Long usrId, Long tndId, ClientePasswordRequest req) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         ensureTenant(tndId);
 
         Usuario usuario = usuarioRepository.findById(usrId)
@@ -203,18 +208,19 @@ public class TiendaClientePerfilService {
 
     @Transactional
     public List<Map<String, Object>> addDireccion(Long usrId, Long tndId, ClienteDireccionRequest req) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         ensureTenant(tndId);
         requireUsuario(usrId, tndId);
+        validarCamposParaEnvia(tndId, req);
 
         em.createNativeQuery("""
             INSERT INTO clientes_direcciones (
                 cd_usr_id, cd_tnd_id, cd_direccion, cd_complemento, cd_departamento, cd_municipio,
-                cd_barrio, cd_apartamento, cd_contacto_nombre, cd_contacto_telefono
+                cd_barrio, cd_apartamento, cd_contacto_nombre, cd_contacto_telefono, cd_codigo_postal
             )
             VALUES (
                 :usrId, :tndId, :direccion, :complemento, :departamento, :municipio,
-                :barrio, :apartamento, :contactoNombre, :contactoTelefono
+                :barrio, :apartamento, :contactoNombre, :contactoTelefono, :codigoPostal
             )
             """)
             .setParameter("usrId", usrId)
@@ -227,6 +233,7 @@ public class TiendaClientePerfilService {
             .setParameter("apartamento", clean(req.apartamento()))
             .setParameter("contactoNombre", clean(req.contactoNombre()))
             .setParameter("contactoTelefono", clean(req.contactoTelefono()))
+            .setParameter("codigoPostal", clean(req.codigoPostal()))
             .executeUpdate();
 
         return getDirecciones(usrId, tndId);
@@ -234,8 +241,9 @@ public class TiendaClientePerfilService {
 
     @Transactional
     public List<Map<String, Object>> updateDireccion(Long usrId, Long tndId, Long direccionId, ClienteDireccionRequest req) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         ensureTenant(tndId);
+        validarCamposParaEnvia(tndId, req);
 
         int updated = em.createNativeQuery("""
             UPDATE clientes_direcciones
@@ -246,7 +254,8 @@ public class TiendaClientePerfilService {
                 cd_barrio = :barrio,
                 cd_apartamento = :apartamento,
                 cd_contacto_nombre = :contactoNombre,
-                cd_contacto_telefono = :contactoTelefono
+                cd_contacto_telefono = :contactoTelefono,
+                cd_codigo_postal = :codigoPostal
             WHERE cd_id = :direccionId
               AND cd_usr_id = :usrId
               AND cd_tnd_id = :tndId
@@ -262,6 +271,7 @@ public class TiendaClientePerfilService {
             .setParameter("apartamento", clean(req.apartamento()))
             .setParameter("contactoNombre", clean(req.contactoNombre()))
             .setParameter("contactoTelefono", clean(req.contactoTelefono()))
+            .setParameter("codigoPostal", clean(req.codigoPostal()))
             .executeUpdate();
 
         if (updated == 0) {
@@ -272,7 +282,7 @@ public class TiendaClientePerfilService {
 
     @Transactional
     public List<Map<String, Object>> deleteDireccion(Long usrId, Long tndId, Long direccionId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         ensureTenant(tndId);
 
         int deleted = em.createNativeQuery("""
@@ -296,7 +306,7 @@ public class TiendaClientePerfilService {
     private List<Map<String, Object>> getDirecciones(Long usrId, Long tndId) {
         List<Object[]> rows = em.createNativeQuery("""
             SELECT cd_id, cd_direccion, cd_complemento, cd_departamento, cd_municipio,
-                   cd_barrio, cd_apartamento, cd_contacto_nombre, cd_contacto_telefono
+                   cd_barrio, cd_apartamento, cd_contacto_nombre, cd_contacto_telefono, cd_codigo_postal
             FROM clientes_direcciones
             WHERE cd_usr_id = :usrId
               AND cd_tnd_id = :tndId
@@ -317,8 +327,52 @@ public class TiendaClientePerfilService {
             direccion.put("apartamento", value(row[6]));
             direccion.put("contacto_nombre", value(row[7]));
             direccion.put("contacto_telefono", value(row[8]));
+            direccion.put("codigo_postal", value(row[9]));
             return direccion;
         }).toList();
+    }
+
+    // PLAN_INTEGRACION_ENVIA.md, Fase 3 — sin esto, una dirección guardada con campos vacíos
+    // pasaría el checkout sin error (resolverDireccion() de PedidoCreacionService solo valida
+    // que exista, no que esté completa) y el precio de envío real no se podría calcular después.
+    // Solo aplica para tiendas en modo 'envia' — contra_entrega/fijo no lo necesitan y siguen
+    // aceptando direcciones parciales como siempre (Calzacaribe no se ve afectada).
+    private void validarCamposParaEnvia(Long tndId, ClienteDireccionRequest req) {
+        Tienda tienda = tiendaRepository.findById(tndId).orElse(null);
+        if (tienda == null || !"envia".equals(tienda.getEnvioModo())) {
+            return;
+        }
+        // LinkedHashMap (no Map.of): los valores pueden venir null y Map.of los rechaza.
+        Map<String, String> requeridos = new LinkedHashMap<>();
+        requeridos.put("dirección", req.direccion());
+        requeridos.put("municipio", req.municipio());
+        requeridos.put("departamento", req.departamento());
+        requeridos.put("código postal", req.codigoPostal());
+        requeridos.put("nombre de contacto", req.contactoNombre());
+        requeridos.put("teléfono de contacto", req.contactoTelefono());
+
+        List<String> faltantes = requeridos.entrySet().stream()
+                .filter(e -> e.getValue() == null || e.getValue().isBlank())
+                .map(Map.Entry::getKey)
+                .toList();
+        if (!faltantes.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Esta tienda calcula el envío real — completa: " + String.join(", ", faltantes));
+        }
+
+        // El departamento/municipio deben ser un par real de Colombia (ColombiaGeoService, mismo
+        // catálogo DANE/DIVIPOLA que ofrece el frontend) — sin esto, Envia no puede resolver la
+        // ciudad/estado reales al cotizar. No se valida para contra_entrega/fijo: ahí nunca se
+        // usan para nada más que mostrar la dirección, y exigirlo arriesgaría romper direcciones
+        // viejas de Calzacaribe guardadas antes de que este catálogo existiera.
+        if (!geoService.esDepartamentoValido(req.departamento())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "El departamento \"" + req.departamento() + "\" no es válido");
+        }
+        if (!geoService.esMunicipioValido(req.departamento(), req.municipio())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "El municipio \"" + req.municipio() + "\" no pertenece a " + req.departamento());
+        }
     }
 
     private void requireUsuario(Long usrId, Long tndId) {

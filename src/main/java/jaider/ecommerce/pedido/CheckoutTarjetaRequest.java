@@ -9,6 +9,8 @@ public record CheckoutTarjetaRequest(
         String notas,
         String cardToken,
         String acceptanceToken,
-        String personalAuthToken
+        String personalAuthToken,
+        // Corrección de auditoría (2026-09-01, tercera vuelta) — ver CheckoutRequest.cotizacionToken.
+        String cotizacionToken
 ) {
 }

@@ -1,5 +1,6 @@
 package jaider.ecommerce.pedido;
 
+import jaider.ecommerce.shared.TenantMetrics;
 import jaider.ecommerce.shared.interceptor.TenantContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -16,6 +17,7 @@ import java.util.List;
 public class PedidoAbandonoScheduler {
 
     private final PedidoAbandonoService service;
+    private final TenantMetrics metrics;
 
     @Scheduled(cron = "0 30 * * * *") // cada hora, a los :30 (desfasado de la auto-confirmación, que corre en punto)
     public void ejecutar() {
@@ -35,6 +37,7 @@ public class PedidoAbandonoScheduler {
                 }
             } catch (Exception e) {
                 log.warn("[Abandono] error en tienda {}: {}", tndId, e.getMessage());
+                metrics.jobFallido("pedido_abandono");
             } finally {
                 TenantContext.clear();
             }

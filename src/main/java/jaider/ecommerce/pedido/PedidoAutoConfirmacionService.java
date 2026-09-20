@@ -40,7 +40,7 @@ public class PedidoAutoConfirmacionService {
      */
     @Transactional
     public int confirmarVencidos(Long tndId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         return em.createNativeQuery("""
                 UPDATE pedidos p
                 SET ped_confirmado_cliente_en = now()

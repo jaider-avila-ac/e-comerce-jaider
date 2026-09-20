@@ -36,7 +36,7 @@ public class SubcategoriaService {
 
     @Transactional(readOnly = true)
     public List<SubcategoriaResponse> getAll() {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         return repo.findAllByOrderByOrdenAscNombreAsc().stream()
                 .map(this::toResponse)
                 .toList();
@@ -44,7 +44,7 @@ public class SubcategoriaService {
 
     @Transactional(readOnly = true)
     public List<SubcategoriaResponse> getByCat(Long catId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         return repo.findByCatIdOrderByOrdenAscNombreAsc(catId).stream()
                 .map(this::toResponse)
                 .toList();
@@ -52,7 +52,7 @@ public class SubcategoriaService {
 
     @Transactional(readOnly = true)
     public SubcategoriaResponse getById(Long id) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Subcategoria sub = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Subcategoría no encontrada: " + id));
         return toResponse(sub);
@@ -60,7 +60,7 @@ public class SubcategoriaService {
 
     @Transactional
     public SubcategoriaResponse create(SubcategoriaRequest req) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         // Auto-asigna el orden al final de las subcategorías de esta misma categoría —
         // el usuario reordena después con los botones arriba/abajo (ver reordenar()).
@@ -81,7 +81,7 @@ public class SubcategoriaService {
 
     @Transactional
     public SubcategoriaResponse update(Long id, SubcategoriaRequest req) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Subcategoria sub = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Subcategoría no encontrada: " + id));
         if (req.nombre() != null && !req.nombre().isBlank()) sub.setNombre(req.nombre());
@@ -93,7 +93,7 @@ public class SubcategoriaService {
 
     @Transactional
     public void delete(Long id) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         if (!repo.existsById(id)) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Subcategoría no encontrada: " + id);
         repo.deleteById(id);
     }
@@ -102,7 +102,7 @@ public class SubcategoriaService {
      *  frontend manda la lista completa de ids de esa categoría en el nuevo orden. */
     @Transactional
     public void reordenar(List<Long> ids) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         for (int i = 0; i < ids.size(); i++) {
             em.createNativeQuery("UPDATE subcategorias SET sub_orden = :orden WHERE sub_id = :id")
                     .setParameter("orden", (short) i)

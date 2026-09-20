@@ -16,5 +16,9 @@ public record ProductoRequest(
         Map<String, Object> fichaTecnica,
         Boolean activo,
         List<VarianteRequest> variantes,
-        List<ImagenRequest> imagenes
+        List<ImagenRequest> imagenes,
+        // Referencia opcional a un empaque (caja) ya creado por la tienda — PLAN_INTEGRACION_
+        // ENVIA.md, Fase 1. Mismo criterio que subId: siempre se aplica tal cual venga, así que
+        // mandar null lo quita explícitamente.
+        Long empaqueId
 ) {}

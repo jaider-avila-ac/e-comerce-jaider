@@ -33,7 +33,7 @@ public class VentaLocalController {
             @AuthenticationPrincipal UserDetails userDetails,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @RequestBody VentaLocalRequest req) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Long adminId = adminUserRepository.findByEmail(userDetails.getUsername())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Usuario no encontrado"))
                 .getId();

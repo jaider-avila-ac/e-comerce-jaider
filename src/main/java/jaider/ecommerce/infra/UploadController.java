@@ -1,5 +1,6 @@
 package jaider.ecommerce.infra;
 
+import jaider.ecommerce.shared.TenantMetrics;
 import jaider.ecommerce.shared.interceptor.TenantContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -16,6 +17,7 @@ import java.util.Map;
 public class UploadController {
 
     private final CloudinaryService cloudinaryService;
+    private final TenantMetrics metrics;
 
     /**
      * @param productId  ID del producto (null para productos nuevos aún sin ID)
@@ -27,14 +29,12 @@ public class UploadController {
             @RequestParam(value = "productId",  required = false) Long    productId,
             @RequestParam(value = "esVideo",    defaultValue = "false")  boolean esVideo) {
 
-        String tndIdStr = TenantContext.get();
-        if (tndIdStr == null || tndIdStr.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Tenant no identificado");
-        }
+        Long tndId = tndIdRequerido();
         try {
-            String url = cloudinaryService.upload(file, Long.parseLong(tndIdStr), productId, esVideo);
+            String url = cloudinaryService.upload(file, tndId, productId, esVideo);
             return Map.of("url", url);
         } catch (IOException e) {
+            metrics.uploadFallido(tndId);
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Error al subir archivo");
         }
     }
@@ -44,26 +44,24 @@ public class UploadController {
      */
     @PostMapping("/categoria")
     public Map<String, String> uploadCategoria(@RequestParam("file") MultipartFile file) {
-        String tndIdStr = TenantContext.get();
-        if (tndIdStr == null || tndIdStr.isBlank())
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Tenant no identificado");
+        Long tndId = tndIdRequerido();
         try {
-            String url = cloudinaryService.uploadCategoria(file, Long.parseLong(tndIdStr));
+            String url = cloudinaryService.uploadCategoria(file, tndId);
             return Map.of("url", url);
         } catch (IOException e) {
+            metrics.uploadFallido(tndId);
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Error al subir imagen");
         }
     }
 
     @PostMapping("/coleccion")
     public Map<String, String> uploadColeccion(@RequestParam("file") MultipartFile file) {
-        String tndIdStr = TenantContext.get();
-        if (tndIdStr == null || tndIdStr.isBlank())
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Tenant no identificado");
+        Long tndId = tndIdRequerido();
         try {
-            String url = cloudinaryService.uploadColeccion(file, Long.parseLong(tndIdStr));
+            String url = cloudinaryService.uploadColeccion(file, tndId);
             return Map.of("url", url);
         } catch (IOException e) {
+            metrics.uploadFallido(tndId);
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Error al subir imagen");
         }
     }
@@ -73,15 +71,21 @@ public class UploadController {
             @RequestParam("file")                       MultipartFile file,
             @RequestParam(value = "esVideo", defaultValue = "false") boolean esVideo) {
 
+        Long tndId = tndIdRequerido();
+        try {
+            String url = cloudinaryService.uploadBanner(file, tndId, esVideo);
+            return Map.of("url", url);
+        } catch (IOException e) {
+            metrics.uploadFallido(tndId);
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Error al subir archivo");
+        }
+    }
+
+    private Long tndIdRequerido() {
         String tndIdStr = TenantContext.get();
         if (tndIdStr == null || tndIdStr.isBlank()) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Tenant no identificado");
         }
-        try {
-            String url = cloudinaryService.uploadBanner(file, Long.parseLong(tndIdStr), esVideo);
-            return Map.of("url", url);
-        } catch (IOException e) {
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Error al subir archivo");
-        }
+        return Long.parseLong(tndIdStr);
     }
 }

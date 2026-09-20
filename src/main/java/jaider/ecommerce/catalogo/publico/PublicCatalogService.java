@@ -40,15 +40,28 @@ public class PublicCatalogService {
 
     // ─── Categorías ────────────────────────────────────────────────────────
 
+    // No se listan categorías/subcategorías vacías en la tienda — confunden al cliente (entra y
+    // no hay nada) y no aportan como filtro. "Vacía" = sin ni un producto ACTIVO, sin importar
+    // cuántos productos inactivos/agotados tenga por debajo.
     @Transactional(readOnly = true)
     public List<PublicCategoriaResponse> getCategorias() {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
+
+        List<Producto> activos = prodRepo.findActivos();
+        Set<Long> catIdsConProductos = activos.stream().map(Producto::getCatId).collect(Collectors.toSet());
+        Set<Long> subIdsConProductos = activos.stream()
+                .map(Producto::getSubId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
         return catRepo.findAllByOrderByOrdenAscNombreAsc().stream()
                 .filter(Categoria::isActivo)
+                .filter(cat -> catIdsConProductos.contains(cat.getId()))
                 .map(cat -> {
                     List<String> subcats = subRepo.findByCatIdOrderByOrdenAscNombreAsc(cat.getId())
                             .stream()
                             .filter(Subcategoria::isActivo)
+                            .filter(sub -> subIdsConProductos.contains(sub.getId()))
                             .map(Subcategoria::getNombre)
                             .toList();
                     // Si la categoría no tiene imagen propia, usar la primera imagen de sus productos
@@ -66,7 +79,7 @@ public class PublicCatalogService {
 
     @Transactional(readOnly = true)
     public List<PublicProductoResponse> getProductos(Long catId, String q) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         List<Producto> lista = (catId != null)
                 ? prodRepo.findByCatId(catId)
@@ -92,7 +105,7 @@ public class PublicCatalogService {
     @Transactional(readOnly = true)
     public jaider.ecommerce.shared.dto.PageResponse<PublicProductoResponse> getProductosPaginado(
             Long catId, String q, int page, int size) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         Boolean activo = true;
         String qNorm = (q == null || q.isBlank()) ? null : q.trim();
@@ -131,7 +144,7 @@ public class PublicCatalogService {
      */
     @Transactional(readOnly = true)
     public List<PublicProductoResponse> getProductosByIds(List<Long> ids) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         if (ids.isEmpty()) return List.of();
 
         Map<Long, Producto> porId = prodRepo.findAllById(ids).stream()
@@ -148,7 +161,7 @@ public class PublicCatalogService {
 
     @Transactional(readOnly = true)
     public PublicProductoResponse getProductoById(Long id) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Producto p = prodRepo.findById(id)
                 .filter(Producto::isActivo)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Producto no encontrado"));

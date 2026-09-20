@@ -2,7 +2,7 @@ package jaider.ecommerce.pago.reembolso;
 
 import jaider.ecommerce.auditoria.AuditoriaService;
 import jaider.ecommerce.pago.dto.ResultadoReembolso;
-import jaider.ecommerce.pago.service.PaymentGateway;
+import jaider.ecommerce.pago.wompi.WompiGatewayFactory;
 import jaider.ecommerce.shared.TenantSupport;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
@@ -32,7 +32,7 @@ public class ReembolsoService {
     private static final Set<String> ESTADOS_MANUALES_VALIDOS = Set.of("completado", "rechazado", "error");
 
     private final ReembolsoRepository repo;
-    private final PaymentGateway paymentGateway;
+    private final WompiGatewayFactory gatewayFactory;
     private final TenantSupport tenantSupport;
     private final AuditoriaService auditoriaService;
 
@@ -41,7 +41,7 @@ public class ReembolsoService {
 
     @Transactional
     public Long crear(Long pagId, Long pedId, Long usrId, long montoCentavos, String motivo, String origen) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Number idNum = (Number) em.createNativeQuery("""
                 INSERT INTO reembolsos (ref_pag_id, ref_ped_id, ref_usr_id, ref_monto_centavos, ref_motivo, ref_origen)
                 VALUES (:pagId, :pedId, :usrId, :monto, :motivo, :origen)
@@ -61,7 +61,7 @@ public class ReembolsoService {
      *  en vez de romper el flujo que lo originó (cancelación de pedido / devolución recibida). */
     @Transactional
     public void procesarAutomatico(Long refId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Reembolso r = repo.findById(refId).orElseThrow();
 
         Object[] pago;
@@ -86,7 +86,8 @@ public class ReembolsoService {
             return;
         }
 
-        ResultadoReembolso resultado = paymentGateway.reembolsar(gatewayTxId, r.getMontoCentavos());
+        Long tndId = tndIdDePedido(r.getPedId());
+        ResultadoReembolso resultado = gatewayFactory.forTenant(tndId).reembolsar(gatewayTxId, r.getMontoCentavos());
         if (resultado.exitoso()) {
             repo.actualizarProcesamiento(refId, "completado", resultado.gatewayRefundId(),
                     resultado.respuestaJson(), null, OffsetDateTime.now());
@@ -98,7 +99,7 @@ public class ReembolsoService {
 
     @Transactional
     public void confirmarManual(Long refId, String nuevoEstado, String nota, Long adminId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Reembolso r = repo.findById(refId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Reembolso no encontrado"));
         if (!ESTADOS_MANUALES_VALIDOS.contains(nuevoEstado)) {
@@ -117,10 +118,13 @@ public class ReembolsoService {
         }
 
         if (adminId != null) {
-            Long tndId = ((Number) em.createNativeQuery("SELECT ped_tnd_id FROM pedidos WHERE ped_id = :id")
-                    .setParameter("id", r.getPedId()).getSingleResult()).longValue();
-            auditoriaService.registrar(tndId, adminId, "reembolso.confirmado_manual", "reembolso", refId,
-                    Map.of("estado", nuevoEstado, "nota", nota == null ? "" : nota));
+            auditoriaService.registrar(tndIdDePedido(r.getPedId()), adminId, "reembolso.confirmado_manual",
+                    "reembolso", refId, Map.of("estado", nuevoEstado, "nota", nota == null ? "" : nota));
         }
+    }
+
+    private Long tndIdDePedido(Long pedId) {
+        return ((Number) em.createNativeQuery("SELECT ped_tnd_id FROM pedidos WHERE ped_id = :id")
+                .setParameter("id", pedId).getSingleResult()).longValue();
     }
 }

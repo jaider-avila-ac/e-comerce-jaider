@@ -61,7 +61,7 @@ public class PagoConfirmacionService {
 
     @Transactional
     public void registrarAprobado(Long pagoId, String gatewayTxId, String metodo, Map<String, Object> respuestaJson) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         em.createNativeQuery("""
                 UPDATE pagos SET pag_estado = CAST('APPROVED' AS estado_pago),
                     pag_gateway_tx_id = :txId,
@@ -79,7 +79,7 @@ public class PagoConfirmacionService {
     @Transactional
     public void registrarRechazado(Long pagoId, String estado, String motivo, String gatewayTxId,
                                     String metodo, Map<String, Object> respuestaJson) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         em.createNativeQuery("""
                 UPDATE pagos SET pag_estado = CAST(:estado AS estado_pago),
                     pag_motivo_rechazo = :motivo,
@@ -99,7 +99,7 @@ public class PagoConfirmacionService {
 
     @Transactional
     public void confirmarPedido(Long pagoId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         Object[] row = (Object[]) em.createNativeQuery("""
                 SELECT p.pag_ped_id, p.pag_usr_id, ped.ped_estado::text, ped.ped_numero, ped.ped_tnd_id,
@@ -180,7 +180,7 @@ public class PagoConfirmacionService {
 
     @Transactional
     public void cancelarPedidoNoAprobado(Long pagoId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         Object[] row = (Object[]) em.createNativeQuery("""
                 SELECT p.pag_ped_id, ped.ped_estado::text

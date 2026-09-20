@@ -27,7 +27,7 @@ public class ClienteService {
     @Transactional(readOnly = true)
     @SuppressWarnings("unchecked")
     public List<Map<String, Object>> getAll() {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Long tndId = tenantId();
 
         List<Object[]> rows = em.createNativeQuery("""
@@ -82,7 +82,7 @@ public class ClienteService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> getById(Long id) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Long tndId = tenantId();
 
         // Perfil (nombre, apellido, telefono, documento, direcciones) es el mismo que ve
@@ -136,7 +136,7 @@ public class ClienteService {
 
     @Transactional
     public void deactivate(Long id) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Long tndId = tenantId();
 
         int updated = em.createNativeQuery("""

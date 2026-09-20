@@ -19,5 +19,7 @@ public record ProductoResponse(
         OffsetDateTime creadoEn,
         Integer stockTotal,   // suma de stock de variantes activas
         List<VarianteResponse> variantes,
-        List<ImagenResponse> imagenes
+        List<ImagenResponse> imagenes,
+        // Referencia opcional al empaque (caja) asignado (PLAN_INTEGRACION_ENVIA.md, Fase 1)
+        Long empaqueId
 ) {}

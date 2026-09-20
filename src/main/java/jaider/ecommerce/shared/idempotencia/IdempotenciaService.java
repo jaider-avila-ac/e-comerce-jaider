@@ -69,7 +69,7 @@ public class IdempotenciaService {
      *  no es un error real, IdempotenciaGuard la atrapa y sigue con buscarPorClave(). */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public Titular intentarCrear(Long tndId, Long usrId, String operacion, String clave, String requestHash) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         String owner = nuevoOwner();
         try {
             Number idNum = (Number) em.createNativeQuery("""
@@ -99,7 +99,7 @@ public class IdempotenciaService {
 
     @Transactional(readOnly = true)
     public Registro buscarPorClave(Long tndId, Long usrId, String operacion, String clave) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         return mapRegistro(() -> em.createNativeQuery("""
                 SELECT idm_id, idm_estado, idm_request_hash, idm_respuesta_json::text, idm_ped_id, idm_lease_hasta
                 FROM idempotencia_operaciones
@@ -128,7 +128,7 @@ public class IdempotenciaService {
      *  que nunca reutiliza una referencia. */
     @Transactional(readOnly = true)
     public Optional<Registro> buscarActivaPorHash(Long tndId, Long usrId, String operacion, String requestHash) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         try {
             Registro reg = mapRegistro(() -> em.createNativeQuery("""
                     SELECT idm_id, idm_estado, idm_request_hash, idm_respuesta_json::text, idm_ped_id, idm_lease_hasta
@@ -175,7 +175,7 @@ public class IdempotenciaService {
      *  (ver TERCERA_AUDITORIA... I-04/I-05). */
     @Transactional
     public void registrarPedido(Long idmId, Long pedId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         em.createNativeQuery("UPDATE idempotencia_operaciones SET idm_ped_id = :pedId WHERE idm_id = :id")
                 .setParameter("pedId", pedId)
                 .setParameter("id", idmId)
@@ -189,7 +189,7 @@ public class IdempotenciaService {
      *  dueño. */
     @Transactional
     public void completar(Long idmId, String owner, String respuestaJson) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         em.createNativeQuery("""
                 UPDATE idempotencia_operaciones
                 SET idm_estado = 'completado', idm_respuesta_json = CAST(:json AS jsonb)
@@ -209,7 +209,7 @@ public class IdempotenciaService {
      *  @return el nuevo token de propietario si ESTA llamada ganó la reclamación, vacío si perdió. */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public Optional<String> reclamarAtomico(Long idmId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         String nuevoOwner = nuevoOwner();
         int actualizadas = em.createNativeQuery("""
                 UPDATE idempotencia_operaciones
@@ -240,7 +240,7 @@ public class IdempotenciaService {
      *  sobrevive sin importar qué le pase a la transacción del llamador. */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void liberar(Long idmId, String owner) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         em.createNativeQuery("""
                 DELETE FROM idempotencia_operaciones
                 WHERE idm_id = :id AND idm_estado = 'procesando' AND idm_lease_owner = :owner

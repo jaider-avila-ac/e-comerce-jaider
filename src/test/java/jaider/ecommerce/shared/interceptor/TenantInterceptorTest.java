@@ -1,0 +1,188 @@
+package jaider.ecommerce.shared.interceptor;
+
+import jaider.ecommerce.tienda.TenantDomainResolver;
+import jaider.ecommerce.tienda.TenantEstadoCache;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+/**
+ * Unit test puro (sin contexto de Spring ni base de datos) para las dos reglas de resolución de
+ * tenant en rutas del interceptor:
+ *   - §3.2: "El header X-Tenant-Id no puede ser la autoridad en solicitudes autenticadas" —
+ *     simula lo que ya dejó JwtAuthFilter en TenantContext (si vino un JWT válido con tnd_id).
+ *   - §5: en rutas públicas (sin JWT), el dominio tiene prioridad sobre X-Tenant-Id.
+ */
+class TenantInterceptorTest {
+
+    private TenantDomainResolver domainResolver;
+    private TenantEstadoCache estadoCache;
+    private TenantInterceptor interceptor;
+
+    @BeforeEach
+    void setUp() {
+        domainResolver = mock(TenantDomainResolver.class);
+        when(domainResolver.resolveTenantId(any())).thenReturn(Optional.empty());
+        estadoCache = mock(TenantEstadoCache.class);
+        // Por defecto, cualquier tenant "existe y está activo" — los tests de §3.3 abajo
+        // sobrescriben esto puntualmente para probar el caso contrario.
+        when(estadoCache.existeYActivo(any())).thenReturn(true);
+        interceptor = new TenantInterceptor(domainResolver, estadoCache);
+    }
+
+    @AfterEach
+    void limpiarContexto() {
+        TenantContext.clear();
+    }
+
+    @Test
+    void sinJwtYSinHeaderNiDominio_noFijaTenant() {
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        HttpServletResponse response = mock(HttpServletResponse.class);
+        when(request.getHeader("X-Tenant-Id")).thenReturn(null);
+
+        boolean continua = interceptor.preHandle(request, response, new Object());
+
+        assertThat(continua).isTrue();
+        assertThat(TenantContext.get()).isNull();
+    }
+
+    @Test
+    void sinJwtNiDominio_conHeader_usaElHeaderComoTenant() {
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        HttpServletResponse response = mock(HttpServletResponse.class);
+        when(request.getHeader("X-Tenant-Id")).thenReturn("5");
+
+        boolean continua = interceptor.preHandle(request, response, new Object());
+
+        assertThat(continua).isTrue();
+        assertThat(TenantContext.get()).isEqualTo("5");
+    }
+
+    @Test
+    void sinJwt_dominioRegistrado_tienePrioridadSobreElHeader() {
+        when(domainResolver.resolveTenantId(any())).thenReturn(Optional.of(1L));
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        HttpServletResponse response = mock(HttpServletResponse.class);
+        when(request.getHeader("Host")).thenReturn("calzacaribe.com");
+        // El navegador intenta pedir la tienda 2 por header, pero el dominio real es de la 1 —
+        // el dominio manda porque el cliente no puede falsificar en qué Host está parado.
+        when(request.getHeader("X-Tenant-Id")).thenReturn("2");
+
+        boolean continua = interceptor.preHandle(request, response, new Object());
+
+        assertThat(continua).isTrue();
+        assertThat(TenantContext.get()).isEqualTo("1");
+    }
+
+    @Test
+    void conJwt_sinHeader_respetaElTenantDelJwt() {
+        TenantContext.set("1"); // simula lo que JwtAuthFilter ya dejó desde un JWT válido
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        HttpServletResponse response = mock(HttpServletResponse.class);
+        when(request.getHeader("X-Tenant-Id")).thenReturn(null);
+
+        boolean continua = interceptor.preHandle(request, response, new Object());
+
+        assertThat(continua).isTrue();
+        assertThat(TenantContext.get()).isEqualTo("1");
+    }
+
+    @Test
+    void conJwt_headerIgualAlDelJwt_pasaSinCambiarNada() {
+        TenantContext.set("1");
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        HttpServletResponse response = mock(HttpServletResponse.class);
+        when(request.getHeader("X-Tenant-Id")).thenReturn("1");
+
+        boolean continua = interceptor.preHandle(request, response, new Object());
+
+        assertThat(continua).isTrue();
+        assertThat(TenantContext.get()).isEqualTo("1");
+    }
+
+    @Test
+    void conJwtDeTenantA_headerDeTenantB_lanza403YNoPisaElTenant() {
+        TenantContext.set("1"); // JWT firmado para la tienda A (tnd_id=1)
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        HttpServletResponse response = mock(HttpServletResponse.class);
+        when(request.getHeader("X-Tenant-Id")).thenReturn("2"); // navegador pide la tienda B
+
+        assertThatThrownBy(() -> interceptor.preHandle(request, response, new Object()))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode())
+                        .isEqualTo(HttpStatus.FORBIDDEN));
+
+        // El tenant del JWT nunca debe quedar reemplazado por el valor del header, ni siquiera
+        // en el momento en que se rechaza la solicitud.
+        assertThat(TenantContext.get()).isEqualTo("1");
+    }
+
+    // --- §3.3: "tenant inexistente o inactivo: rechazar la operación" / "tenant mal formado" ---
+
+    @Test
+    void conJwt_tenantYaNoExisteOFueDesactivado_lanza404() {
+        TenantContext.set("1");
+        when(estadoCache.existeYActivo(1L)).thenReturn(false);
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        HttpServletResponse response = mock(HttpServletResponse.class);
+        when(request.getHeader("X-Tenant-Id")).thenReturn(null);
+
+        assertThatThrownBy(() -> interceptor.preHandle(request, response, new Object()))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode())
+                        .isEqualTo(HttpStatus.NOT_FOUND));
+    }
+
+    @Test
+    void sinJwt_headerConIdInexistente_lanza404() {
+        when(estadoCache.existeYActivo(9999L)).thenReturn(false);
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        HttpServletResponse response = mock(HttpServletResponse.class);
+        when(request.getHeader("X-Tenant-Id")).thenReturn("9999");
+
+        assertThatThrownBy(() -> interceptor.preHandle(request, response, new Object()))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode())
+                        .isEqualTo(HttpStatus.NOT_FOUND));
+    }
+
+    @Test
+    void sinJwt_headerMalFormado_lanza400() {
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        HttpServletResponse response = mock(HttpServletResponse.class);
+        when(request.getHeader("X-Tenant-Id")).thenReturn("abc");
+
+        assertThatThrownBy(() -> interceptor.preHandle(request, response, new Object()))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode())
+                        .isEqualTo(HttpStatus.BAD_REQUEST));
+    }
+
+    @Test
+    void sinJwt_dominioResuelveUnTenantExistenteYActivo_pasaSinProblema() {
+        when(domainResolver.resolveTenantId(any())).thenReturn(Optional.of(1L));
+        when(estadoCache.existeYActivo(1L)).thenReturn(true);
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        HttpServletResponse response = mock(HttpServletResponse.class);
+        when(request.getHeader("Host")).thenReturn("calzacaribe.com");
+        when(request.getHeader("X-Tenant-Id")).thenReturn(null);
+
+        boolean continua = interceptor.preHandle(request, response, new Object());
+
+        assertThat(continua).isTrue();
+        assertThat(TenantContext.get()).isEqualTo("1");
+    }
+}

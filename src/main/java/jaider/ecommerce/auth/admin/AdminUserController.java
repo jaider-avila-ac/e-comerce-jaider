@@ -19,7 +19,9 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/admin-users")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN')")
+// SUPERADMIN nunca llega hasta acá: SecurityConfig ya lo excluye de TODO /api/v1/** salvo
+// /api/v1/superadmin/** y su propia cuenta (me/logout) — ver el comentario ahí.
+@PreAuthorize("hasRole('ADMIN')")
 public class AdminUserController {
 
     private final AdminUserService service;
@@ -57,7 +59,7 @@ public class AdminUserController {
     }
 
     private AdminUser actor(UserDetails userDetails) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         return adminUserRepository.findByEmail(userDetails.getUsername())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Usuario no encontrado"));
     }

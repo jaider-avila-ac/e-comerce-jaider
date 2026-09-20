@@ -55,7 +55,7 @@ public class UsuarioAuthService {
 
     @Transactional
     public void preRegister(TiendaRegisterRequest req, Long tndId, String ip) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         String email = req.email().trim().toLowerCase();
 
         // Aceptación de términos: obligatoria y bloqueante (F-07 de la auditoría) — el checkbox
@@ -110,7 +110,7 @@ public class UsuarioAuthService {
                 .setParameter("tndId", tndId)
                 .executeUpdate();
 
-        emailService.sendVerification(email, nombre, code);
+        emailService.sendVerification(tndId, email, nombre, code);
         log.info("[PRE-REGISTER] email={} tndId={} — código enviado", email, tndId);
     }
 
@@ -118,7 +118,7 @@ public class UsuarioAuthService {
 
     @Transactional
     public TiendaAuthResponse verifyAndRegister(TiendaVerifyRequest req, Long tndId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         String email = req.email().trim().toLowerCase();
 
         Object[] row;
@@ -265,7 +265,7 @@ public class UsuarioAuthService {
 
     @Transactional
     public void resendCode(String email, Long tndId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         String normalizedEmail = email.trim().toLowerCase();
 
         Object[] row;
@@ -300,7 +300,7 @@ public class UsuarioAuthService {
                 .setParameter("tndId", tndId)
                 .executeUpdate();
 
-        emailService.sendVerification(normalizedEmail, nombre, newCode);
+        emailService.sendVerification(tndId, normalizedEmail, nombre, newCode);
         log.info("[RESEND-CODE] email={} tndId={}", normalizedEmail, tndId);
     }
 
@@ -308,7 +308,7 @@ public class UsuarioAuthService {
 
     @Transactional(readOnly = true)
     public TiendaAuthResponse login(TiendaLoginRequest req, Long tndId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         String email = req.email().trim().toLowerCase();
         String identificador = "tienda:" + tndId + ":" + email;
         rateLimiter.verificarLimite(identificador);
@@ -368,7 +368,7 @@ public class UsuarioAuthService {
         String googleId = (String) info.get("sub");
         String picture  = (String) info.get("picture");
 
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         // Buscar usuario existente
         var usuarioOpt = usuarioRepo.findByEmail(email);
@@ -429,7 +429,7 @@ public class UsuarioAuthService {
 
     @Transactional
     public void forgotPassword(TiendaForgotPasswordRequest req, Long tndId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         String email = req.email().trim().toLowerCase();
 
         var usuarioOpt = usuarioRepo.findByEmail(email);
@@ -449,7 +449,7 @@ public class UsuarioAuthService {
                 .executeUpdate();
 
         String[] perfil = getPerfil(usuario.getId());
-        emailService.sendPasswordReset(email, perfil[0], code);
+        emailService.sendPasswordReset(tndId, email, perfil[0], code);
         log.info("[FORGOT-PASSWORD] email={} tndId={}", email, tndId);
     }
 
@@ -457,7 +457,7 @@ public class UsuarioAuthService {
 
     @Transactional
     public void resetPassword(TiendaResetPasswordRequest req, Long tndId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         var usuario = usuarioRepo.findByResetToken(req.code().trim())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "CODE_INVALID"));

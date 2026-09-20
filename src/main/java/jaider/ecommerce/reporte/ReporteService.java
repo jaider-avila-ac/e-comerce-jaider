@@ -33,7 +33,7 @@ public class ReporteService {
     // no debe tener ningún efecto en las cuentas. Cancelado/devuelto quedan fuera del conteo.
     @Transactional(readOnly = true)
     public ReporteResumenResponse resumen(String mes, boolean esAdmin, Long colaboradorId, Long sucursalId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         // Un colaborador SOLO puede ver sus propias cifras — el controller ya le pasa acá su
         // propio id en vez del que haya pedido (ver ReporteController.resolverAdminId). Si por
@@ -128,7 +128,7 @@ public class ReporteService {
     @Transactional(readOnly = true)
     @SuppressWarnings("unchecked")
     public List<Map<String, Object>> pedidosPorEstado(String mes, boolean esAdmin, Long colaboradorId, Long sucursalId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         if (!esAdmin && colaboradorId == null) return List.of();
         Periodo periodo = periodo(mes);
         String where = (periodo.hasRange() ? "WHERE ped_creado_en >= :start AND ped_creado_en < :end " : "WHERE true ")
@@ -166,7 +166,7 @@ public class ReporteService {
     @Transactional(readOnly = true)
     @SuppressWarnings("unchecked")
     public List<Map<String, Object>> productosMasVendidos(String mes, Long colaboradorId, Long sucursalId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Periodo periodo = periodo(mes);
         String where = (periodo.hasRange() ? "AND p.ped_creado_en >= :start AND p.ped_creado_en < :end " : "")
                 + " AND (CAST(:colaboradorId AS BIGINT) IS NULL OR p.ped_colaborador_id = CAST(:colaboradorId AS BIGINT)) "
@@ -213,7 +213,7 @@ public class ReporteService {
     @Transactional(readOnly = true)
     @SuppressWarnings("unchecked")
     public List<Map<String, Object>> ventasPorCategoria(String mes, Long colaboradorId, Long sucursalId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Periodo periodo = periodo(mes);
         String where = (periodo.hasRange() ? "AND p.ped_creado_en >= :start AND p.ped_creado_en < :end " : "")
                 + " AND (CAST(:colaboradorId AS BIGINT) IS NULL OR p.ped_colaborador_id = CAST(:colaboradorId AS BIGINT)) "
@@ -257,7 +257,7 @@ public class ReporteService {
     @Transactional(readOnly = true)
     @SuppressWarnings("unchecked")
     public List<Map<String, Object>> ventasPorCanal(String mes, Long colaboradorId, Long sucursalId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Periodo periodo = periodo(mes);
         String where = (periodo.hasRange() ? "AND p.ped_creado_en >= :start AND p.ped_creado_en < :end " : "")
                 + " AND (CAST(:colaboradorId AS BIGINT) IS NULL OR p.ped_colaborador_id = CAST(:colaboradorId AS BIGINT)) "

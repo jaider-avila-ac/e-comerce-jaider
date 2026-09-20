@@ -24,7 +24,7 @@ public class ListaDeseoService {
     @SuppressWarnings("unchecked")
     @Transactional(readOnly = true)
     public List<Long> listarIds(Long usrId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         return em.createNativeQuery(
                 "SELECT ld_prd_id FROM lista_deseos WHERE ld_usr_id = :usrId ORDER BY ld_creado_en DESC")
                 .setParameter("usrId", usrId)
@@ -48,7 +48,7 @@ public class ListaDeseoService {
 
     @Transactional
     public void agregar(Long usrId, Long prdId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         em.createNativeQuery("""
                 INSERT INTO lista_deseos (ld_usr_id, ld_prd_id)
                 VALUES (:usrId, :prdId)
@@ -61,7 +61,7 @@ public class ListaDeseoService {
 
     @Transactional
     public void quitar(Long usrId, Long prdId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         em.createNativeQuery("DELETE FROM lista_deseos WHERE ld_usr_id = :usrId AND ld_prd_id = :prdId")
                 .setParameter("usrId", usrId)
                 .setParameter("prdId", prdId)

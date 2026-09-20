@@ -55,13 +55,20 @@ public class AuthController {
 
             tenantSupport.applyTenant(em);
             AdminUser admin = adminUserRepository.findByEmail(user.getUsername()).orElseThrow();
-            // superadmin no tiene tienda_id; para el panel admin siempre es calzacaribe = 1
-            Long tndId = admin.getTiendaId() != null ? admin.getTiendaId() : 1L;
-            String token = jwtService.generate(admin.getEmail(), admin.getRol(), tndId);
+
+            // Un superadmin (tienda_id NULL por diseño, ver chk_admin_users_superadmin) NUNCA
+            // debe recibir un tenant — a propósito (decisión explícita del usuario, 2026-08-30):
+            // el superadmin NO opera sobre los datos de ninguna tienda en particular, ni
+            // siquiera eligiéndola. Solo ve totales agregados vía /api/v1/superadmin/** (ver
+            // SecurityConfig, que excluye SUPERADMIN de todo el resto de /api/v1/**). Si el
+            // operador de la plataforma necesita hacer algo DENTRO de una tienda, debe entrar
+            // con las credenciales de admin propias de esa tienda, no con esta cuenta.
+            Long tndIdParaToken = admin.getTiendaId(); // null si es superadmin
+            String token = jwtService.generate(admin.getEmail(), admin.getRol(), tndIdParaToken);
 
             rateLimiter.registrarExito(identificador);
             return ResponseEntity.ok(new LoginResponse(
-                    token, expirationMs, admin.getEmail(), admin.getNombre(), tndId, admin.getRol()
+                    token, expirationMs, admin.getEmail(), admin.getNombre(), tndIdParaToken, admin.getRol()
             ));
 
         } catch (AuthenticationException e) {

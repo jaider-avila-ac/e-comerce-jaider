@@ -1,5 +1,6 @@
 package jaider.ecommerce.auth;
 
+import jaider.ecommerce.shared.TenantMetrics;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -36,17 +37,20 @@ public class LoginRateLimiter {
     private static final int MAX_POR_10_MINUTOS = 30;
 
     private final StringRedisTemplate redis;
+    private final TenantMetrics metrics;
 
     /** Llamar al inicio de cada intento de login, antes de validar credenciales. */
     public void verificarLimite(String identificador) {
         try {
             if (redis.hasKey(bloqueoKey(identificador))) {
+                metrics.rateLimitAlcanzado("login_bloqueo");
                 throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
                         "Demasiados intentos fallidos. Intenta de nuevo en unos minutos.");
             }
             long porMinuto = incrementarConTtl(tasaKey(identificador, "1m"), Duration.ofMinutes(1));
             long por10Minutos = incrementarConTtl(tasaKey(identificador, "10m"), Duration.ofMinutes(10));
             if (porMinuto > MAX_POR_MINUTO || por10Minutos > MAX_POR_10_MINUTOS) {
+                metrics.rateLimitAlcanzado("login_tasa");
                 throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
                         "Demasiados intentos. Espera un momento antes de volver a intentar.");
             }

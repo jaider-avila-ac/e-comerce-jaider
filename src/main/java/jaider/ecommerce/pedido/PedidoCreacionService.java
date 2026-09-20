@@ -1,7 +1,14 @@
 package jaider.ecommerce.pedido;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jaider.ecommerce.geo.ColombiaGeoService;
 import jaider.ecommerce.shared.TenantSupport;
+import jaider.ecommerce.tienda.envio.CotizacionParaCongelar;
+import jaider.ecommerce.tienda.envio.CotizacionTokenService;
+import jaider.ecommerce.tienda.envio.EnvioCotizacionResponse;
+import jaider.ecommerce.tienda.envio.ItemParaPaquete;
+import jaider.ecommerce.tienda.envio.PaqueteCalculado;
+import jaider.ecommerce.tienda.envio.PaqueteCalculoService;
 import jaider.ecommerce.usuario.cliente.ClienteDireccionRequest;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
@@ -36,6 +43,9 @@ public class PedidoCreacionService {
     private final TenantSupport tenantSupport;
     private final ObjectMapper objectMapper;
     private final PedidoService pedidoService;
+    private final ColombiaGeoService geoService;
+    private final CotizacionTokenService cotizacionTokenService;
+    private final PaqueteCalculoService paqueteCalculoService;
 
     @PersistenceContext
     private EntityManager em;
@@ -59,34 +69,75 @@ public class PedidoCreacionService {
 
     @Transactional
     public PedidoCreado crearDesdeCarrito(Long usrId, Long tndId, Long direccionId,
-                                           ClienteDireccionRequest direccionInline, String notas) {
-        tenantSupport.applyTenant(em);
+                                           ClienteDireccionRequest direccionInline, String notas,
+                                           String cotizacionToken) {
+        tenantSupport.requireTenant(em);
 
         List<ItemCarrito> items = cargarCarritoValidado(usrId);
-        Map<String, Object> dirSnapshot = resolverDireccion(usrId, tndId, direccionId, direccionInline);
 
-        long subtotal = items.stream().mapToLong(i -> i.precioCentavos() * i.cantidad()).sum();
         Object[] envioConfig = (Object[]) em.createNativeQuery("""
                 SELECT tnd_envio_modo, tnd_envio_gratis_activo, tnd_envio_gratis_desde_centavos, tnd_envio_costo_centavos
                 FROM tiendas WHERE tnd_id = :tndId
                 """).setParameter("tndId", tndId).getSingleResult();
+        String envioModo = (String) envioConfig[0];
+        Map<String, Object> dirSnapshot = resolverDireccion(usrId, tndId, direccionId, direccionInline, envioModo);
+
+        long subtotal = items.stream().mapToLong(i -> i.precioCentavos() * i.cantidad()).sum();
         // "contra entrega" (default — ver Tienda.envioModo): el envío no se cobra en el checkout
         // online, el cliente le paga al transportador al recibir. Se guarda el modo vigente al
         // momento de la compra en el propio pedido (ped_envio_contra_entrega) para que quede fijo
         // en el historial aunque el admin cambie la configuración después.
-        boolean envioContraEntrega = "contra_entrega".equals(envioConfig[0]);
+        boolean envioContraEntrega = "contra_entrega".equals(envioModo);
         boolean envioGratis = !envioContraEntrega && Boolean.TRUE.equals(envioConfig[1])
                 && subtotal >= ((Number) envioConfig[2]).longValue();
-        long envio = envioContraEntrega || envioGratis ? 0L : ((Number) envioConfig[3]).longValue();
+        long envio;
+        Map<String, Object> cotizacionSnapshot = null;
+        if (envioContraEntrega || envioGratis) {
+            envio = 0L;
+        } else if ("envia".equals(envioModo)) {
+            // Corrección de auditoría (2026-09-01): una dirección INLINE (no guardada) se colaba
+            // por la rama del costo fijo, cobrando algo distinto de lo real — una tienda con
+            // envío calculado exige una dirección guardada, sin excepción, para poder cotizar de
+            // verdad (esto ya es lo único que de hecho usa el frontend real, ver CartPage.jsx).
+            if (direccionId == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Esta tienda calcula el envío real — guarda una dirección antes de pagar");
+            }
+            // Corrección de auditoría (2026-09-01, tercera vuelta): antes se volvía a cotizar
+            // desde cero acá — si la tarifa cambiaba o respondía otra transportadora entre la
+            // cotización que vio el cliente en el carrito y este momento, se cobraba algo
+            // DISTINTO de lo que se mostró. Ahora se EXIGE el token firmado que devolvió esa
+            // cotización (CotizacionTokenService) — nunca se vuelve a llamar a Envia acá, así que
+            // lo cobrado es matemáticamente lo mismo que lo mostrado. Los paquetes (dimensiones)
+            // sí se recalculan del carrito actual — son puramente derivados del carrito, no de
+            // ninguna respuesta de Envia, así que no hay riesgo de inconsistencia ahí.
+            List<PaqueteCalculado> paquetes = paqueteCalculoService.calcular(
+                    items.stream().map(i -> new ItemParaPaquete(i.prdId(), i.cantidad())).toList());
+            String claveDestino = cotizacionTokenService.claveDestino(
+                    valor(dirSnapshot, "contacto_nombre"), valor(dirSnapshot, "contacto_telefono"),
+                    valor(dirSnapshot, "direccion"), valor(dirSnapshot, "municipio"),
+                    valor(dirSnapshot, "departamento"), valor(dirSnapshot, "codigo_postal"));
+            String huellaCarrito = cotizacionTokenService.huellaCotizacion(paquetes, subtotal, claveDestino);
+            var firmada = cotizacionTokenService.verificar(cotizacionToken, usrId, tndId, direccionId, huellaCarrito)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                            "La cotización de envío expiró o el carrito cambió — vuelve al carrito para confirmar el precio actualizado"));
+            envio = firmada.precioCentavos();
+            EnvioCotizacionResponse respuestaCongelada = new EnvioCotizacionResponse(firmada.precioCentavos(),
+                    firmada.carrier(), firmada.servicioDescripcion(), firmada.servicioCodigo(),
+                    firmada.tiempoEstimado(), firmada.estimado(), null);
+            cotizacionSnapshot = construirSnapshotCotizacion(new CotizacionParaCongelar(respuestaCongelada, paquetes));
+        } else {
+            envio = ((Number) envioConfig[3]).longValue();
+        }
         long total = subtotal + envio;
         String numero = generarNumeroUnico();
 
         Number pedIdNum = (Number) em.createNativeQuery("""
                 INSERT INTO pedidos (ped_tnd_id, ped_usr_id, ped_numero, ped_dir_snapshot,
                                       ped_subtotal_centavos, ped_envio_centavos, ped_total_centavos, ped_notas,
-                                      ped_envio_contra_entrega)
+                                      ped_envio_contra_entrega, ped_envio_cotizacion_snapshot)
                 VALUES (:tndId, :usrId, :numero, CAST(:dirSnapshot AS jsonb), :subtotal, :envio, :total, :notas,
-                        :envioContraEntrega)
+                        :envioContraEntrega, CAST(:cotizacionSnapshot AS jsonb))
                 RETURNING ped_id
                 """)
                 .setParameter("tndId", tndId)
@@ -98,6 +149,7 @@ public class PedidoCreacionService {
                 .setParameter("total", total)
                 .setParameter("notas", (notas != null && !notas.isBlank()) ? notas.trim() : null)
                 .setParameter("envioContraEntrega", envioContraEntrega)
+                .setParameter("cotizacionSnapshot", cotizacionSnapshot != null ? toJson(cotizacionSnapshot) : null)
                 .getSingleResult();
         Long pedId = pedIdNum.longValue();
 
@@ -134,9 +186,14 @@ public class PedidoCreacionService {
         return new PedidoCreado(pedId, numero, total);
     }
 
+    private String valor(Map<String, Object> map, String key) {
+        Object value = map.get(key);
+        return value != null ? String.valueOf(value) : null;
+    }
+
     @Transactional
     public Long crearPago(Long pedId, Long usrId, String referencia, long montoCentavos, String metodo) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Number pagIdNum = (Number) em.createNativeQuery("""
                 INSERT INTO pagos (pag_ped_id, pag_usr_id, pag_referencia, pag_proveedor, pag_metodo, pag_monto_centavos)
                 VALUES (:pedId, :usrId, :referencia, CAST('WOMPI' AS proveedor_pago), CAST(:metodo AS metodo_pago), :monto)
@@ -159,7 +216,7 @@ public class PedidoCreacionService {
      *  cambia y el backend ya no confunde ambos intentos. */
     @Transactional(readOnly = true)
     public List<String> firmarCarrito(Long usrId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         @SuppressWarnings("unchecked")
         List<Object[]> rows = em.createNativeQuery("""
                 SELECT ci.ci_prd_id, ci.ci_var_id, ci.ci_cantidad, ci.ci_precio_snap_centavos
@@ -178,7 +235,7 @@ public class PedidoCreacionService {
 
     @Transactional(readOnly = true)
     public Optional<PagoInfo> obtenerUltimoPago(Long pedId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         try {
             Object[] row = (Object[]) em.createNativeQuery("""
                     SELECT p.pag_id, p.pag_estado::text, p.pag_referencia, p.pag_gateway_tx_id,
@@ -200,7 +257,7 @@ public class PedidoCreacionService {
 
     @Transactional(readOnly = true)
     public String obtenerEmail(Long usrId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         return (String) em.createNativeQuery("SELECT usr_email FROM usuarios WHERE usr_id = :id")
                 .setParameter("id", usrId)
                 .getSingleResult();
@@ -216,7 +273,7 @@ public class PedidoCreacionService {
      */
     @Transactional
     public void confirmarRecibido(Long usrId, Long tndId, String numero) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         Object[] row;
         try {
@@ -254,7 +311,7 @@ public class PedidoCreacionService {
     /** Estado del pedido y su último pago, para que el frontend haga polling tras el checkout. */
     @Transactional(readOnly = true)
     public Map<String, Object> consultarEstado(Long usrId, Long tndId, String numero) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         Object[] row;
         try {
@@ -305,7 +362,7 @@ public class PedidoCreacionService {
 
     @Transactional(readOnly = true)
     public List<Map<String, Object>> listarComprasAprobadas(Long usrId, Long tndId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         @SuppressWarnings("unchecked")
         List<Object[]> rows = em.createNativeQuery("""
@@ -492,13 +549,14 @@ public class PedidoCreacionService {
     // ── Dirección de envío ───────────────────────────────────────────────────
 
     private Map<String, Object> resolverDireccion(Long usrId, Long tndId, Long direccionId,
-                                                    ClienteDireccionRequest inline) {
+                                                    ClienteDireccionRequest inline, String envioModo) {
+        Map<String, Object> resultado;
         if (direccionId != null) {
             Object[] row;
             try {
                 row = (Object[]) em.createNativeQuery("""
                         SELECT cd_direccion, cd_complemento, cd_departamento, cd_municipio,
-                               cd_barrio, cd_apartamento, cd_contacto_nombre, cd_contacto_telefono
+                               cd_barrio, cd_apartamento, cd_contacto_nombre, cd_contacto_telefono, cd_codigo_postal
                         FROM clientes_direcciones
                         WHERE cd_id = :id AND cd_usr_id = :usrId AND cd_tnd_id = :tndId
                         """)
@@ -509,22 +567,59 @@ public class PedidoCreacionService {
             } catch (NoResultException e) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Dirección no encontrada");
             }
-            return direccionMap((String) row[0], (String) row[1], (String) row[2], (String) row[3],
-                    (String) row[4], (String) row[5], (String) row[6], (String) row[7]);
-        }
-
-        if (inline != null && inline.direccion() != null && !inline.direccion().isBlank()) {
-            return direccionMap(inline.direccion(), inline.complemento(), inline.departamento(),
+            resultado = direccionMap((String) row[0], (String) row[1], (String) row[2], (String) row[3],
+                    (String) row[4], (String) row[5], (String) row[6], (String) row[7], (String) row[8]);
+        } else if (inline != null && inline.direccion() != null && !inline.direccion().isBlank()) {
+            resultado = direccionMap(inline.direccion(), inline.complemento(), inline.departamento(),
                     inline.municipio(), inline.barrio(), inline.apartamento(),
-                    inline.contactoNombre(), inline.contactoTelefono());
+                    inline.contactoNombre(), inline.contactoTelefono(), inline.codigoPostal());
+        } else {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Debes indicar una dirección de envío");
         }
 
-        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Debes indicar una dirección de envío");
+        // PLAN_INTEGRACION_ENVIA.md, Fase 3 — una tienda en modo 'envia' necesita estos campos
+        // completos sí o sí para poder calcular el precio real (una dirección guardada antes de
+        // que la tienda activara este modo, o llenada a medias, no debe llegar hasta acá sin que
+        // se note). contra_entrega/fijo no lo necesitan y no se ven afectados.
+        if ("envia".equals(envioModo)) {
+            validarDireccionParaEnvia(resultado);
+        }
+        return resultado;
+    }
+
+    private static final List<String> CAMPOS_ENVIA = List.of(
+            "direccion", "municipio", "departamento", "codigo_postal", "contacto_nombre", "contacto_telefono");
+
+    private void validarDireccionParaEnvia(Map<String, Object> direccion) {
+        List<String> faltantes = CAMPOS_ENVIA.stream()
+                .filter(campo -> {
+                    Object valor = direccion.get(campo);
+                    return valor == null || String.valueOf(valor).isBlank();
+                })
+                .toList();
+        if (!faltantes.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Esta tienda calcula el envío real — completa en tu dirección: " + String.join(", ", faltantes));
+        }
+
+        // Misma validación de ColombiaGeoService que TiendaClientePerfilService.addDireccion —
+        // acá hace falta aparte porque una dirección inline (sin direccionId) nunca pasa por ese
+        // servicio, y una guardada antes de que este catálogo existiera tampoco quedó validada.
+        String departamento = String.valueOf(direccion.get("departamento"));
+        String municipio = String.valueOf(direccion.get("municipio"));
+        if (!geoService.esDepartamentoValido(departamento)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "El departamento \"" + departamento + "\" no es válido");
+        }
+        if (!geoService.esMunicipioValido(departamento, municipio)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "El municipio \"" + municipio + "\" no pertenece a " + departamento);
+        }
     }
 
     private Map<String, Object> direccionMap(String direccion, String complemento, String departamento,
                                               String municipio, String barrio, String apartamento,
-                                              String contactoNombre, String contactoTelefono) {
+                                              String contactoNombre, String contactoTelefono, String codigoPostal) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("direccion", direccion);
         m.put("complemento", complemento);
@@ -534,6 +629,8 @@ public class PedidoCreacionService {
         m.put("apartamento", apartamento);
         m.put("contacto_nombre", contactoNombre);
         m.put("contacto_telefono", contactoTelefono);
+        // PLAN_INTEGRACION_ENVIA.md, Fase 3/4 — necesario para generar la guía real más adelante.
+        m.put("codigo_postal", codigoPostal);
         return m;
     }
 
@@ -549,6 +646,38 @@ public class PedidoCreacionService {
             if (count.longValue() == 0) return candidato;
         }
         throw new IllegalStateException("No se pudo generar un número de pedido único");
+    }
+
+    /** Corrección de auditoría (2026-09-01): congela en el pedido EXACTAMENTE lo que se cotizó
+     *  (paquetes con su peso/dimensiones ya resueltas, transportadora, servicio y precio) — sin
+     *  esto, generar la guía real más tarde recalculaba el paquete desde el producto/empaque
+     *  ACTUALES, que pudieron cambiar o borrarse desde la compra, y no quedaba ningún rastro de
+     *  qué se le prometió al cliente. Ver Pedido.envioCotizacionSnapshot / EnvioGuiaService. */
+    private Map<String, Object> construirSnapshotCotizacion(CotizacionParaCongelar cotizacion) {
+        List<Map<String, Object>> paquetes = cotizacion.paquetes().stream()
+                .map(this::paqueteAMapa)
+                .toList();
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("paquetes", paquetes);
+        snapshot.put("transportadora", cotizacion.respuesta().transportadora());
+        snapshot.put("servicio_codigo", cotizacion.respuesta().servicioCodigo());
+        snapshot.put("servicio_descripcion", cotizacion.respuesta().servicio());
+        snapshot.put("precio_centavos", cotizacion.respuesta().precioCentavos());
+        snapshot.put("estimado", cotizacion.respuesta().estimado());
+        snapshot.put("cotizado_en", java.time.OffsetDateTime.now().toString());
+        return snapshot;
+    }
+
+    private Map<String, Object> paqueteAMapa(PaqueteCalculado p) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("empaque_id", p.empaqueId());
+        m.put("empaque_nombre", p.empaqueNombre());
+        m.put("cantidad", p.cantidad());
+        m.put("peso_gramos_por_unidad", p.pesoGramosPorUnidad());
+        m.put("largo_cm", p.largoCm());
+        m.put("ancho_cm", p.anchoCm());
+        m.put("alto_cm", p.altoCm());
+        return m;
     }
 
     private String toJson(Map<String, Object> data) {

@@ -1,8 +1,9 @@
 package jaider.ecommerce.infra;
 
-import com.cloudinary.Cloudinary;
 import com.cloudinary.utils.ObjectUtils;
+import jaider.ecommerce.shared.TenantCircuitBreaker;
 import jaider.ecommerce.tienda.TiendaRepository;
+import jaider.ecommerce.tienda.integracion.TenantCloudinaryClients;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -16,15 +17,18 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class CloudinaryService {
 
-    private final Cloudinary cloudinary;
+    private static final String PROVEEDOR = "cloudinary";
+
+    private final TenantCloudinaryClients clientes;
     private final TiendaRepository tiendaRepo;
+    private final TenantCircuitBreaker circuitBreaker;
 
     /**
      * @param productId  ID del producto (null cuando aún no se ha creado — se usa carpeta "new")
      * @param esVideo    true → resource_type video; false → image
      */
     public String upload(MultipartFile file, Long tndId, Long productId, boolean esVideo) throws IOException {
-        // ecommerce/calzacaribe/productos/42/  ó  ecommerce/calzacaribe/productos/new/
+        // ecommerce/{slug}/productos/42/  ó  ecommerce/{slug}/productos/new/
         String productoFolder = productId != null ? String.valueOf(productId) : "new";
         return uploadToFolder(file, tndId, "productos/" + productoFolder, esVideo);
     }
@@ -50,6 +54,13 @@ public class CloudinaryService {
     }
 
     private String uploadToFolder(MultipartFile file, Long tndId, String subfolder, boolean esVideo) throws IOException {
+        if (circuitBreaker.abierto(tndId, PROVEEDOR)) {
+            // Ya se sabe que Cloudinary está fallando para esta tienda — mismo IOException que
+            // cualquier otro fallo de subida, para que el llamador (UploadController) lo trate
+            // exactamente igual (§14: no esperar otro timeout inútil).
+            throw new IOException("Cloudinary no disponible temporalmente para esta tienda");
+        }
+
         String slug = tiendaRepo.findById(tndId)
                 .map(t -> t.getSlug())
                 .orElse("default");
@@ -69,7 +80,14 @@ public class CloudinaryService {
                         "quality",       "auto",
                         "fetch_format",  "auto");
 
-        Map<?, ?> result = cloudinary.uploader().upload(file.getBytes(), params);
+        Map<?, ?> result;
+        try {
+            result = clientes.get(tndId).uploader().upload(file.getBytes(), params);
+        } catch (IOException e) {
+            circuitBreaker.registrarFallo(tndId, PROVEEDOR);
+            throw e;
+        }
+        circuitBreaker.registrarExito(tndId, PROVEEDOR);
 
         String url = (String) result.get("secure_url");
         log.info("Archivo ({}) subido a Cloudinary en {}: {}", resourceType, folder, url);
@@ -81,29 +99,44 @@ public class CloudinaryService {
      * no debe impedir que la operación real en la base de datos se complete). Se usa cuando
      * una imagen/video se reemplaza o se borra, y al borrar productos/banners/categorías, para
      * que nunca queden archivos huérfanos en el gestor de imágenes.
+     *
+     * @param tndId tienda dueña del archivo — determina qué cuenta Cloudinary usar. Nunca se
+     *              debe borrar con la cuenta de un tenant un recurso subido por otro.
      */
-    public void delete(String url) {
+    public void delete(String url, Long tndId) {
         if (url == null || url.isBlank()) return;
+        if (circuitBreaker.abierto(tndId, PROVEEDOR)) {
+            log.warn("No se intenta eliminar de Cloudinary (circuito abierto para tenant={}): {}", tndId, url);
+            return;
+        }
         try {
             String resourceType = url.contains("/video/upload/") ? "video" : "image";
             String publicId = extractPublicId(url);
             if (publicId == null) return;
-            cloudinary.uploader().destroy(publicId, ObjectUtils.asMap("resource_type", resourceType));
+            clientes.get(tndId).uploader().destroy(publicId, ObjectUtils.asMap("resource_type", resourceType));
             log.info("Archivo eliminado de Cloudinary: {}", publicId);
+            circuitBreaker.registrarExito(tndId, PROVEEDOR);
         } catch (Exception e) {
             log.warn("No se pudo eliminar de Cloudinary la url {}: {}", url, e.getMessage());
+            circuitBreaker.registrarFallo(tndId, PROVEEDOR);
         }
     }
 
     /** Borra una carpeta de Cloudinary (debe estar vacía) — best-effort, ej. tras borrar el
      *  último archivo de la carpeta dedicada de un producto. Nunca lanza. */
-    public void deleteFolder(String folder) {
+    public void deleteFolder(String folder, Long tndId) {
         if (folder == null || folder.isBlank()) return;
+        if (circuitBreaker.abierto(tndId, PROVEEDOR)) {
+            log.warn("No se intenta borrar carpeta de Cloudinary (circuito abierto para tenant={}): {}", tndId, folder);
+            return;
+        }
         try {
-            cloudinary.api().deleteFolder(folder, ObjectUtils.emptyMap());
+            clientes.get(tndId).api().deleteFolder(folder, ObjectUtils.emptyMap());
             log.info("Carpeta eliminada de Cloudinary: {}", folder);
+            circuitBreaker.registrarExito(tndId, PROVEEDOR);
         } catch (Exception e) {
             log.warn("No se pudo eliminar la carpeta de Cloudinary {}: {}", folder, e.getMessage());
+            circuitBreaker.registrarFallo(tndId, PROVEEDOR);
         }
     }
 

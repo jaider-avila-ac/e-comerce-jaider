@@ -51,6 +51,16 @@ public class Producto {
     @Column(name = "prd_activo", nullable = false)
     private boolean activo = true;
 
+    // Referencia OPCIONAL al empaque (caja) en que se envía este producto — PLAN_INTEGRACION_
+    // ENVIA.md, Fase 1. Un producto NO tiene peso/dimensiones propias: "las cajas son las que
+    // tienen que tener las medidas... no se mide al zapato, se mide la caja" (decisión explícita
+    // del usuario) — el peso también va en el empaque, no en el producto. Mismo patrón que
+    // prd_cat_id/prd_sub_id (FK simple, no un @ManyToOne de JPA). Ningún producto existente la
+    // necesita; solo se exige si la tienda activa el envío calculado con Envia (hoy bloqueado,
+    // ver TiendaConfigService).
+    @Column(name = "prd_empaque_id")
+    private Long empaqueId;
+
     @Column(name = "prd_oferta_hasta")
     private java.time.OffsetDateTime ofertaHasta;
 

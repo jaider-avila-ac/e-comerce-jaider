@@ -55,7 +55,7 @@ public class SolicitudDevolucionService {
 
     @Transactional
     public SolicitudDevolucionResponse crear(Long usrId, Long tndId, String numero, SolicitudDevolucionRequest req) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         if (req.motivo() == null || req.motivo().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Indica el motivo de la devolución");
@@ -117,7 +117,7 @@ public class SolicitudDevolucionService {
 
     @Transactional(readOnly = true)
     public Optional<SolicitudDevolucionResponse> obtenerPorPedido(Long usrId, Long tndId, String numero) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Object[] row = buscarPedido(numero, usrId, tndId);
         Long pedId = ((Number) row[0]).longValue();
 
@@ -128,7 +128,7 @@ public class SolicitudDevolucionService {
 
     @Transactional
     public SolicitudDevolucionResponse registrarCodigoRastreo(Long usrId, Long tndId, String numero, String codigo) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         if (codigo == null || codigo.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Indica el número de guía");
         }
@@ -151,7 +151,7 @@ public class SolicitudDevolucionService {
 
     @Transactional
     public void cancelar(Long usrId, Long tndId, String numero) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Object[] row = buscarPedido(numero, usrId, tndId);
         Long pedId = ((Number) row[0]).longValue();
         SolicitudDevolucion s = repo.findActivaByPedId(pedId)
@@ -162,7 +162,7 @@ public class SolicitudDevolucionService {
                     "Solo se puede cancelar mientras está pendiente de revisión");
         }
 
-        eliminarFotosDeCloudinary(s.getId());
+        eliminarFotosDeCloudinary(s.getId(), s.getTndId());
         repo.updateEstado(s.getId(), "cancelada");
     }
 
@@ -170,7 +170,7 @@ public class SolicitudDevolucionService {
 
     @Transactional(readOnly = true)
     public List<SolicitudDevolucionResponse> getAll(String estado) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         List<SolicitudDevolucion> lista = (estado != null && !estado.isBlank())
                 ? repo.findByEstado(estado)
                 : repo.findAllOrdered();
@@ -179,7 +179,7 @@ public class SolicitudDevolucionService {
 
     @Transactional(readOnly = true)
     public SolicitudDevolucionResponse getById(Long id) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         SolicitudDevolucion s = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Solicitud no encontrada"));
         return toResponse(s, numeroDePedido(s.getPedId()));
@@ -187,7 +187,7 @@ public class SolicitudDevolucionService {
 
     @Transactional
     public SolicitudDevolucionResponse aprobar(Long id, Long direccionId, String nota, Long adminId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         SolicitudDevolucion s = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Solicitud no encontrada"));
         if (!"pendiente".equals(s.getEstado())) {
@@ -219,7 +219,7 @@ public class SolicitudDevolucionService {
 
     @Transactional
     public SolicitudDevolucionResponse rechazar(Long id, String nota, Long adminId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         SolicitudDevolucion s = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Solicitud no encontrada"));
         if (!"pendiente".equals(s.getEstado())) {
@@ -238,7 +238,7 @@ public class SolicitudDevolucionService {
         s.setAdminNota(nota.trim());
         s.setRevisadoEn(ahora);
 
-        eliminarFotosDeCloudinary(id);
+        eliminarFotosDeCloudinary(id, s.getTndId());
         if (adminId != null) {
             auditoriaService.registrar(s.getTndId(), adminId, "devolucion.rechazada", "solicitud_devolucion", id,
                     Map.of("nota", nota.trim()));
@@ -248,7 +248,7 @@ public class SolicitudDevolucionService {
 
     @Transactional
     public SolicitudDevolucionResponse confirmarRecibida(Long id, Long adminId) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         SolicitudDevolucion s = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Solicitud no encontrada"));
         if (!"en_transito".equals(s.getEstado())) {
@@ -351,9 +351,9 @@ public class SolicitudDevolucionService {
         }
     }
 
-    private void eliminarFotosDeCloudinary(Long solicitudId) {
+    private void eliminarFotosDeCloudinary(Long solicitudId, Long tndId) {
         fotoRepo.findBySodIdOrderByOrdenAscIdAsc(solicitudId)
-                .forEach(f -> cloudinaryService.delete(f.getUrl()));
+                .forEach(f -> cloudinaryService.delete(f.getUrl(), tndId));
     }
 
     /** Crea el reembolso e intenta procesarlo automáticamente contra la pasarela — mismo camino

@@ -5,8 +5,11 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
 import jakarta.persistence.PersistenceContext;
 import jaider.ecommerce.catalogo.CatalogCacheService;
+import jaider.ecommerce.catalogo.categoria.CategoriaRepository;
+import jaider.ecommerce.catalogo.subcategoria.SubcategoriaRepository;
 import jaider.ecommerce.infra.CloudinaryService;
 import jaider.ecommerce.notificacion.event.StockDisponibleEvent;
+import jaider.ecommerce.tienda.envio.TiendaEmpaqueRepository;
 import jaider.ecommerce.shared.dto.PageResponse;
 import jaider.ecommerce.shared.interceptor.TenantContext;
 import jaider.ecommerce.shared.TenantSupport;
@@ -37,6 +40,9 @@ public class ProductoService {
     private final ProductoRepository productoRepo;
     private final VarianteRepository varianteRepo;
     private final ProductoImagenRepository imagenRepo;
+    private final CategoriaRepository categoriaRepo;
+    private final SubcategoriaRepository subcategoriaRepo;
+    private final TiendaEmpaqueRepository empaqueRepo;
     private final TenantSupport tenantSupport;
     private final CatalogCacheService catalogCache;
     private final ApplicationEventPublisher eventPublisher;
@@ -49,7 +55,7 @@ public class ProductoService {
 
     @Transactional(readOnly = true)
     public PageResponse<ProductoResponse> search(Long catId, Boolean activo, String q, int page, int size) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         String tenantId = TenantContext.get();
         String qNorm = (q == null || q.isBlank()) ? null : q.trim();
 
@@ -69,7 +75,7 @@ public class ProductoService {
 
     @Transactional(readOnly = true)
     public ProductoResponse getById(Long id) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Producto p = productoRepo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Producto no encontrado"));
         return toResponse(p);
@@ -79,7 +85,7 @@ public class ProductoService {
 
     @Transactional
     public ProductoResponse create(ProductoRequest req) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         String tndId = TenantContext.get();
 
         Producto p = new Producto();
@@ -96,7 +102,7 @@ public class ProductoService {
 
     @Transactional
     public ProductoResponse update(Long id, ProductoRequest req) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
 
         Producto p = productoRepo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Producto no encontrado"));
@@ -115,7 +121,9 @@ public class ProductoService {
             // Solo se borran de Cloudinary las que ya no están en la lista nueva — las que el
             // admin conservó se re-insertan con nueva fila pero es la misma imagen remota.
             Set<String> urlsNuevas = req.imagenes().stream().map(ImagenRequest::url).collect(java.util.stream.Collectors.toSet());
-            urlsAnteriores.stream().filter(u -> !urlsNuevas.contains(u)).forEach(cloudinaryService::delete);
+            Long tndIdProducto = p.getTndId();
+            urlsAnteriores.stream().filter(u -> !urlsNuevas.contains(u))
+                    .forEach(u -> cloudinaryService.delete(u, tndIdProducto));
         }
 
         catalogCache.invalidate(TenantContext.get());
@@ -128,7 +136,7 @@ public class ProductoService {
     // así que el admin debe saber de antemano que se van a perder antes de confirmar.
     @Transactional(readOnly = true)
     public ImpactoEliminacionResponse impactoEliminacion(Long id) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         long resenas = ((Number) em.createNativeQuery("SELECT COUNT(*) FROM reseñas WHERE res_prd_id = :id")
                 .setParameter("id", id).getSingleResult()).longValue();
         long preguntas = ((Number) em.createNativeQuery("SELECT COUNT(*) FROM producto_preguntas WHERE preg_prd_id = :id")
@@ -138,7 +146,7 @@ public class ProductoService {
 
     @Transactional
     public void delete(Long id) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Producto p = productoRepo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Producto no encontrado"));
 
@@ -151,13 +159,13 @@ public class ProductoService {
         catalogCache.invalidate(TenantContext.get());
 
         // Nunca deben quedar archivos ni carpetas huérfanas en Cloudinary tras borrar un producto.
-        urls.forEach(cloudinaryService::delete);
-        cloudinaryService.deleteFolder(cloudinaryService.folderDeProducto(p.getTndId(), id));
+        urls.forEach(u -> cloudinaryService.delete(u, p.getTndId()));
+        cloudinaryService.deleteFolder(cloudinaryService.folderDeProducto(p.getTndId(), id), p.getTndId());
     }
 
     @Transactional(readOnly = true)
     public Map<String, Object> inventarioResumen() {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Object[] row = (Object[]) em.createNativeQuery("""
             SELECT
               COALESCE(SUM(var_stock), 0)                                             AS total_stock,
@@ -178,7 +186,7 @@ public class ProductoService {
     @Transactional(readOnly = true)
     @SuppressWarnings("unchecked")
     public Map<String, Object> inventario() {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         List<Object[]> rows = em.createNativeQuery("""
             SELECT v.var_id,
                    v.var_prd_id,
@@ -229,7 +237,7 @@ public class ProductoService {
     @Transactional(readOnly = true)
     @SuppressWarnings("unchecked")
     public List<Map<String, Object>> getLowStock(int limite) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         List<Object[]> rows = em.createNativeQuery("""
             SELECT v.var_id, p.prd_nombre, v.var_talla, v.var_color, v.var_stock,
                    CASE WHEN v.var_stock = 0 THEN 'agotado'
@@ -260,7 +268,7 @@ public class ProductoService {
 
     @Transactional
     public VarianteResponse updateStock(Long varId, Integer cantidad) {
-        tenantSupport.applyTenant(em);
+        tenantSupport.requireTenant(em);
         Variante v = varianteRepo.findById(varId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Variante no encontrada"));
 
@@ -293,7 +301,21 @@ public class ProductoService {
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
     private void applyRequest(Producto p, ProductoRequest req) {
-        if (req.catId() != null) p.setCatId(req.catId());
+        // La FK a categorias/subcategorias NO respeta RLS al validar la referencia (es una
+        // limitación documentada de Postgres: el chequeo de integridad referencial ignora las
+        // políticas de la tabla referenciada), así que sin esta verificación un producto de la
+        // tienda A podría terminar apuntando a una categoría/subcategoría de la tienda B con
+        // solo mandar su ID — el INSERT/UPDATE pasaría igual. findById() sí respeta RLS en un
+        // SELECT normal, por eso alcanza para confirmar que la categoría es de este tenant.
+        if (req.catId() != null) {
+            categoriaRepo.findById(req.catId())
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Categoría no encontrada"));
+            p.setCatId(req.catId());
+        }
+        if (req.subId() != null) {
+            subcategoriaRepo.findById(req.subId())
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Subcategoría no encontrada"));
+        }
         p.setSubId(req.subId());
         if (req.nombre() != null) p.setNombre(req.nombre());
         if (req.slug() != null) p.setSlug(req.slug());
@@ -317,6 +339,39 @@ public class ProductoService {
         }
         if (req.fichaTecnica() != null) p.setFichaTecnica(req.fichaTecnica());
         if (req.activo() != null) p.setActivo(req.activo());
+
+        // Empaque opcional (PLAN_INTEGRACION_ENVIA.md, Fase 1) — mismo cuidado que catId/subId:
+        // la FK no respeta RLS al validar la referencia, así que sin este findById() un producto
+        // de la tienda A podría terminar apuntando a un empaque de la tienda B con solo mandar
+        // su ID.
+        if (req.empaqueId() != null) {
+            var empaque = empaqueRepo.findById(req.empaqueId())
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Empaque no encontrado"));
+            if (!empaque.isActivo() && tiendaEnModoEnvia()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Esta tienda calcula el envío real — selecciona un empaque activo");
+            }
+        }
+        p.setEmpaqueId(req.empaqueId());
+
+        // Corrección de auditoría (2026-09-01, tercera vuelta): un producto ACTIVO sin empaque,
+        // en una tienda ya en modo 'envia', rompe el checkout para el primer cliente que lo
+        // compre (PaqueteCalculoService rechaza cualquier producto sin empaque) — mismo riesgo
+        // que activar 'envia' sin validar (ver TiendaConfigService.validarListaParaEnvia), pero
+        // acá podía ocurrir DESPUÉS de la activación, sin ninguna revalidación.
+        if (p.isActivo() && p.getEmpaqueId() == null && tiendaEnModoEnvia()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Esta tienda calcula el envío real — asigna un empaque antes de activar este producto");
+        }
+    }
+
+    private boolean tiendaEnModoEnvia() {
+        String tndId = TenantContext.get();
+        if (tndId == null) return false;
+        Object modo = em.createNativeQuery("SELECT tnd_envio_modo FROM tiendas WHERE tnd_id = :tndId")
+                .setParameter("tndId", Long.parseLong(tndId))
+                .getSingleResult();
+        return "envia".equals(modo);
     }
 
     private void saveVariantes(Long prdId, List<VarianteRequest> list) {
@@ -472,7 +527,8 @@ public class ProductoService {
                 p.getCreadoEn(),
                 stockTotal,
                 variantes,
-                imagenes
+                imagenes,
+                p.getEmpaqueId()
         );
     }
 

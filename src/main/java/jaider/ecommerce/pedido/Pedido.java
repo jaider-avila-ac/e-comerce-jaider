@@ -71,6 +71,33 @@ public class Pedido {
     @Column(name = "ped_codigo_rastreo", length = 100)
     private String codigoRastreo;
 
+    // PLAN_INTEGRACION_ENVIA.md, Fase 4 — solo se llenan cuando la guía se generó de verdad con
+    // Envia (POST /ship/generate/), no cuando el admin la registra a mano (contra_entrega/fijo).
+    @Column(name = "ped_envia_shipment_id", length = 50)
+    private String enviaShipmentId;
+
+    @Column(name = "ped_envia_guia_url", length = 500)
+    private String enviaGuiaUrl;
+
+    @Column(name = "ped_envia_costo_real_centavos")
+    private Long enviaCostoRealCentavos;
+
+    // Corrección de auditoría (2026-09-01, tercera vuelta): congela el ambiente (sandbox/
+    // producción) usado para generar ESTA guía real — sin esto, el seguimiento (EnvioSeguimiento
+    // Service) consultaba siempre el ambiente ACTUAL de la tienda, así que una guía de sandbox
+    // dejaba de poder rastrearse si el admin cambiaba la tienda a producción después (y viceversa).
+    @Column(name = "ped_envia_ambiente", length = 20)
+    private String enviaAmbiente;
+
+    // Corrección de auditoría (2026-09-01): congela EN EL CHECKOUT los paquetes (peso/dimensiones)
+    // y la cotización (transportadora/servicio/precio) que de verdad se le mostró al cliente —
+    // antes, generar la guía real volvía a calcular el paquete desde el producto/empaque
+    // ACTUALES (podían haber cambiado) y no dejaba ningún rastro de qué se cotizó. Solo se llena
+    // para tiendas en modo 'envia'; el resto sigue con este campo en null, sin ningún cambio.
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "ped_envio_cotizacion_snapshot", columnDefinition = "jsonb")
+    private Map<String, Object> envioCotizacionSnapshot;
+
     // 'codigo' | 'link' | 'ambos' — qué le muestra la tienda al cliente. Null equivale a
     // "ambos" cuando hay datos de seguimiento, para no perder información ya cargada antes
     // de que existiera esta preferencia.

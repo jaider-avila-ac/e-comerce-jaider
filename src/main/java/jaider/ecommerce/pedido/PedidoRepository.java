@@ -7,6 +7,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Optional;
 
 public interface PedidoRepository extends JpaRepository<Pedido, Long> {
 
@@ -57,6 +58,91 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
     void updateSeguimiento(@Param("id") Long id, @Param("transportadora") String transportadora,
                             @Param("codigo") String codigo, @Param("link") String link,
                             @Param("mostrar") String mostrar);
+
+    // Corrección de auditoría (2026-09-01) — reserva atómica antes de llamar a Envia: la
+    // comprobación anterior (leer el pedido, ver que shipmentId es null, y RECIÉN AHÍ cobrar)
+    // dejaba una ventana real donde dos solicitudes concurrentes ("generar guía" con doble clic,
+    // o dos pestañas del admin) podían pasar la validación antes de que cualquiera escribiera
+    // nada, generando y cobrando DOS guías reales por el mismo pedido. Este UPDATE con
+    // WHERE ... IS NULL es atómico a nivel de Postgres: si dos transacciones lo intentan a la
+    // vez, la fila queda bloqueada para la segunda hasta que la primera termine, y para ese
+    // momento el WHERE ya no matchea nada (la primera ya escribió un valor no nulo) — la segunda
+    // recibe 0 filas afectadas y nunca llama a Envia. 'RESERVANDO' es un valor temporal: si la
+    // llamada a Envia falla después, liberarReservaGuia() lo limpia para permitir reintentar.
+    @Modifying(clearAutomatically = true)
+    @Query(value = "UPDATE pedidos SET ped_envia_shipment_id = 'RESERVANDO' WHERE ped_id = :id AND ped_envia_shipment_id IS NULL",
+           nativeQuery = true)
+    int reservarParaGuiaEnvia(@Param("id") Long id);
+
+    @Modifying(clearAutomatically = true)
+    @Query(value = "UPDATE pedidos SET ped_envia_shipment_id = NULL WHERE ped_id = :id AND ped_envia_shipment_id = 'RESERVANDO'",
+           nativeQuery = true)
+    void liberarReservaGuiaEnvia(@Param("id") Long id);
+
+    @Modifying(clearAutomatically = true)
+    @Query(value = "UPDATE pedidos SET ped_envia_shipment_id = 'RESULTADO_INCIERTO' WHERE ped_id = :id AND ped_envia_shipment_id = 'RESERVANDO'",
+           nativeQuery = true)
+    int marcarResultadoInciertoGuiaEnvia(@Param("id") Long id);
+
+    // Corrección de auditoría (2026-09-01, tercera vuelta): reemplaza 'RESERVANDO' por el
+    // shipmentId REAL apenas Envia lo confirma — antes de intentar guardar el resto de los
+    // datos descriptivos (transportadora/tracking/PDF/costo). Es la escritura MÍNIMA que importa:
+    // una vez que esta UPDATE hace commit (en su propia transacción, ver
+    // EnvioGuiaTransaccionesService), el pedido nunca más puede volver a pasar el WHERE ...
+    // IS NULL de reservarParaGuiaEnvia, así que ya no puede generarse una segunda guía real
+    // aunque el resto del registro (registrarGuiaEnvia) falle después. Antes, las tres escrituras
+    // (reservar, llamar a Envia, registrar) vivían en la MISMA transacción — si el commit final
+    // fallaba, Postgres revertía también la reserva, dejando el pedido como si nunca se hubiera
+    // generado nada aunque Envia ya hubiera cobrado de verdad.
+    @Modifying(clearAutomatically = true)
+    @Query(value = "UPDATE pedidos SET ped_envia_shipment_id = :shipmentId WHERE ped_id = :id AND ped_envia_shipment_id = 'RESERVANDO'",
+           nativeQuery = true)
+    int confirmarShipmentIdGuiaEnvia(@Param("id") Long id, @Param("shipmentId") String shipmentId);
+
+    // PLAN_INTEGRACION_ENVIA.md, Fase 4 — igual que updateSeguimiento, pero además de las
+    // columnas de seguimiento ya existentes guarda las 3 nuevas de la guía real generada con
+    // Envia. UPDATE explícito (no repo.save()) por la misma razón que el resto de este
+    // repositorio: repo.save() reescribe TODAS las columnas, incluida ped_estado, que Postgres
+    // no deja bindear como varchar sin CAST (es un enum nativo) — cualquier UPDATE de esta tabla
+    // pasa por consultas nativas explícitas, nunca por una entidad completa.
+    // Solo describe la guía (carrier/tracking/PDF/costo, más el ambiente usado — corrección de
+    // auditoría, ver ped_envia_ambiente) — el shipmentId YA quedó persistido de forma durable por
+    // confirmarShipmentIdGuiaEnvia() antes de llegar acá, así que el WHERE exige que siga siendo
+    // el mismo (defensa extra; con la reserva atómica esto nunca debería fallar en la práctica).
+    // Si ESTA escritura falla, el pedido sigue teniendo su shipmentId real (bloqueando cualquier
+    // guía duplicada) aunque falten los campos descriptivos — reconciliable a mano con ese id.
+    @Modifying(clearAutomatically = true)
+    @Query(value = """
+            UPDATE pedidos SET ped_transportadora = :transportadora, ped_codigo_rastreo = :codigo,
+                                ped_link_seguimiento = :link, ped_mostrar_seguimiento = :mostrar,
+                                ped_envia_guia_url = :guiaUrl, ped_envia_costo_real_centavos = :costoRealCentavos,
+                                ped_envia_ambiente = :ambiente
+            WHERE ped_id = :id AND ped_envia_shipment_id = :shipmentId
+            """, nativeQuery = true)
+    int registrarGuiaEnvia(@Param("id") Long id, @Param("transportadora") String transportadora,
+                            @Param("codigo") String codigo, @Param("link") String link,
+                            @Param("mostrar") String mostrar, @Param("shipmentId") String shipmentId,
+                            @Param("guiaUrl") String guiaUrl, @Param("costoRealCentavos") Long costoRealCentavos,
+                            @Param("ambiente") String ambiente);
+
+    // PLAN_INTEGRACION_ENVIA.md, Fase 5 — webhook de Envia. A diferencia de updateEstadoSi (que
+    // exige conocer el estado ANTERIOR exacto porque el llamador es un admin que ya leyó el
+    // pedido), acá no hace falta: un webhook puede llegar más de una vez (reintentos normales de
+    // cualquier webhook) o fuera de orden, así que la condición es "todavía no está en un estado
+    // final" en vez de "está exactamente en tal estado" — deliberadamente simple e idempotente,
+    // no reemplaza el flujo de PedidoService (colaborador asignado, etc.), que sigue siendo el
+    // único camino para las transiciones que decide el propio staff (preparando/enviado).
+    @Modifying(clearAutomatically = true)
+    @Query(value = """
+            UPDATE pedidos SET ped_estado = CAST(:estadoNuevo AS estado_pedido)
+            WHERE ped_id = :id
+              AND ped_estado NOT IN (CAST('entregado' AS estado_pedido), CAST('cancelado' AS estado_pedido), CAST('devuelto' AS estado_pedido))
+            """, nativeQuery = true)
+    int avanzarEstadoPorWebhookEnvia(@Param("id") Long id, @Param("estadoNuevo") String estadoNuevo);
+
+    Optional<Pedido> findByTndIdAndCodigoRastreo(Long tndId, String codigoRastreo);
+
+    Optional<Pedido> findByNumeroAndUsrId(String numero, Long usrId);
 
     @Modifying(clearAutomatically = true)
     @Query(value = """
