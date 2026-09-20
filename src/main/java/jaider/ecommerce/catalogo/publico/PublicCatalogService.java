@@ -9,6 +9,10 @@ import jaider.ecommerce.catalogo.resena.ResenaService;
 import jaider.ecommerce.catalogo.subcategoria.Subcategoria;
 import jaider.ecommerce.catalogo.subcategoria.SubcategoriaRepository;
 import jaider.ecommerce.shared.TenantSupport;
+import jaider.ecommerce.shared.interceptor.TenantContext;
+import jaider.ecommerce.tienda.TiendaRepository;
+import jaider.ecommerce.tienda.envio.TiendaEmpaque;
+import jaider.ecommerce.tienda.envio.TiendaEmpaqueRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -31,6 +35,8 @@ public class PublicCatalogService {
     private final ProductoImagenRepository imagenRepo;
     private final TenantSupport tenantSupport;
     private final ResenaService resenaService;
+    private final TiendaRepository tiendaRepo;
+    private final TiendaEmpaqueRepository empaqueRepo;
 
     @Value("${app.base-url}")
     private String baseUrl;
@@ -94,7 +100,7 @@ public class PublicCatalogService {
             ).toList();
         }
 
-        return enrich(lista);
+        return enrich(filtrarSinEmpaqueSiEnvia(lista));
     }
 
     /**
@@ -110,7 +116,7 @@ public class PublicCatalogService {
         Boolean activo = true;
         String qNorm = (q == null || q.isBlank()) ? null : q.trim();
         var pageable = org.springframework.data.domain.PageRequest.of(page, size);
-        var result = prodRepo.search(catId, activo, qNorm, pageable);
+        var result = prodRepo.search(catId, activo, qNorm, exigeEmpaqueValido(), pageable);
 
         List<PublicProductoResponse> content = enrich(result.getContent());
         return new jaider.ecommerce.shared.dto.PageResponse<>(
@@ -156,7 +162,7 @@ public class PublicCatalogService {
                 .filter(Objects::nonNull)
                 .toList();
 
-        return enrich(ordenados);
+        return enrich(filtrarSinEmpaqueSiEnvia(ordenados));
     }
 
     @Transactional(readOnly = true)
@@ -164,12 +170,39 @@ public class PublicCatalogService {
         tenantSupport.requireTenant(em);
         Producto p = prodRepo.findById(id)
                 .filter(Producto::isActivo)
+                .filter(prod -> filtrarSinEmpaqueSiEnvia(List.of(prod)).size() == 1)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Producto no encontrado"));
         Categoria cat = catRepo.findById(p.getCatId()).orElse(null);
         Subcategoria sub = p.getSubId() != null ? subRepo.findById(p.getSubId()).orElse(null) : null;
         Set<Long> masVendidosIds = loadMasVendidosIds(List.of(p.getId()));
         ResenaService.ResenaResumen resumen = resenaService.resumenBulk(List.of(p.getId())).get(p.getId());
         return toPublicResponse(p, cat, sub, masVendidosIds, resumen);
+    }
+
+    // ─── Empaque requerido cuando el envío real (Envia.com) está activo ────────────────────
+    // Red de seguridad del catálogo público: si la tienda tiene envio_modo='envia', un producto
+    // sin empaque activo asignado haría fallar PaqueteCalculoService en cuanto un cliente lo
+    // compre — mejor no mostrarlo. En el flujo normal esto no pasa (activar 'envia' ya exige que
+    // TODO producto activo tenga empaque, ver TiendaConfigService.validarListaParaEnvia); esto
+    // cubre el caso de un producto creado DESPUÉS de esa activación.
+
+    private boolean exigeEmpaqueValido() {
+        String tndIdStr = TenantContext.get();
+        if (tndIdStr == null) return false;
+        return tiendaRepo.findById(Long.parseLong(tndIdStr))
+                .map(t -> "envia".equals(t.getEnvioModo()))
+                .orElse(false);
+    }
+
+    private List<Producto> filtrarSinEmpaqueSiEnvia(List<Producto> lista) {
+        if (!exigeEmpaqueValido()) return lista;
+        Set<Long> empaquesActivos = empaqueRepo.findAllByOrderByOrdenAscNombreAsc().stream()
+                .filter(TiendaEmpaque::isActivo)
+                .map(TiendaEmpaque::getId)
+                .collect(Collectors.toSet());
+        return lista.stream()
+                .filter(p -> p.getEmpaqueId() != null && empaquesActivos.contains(p.getEmpaqueId()))
+                .toList();
     }
 
     // ─── Transformación ────────────────────────────────────────────────────

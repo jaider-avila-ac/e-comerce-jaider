@@ -66,7 +66,8 @@ public class ProductoService {
 
         return catalogCache.getOrLoad(cacheKey, Duration.ofMinutes(2), () -> {
             Pageable pageable = PageRequest.of(page, size);
-            Page<Producto> result = productoRepo.search(catId, activo, qNorm, pageable);
+            // false: el admin siempre debe ver los productos sin empaque, para poder corregirlos.
+            Page<Producto> result = productoRepo.search(catId, activo, qNorm, false, pageable);
             List<ProductoResponse> content = result.getContent().stream().map(this::toResponse).toList();
             return new PageResponse<>(content, result.getNumber(), result.getSize(),
                     result.getTotalElements(), result.getTotalPages());
