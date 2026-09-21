@@ -1,5 +1,6 @@
 package jaider.ecommerce.reporte;
 
+import jaider.ecommerce.analitica.VisitaService;
 import jaider.ecommerce.auth.admin.AdminUserRepository;
 import jaider.ecommerce.shared.TenantSupport;
 import jakarta.persistence.EntityManager;
@@ -11,6 +12,7 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -24,6 +26,7 @@ import java.util.Map;
 public class ReporteController {
 
     private final ReporteService service;
+    private final VisitaService visitaService;
     private final AdminUserRepository adminUserRepository;
     private final TenantSupport tenantSupport;
 
@@ -99,6 +102,43 @@ public class ReporteController {
     public List<Map<String, Object>> ventasPorCanal(@RequestParam(required = false) String mes,
             @RequestParam(required = false) Long colaboradorId, @RequestParam(required = false) Long sucursalId) {
         return service.ventasPorCanal(mes, colaboradorId, sucursalId);
+    }
+
+    // ─── Analítica de tráfico (visitas anónimas + registradas, ver VisitaService) ──────────
+
+    @GetMapping("/visitas")
+    @PreAuthorize("hasRole('ADMIN')")
+    public Map<String, Object> visitas(@RequestParam(required = false) String desde,
+            @RequestParam(required = false) String hasta) {
+        return visitaService.resumen(desde, hasta);
+    }
+
+    @GetMapping("/visitas-por-hora")
+    @PreAuthorize("hasRole('ADMIN')")
+    public List<Map<String, Object>> visitasPorHora(@RequestParam(required = false) String desde,
+            @RequestParam(required = false) String hasta) {
+        return visitaService.porHora(desde, hasta, null);
+    }
+
+    @GetMapping("/productos-mas-vistos")
+    @PreAuthorize("hasRole('ADMIN')")
+    public List<Map<String, Object>> productosMasVistos(@RequestParam(required = false) String desde,
+            @RequestParam(required = false) String hasta, @RequestParam(defaultValue = "10") int limit) {
+        return visitaService.productosMasVistos(desde, hasta, limit);
+    }
+
+    @GetMapping("/productos/{id}/vistas-por-hora")
+    @PreAuthorize("hasRole('ADMIN')")
+    public List<Map<String, Object>> vistasPorHoraDeProducto(@PathVariable Long id,
+            @RequestParam(required = false) String desde, @RequestParam(required = false) String hasta) {
+        return visitaService.porHora(desde, hasta, id);
+    }
+
+    @GetMapping("/embudo-carrito")
+    @PreAuthorize("hasRole('ADMIN')")
+    public Map<String, Object> embudoCarrito(@RequestParam(required = false) String desde,
+            @RequestParam(required = false) String hasta) {
+        return visitaService.embudoCarrito(desde, hasta);
     }
 
     // SUPERADMIN nunca llega hasta acá (ver arriba), así que solo ROLE_ADMIN cuenta como admin.
