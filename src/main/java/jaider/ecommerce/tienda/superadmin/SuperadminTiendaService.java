@@ -12,6 +12,7 @@ import jaider.ecommerce.tienda.aprovisionamiento.TenantProvisioningRequest;
 import jaider.ecommerce.tienda.aprovisionamiento.TenantProvisioningResult;
 import jaider.ecommerce.tienda.aprovisionamiento.TenantProvisioningService;
 import jaider.ecommerce.tienda.integracion.IntegracionSalud;
+import jaider.ecommerce.tienda.integracion.TenantCloudinaryClients;
 import jaider.ecommerce.tienda.integracion.TenantIntegrationHealthService;
 import jaider.ecommerce.tienda.secretos.SecretEncryptionService;
 import jaider.ecommerce.tienda.secretos.TenantSecretCache;
@@ -57,6 +58,7 @@ public class SuperadminTiendaService {
     private final TiendaSecretoRepository secretoRepo;
     private final SecretEncryptionService encryption;
     private final TenantSecretCache secretCache;
+    private final TenantCloudinaryClients cloudinaryClients;
     private final AuditoriaService auditoriaService;
     private final TenantSupport tenantSupport;
     private final Environment environment;
@@ -134,6 +136,10 @@ public class SuperadminTiendaService {
         campos.put("API_KEY", req.apiKey());
         campos.put("API_SECRET", req.apiSecret());
         guardarCampos(tndId, "CLOUDINARY", campos, adminId);
+        // TenantCloudinaryClients cachea el objeto Cloudinary ya construido, aparte del valor
+        // crudo (que guardarCampos ya invalidó vía TenantSecretCache) — sin esto, una credencial
+        // nueva no se nota hasta que expira su TTL propio de 10 minutos.
+        cloudinaryClients.invalidar(tndId);
         Tienda tienda = tiendaObligatoria(tndId);
         return estadoCampos(tndId, tienda.getSecretAlias(), "CLOUDINARY", "CLOUD_NAME", "API_KEY", "API_SECRET");
     }

@@ -6,6 +6,8 @@ target/
 backups/
 db-local/completar_migracion_vps.sql
 db-local/completar_env_coolify.sql
+db-local/crear_duo_chic_vps.sql
+db-local/secretos_duo_chic_vps.sql
 .mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/

@@ -40,6 +40,13 @@ public class TenantCloudinaryClients {
         return nuevo;
     }
 
+    /** Llamar tras guardar/actualizar las credenciales de Cloudinary de este tenant (panel de
+     *  superadmin) — igual que {@link jaider.ecommerce.tienda.secretos.TenantSecretCache#invalidar},
+     *  así el cambio se nota de inmediato en vez de esperar el TTL de 10 minutos. */
+    public void invalidar(Long tndId) {
+        cache.remove(tndId);
+    }
+
     private Cloudinary construir(Long tndId) {
         CloudinaryCredentials creds = integrationResolver.mediaCredentials(tndId);
         return new Cloudinary(ObjectUtils.asMap(
