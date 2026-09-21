@@ -76,9 +76,7 @@ public class CloudinaryService {
                         "video_codec",   "auto")
                 : ObjectUtils.asMap(
                         "folder",        folder,
-                        "resource_type", "image",
-                        "quality",       "auto",
-                        "fetch_format",  "auto");
+                        "resource_type", "image");
 
         Map<?, ?> result;
         try {
@@ -90,6 +88,15 @@ public class CloudinaryService {
         circuitBreaker.registrarExito(tndId, PROVEEDOR);
 
         String url = (String) result.get("secure_url");
+        // El archivo se guarda tal cual se subió (jpg, png, lo que sea) — "fetch_format"/"quality"
+        // como parámetros de upload no hacen nada útil ahí, esos solo aplican en la URL de
+        // entrega. f_auto,q_auto acá sí es lo real: Cloudinary decide en cada solicitud, según el
+        // navegador que pida la imagen, si sirve WebP/AVIF (más liviano) o el formato original —
+        // sin perder calidad y sin tener que reconvertir nada a mano. Como queda guardado en la
+        // URL, todo el que la use (tienda, admin, carrito) ya sale optimizado automáticamente.
+        if (!esVideo) {
+            url = url.replaceFirst("/upload/", "/upload/f_auto,q_auto/");
+        }
         log.info("Archivo ({}) subido a Cloudinary en {}: {}", resourceType, folder, url);
         return url;
     }
@@ -150,12 +157,18 @@ public class CloudinaryService {
      * Extrae el public_id (incluye la carpeta) de una secure_url de Cloudinary, ej.:
      * https://res.cloudinary.com/demo/image/upload/v1699999999/ecommerce/tienda/productos/42/abc123.jpg
      * -> ecommerce/tienda/productos/42/abc123
+     *
+     * Las imágenes (no los videos) llevan además el segmento de transformación f_auto,q_auto
+     * antes de la versión (ver uploadToFolder) — el (?:[^/]+/)? opcional se lo salta también,
+     * sin importar si está o no (URLs viejas, subidas antes de este cambio, no lo tienen).
      */
-    private String extractPublicId(String url) {
+    // Visibilidad de paquete a propósito: CloudinaryServiceTest la prueba directo (es lógica de
+    // parseo pura, sin red — más simple que mockear el cliente de Cloudinary para probarla).
+    String extractPublicId(String url) {
         int uploadIdx = url.indexOf("/upload/");
         if (uploadIdx < 0) return null;
         String afterUpload = url.substring(uploadIdx + "/upload/".length());
-        afterUpload = afterUpload.replaceFirst("^v\\d+/", "");
+        afterUpload = afterUpload.replaceFirst("^(?:[^/]+/)?v\\d+/", "");
         int lastDot = afterUpload.lastIndexOf('.');
         return lastDot > 0 ? afterUpload.substring(0, lastDot) : afterUpload;
     }
