@@ -165,10 +165,14 @@ public class PublicCatalogService {
         return enrich(filtrarSinEmpaqueSiEnvia(ordenados));
     }
 
+    // Acepta tanto el id numérico (compatibilidad con links ya compartidos/indexados) como el
+    // slug (URLs "bonitas" /producto/nombre-del-producto que usa la tienda) — se intenta
+    // primero como id porque es la comparación más barata, y si no es numérico o no existe así,
+    // se prueba por slug.
     @Transactional(readOnly = true)
-    public PublicProductoResponse getProductoById(Long id) {
+    public PublicProductoResponse getProductoByIdOrSlug(String idOrSlug) {
         tenantSupport.requireTenant(em);
-        Producto p = prodRepo.findById(id)
+        Producto p = buscarPorIdOrSlug(idOrSlug)
                 .filter(Producto::isActivo)
                 .filter(prod -> filtrarSinEmpaqueSiEnvia(List.of(prod)).size() == 1)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Producto no encontrado"));
@@ -177,6 +181,14 @@ public class PublicCatalogService {
         Set<Long> masVendidosIds = loadMasVendidosIds(List.of(p.getId()));
         ResenaService.ResenaResumen resumen = resenaService.resumenBulk(List.of(p.getId())).get(p.getId());
         return toPublicResponse(p, cat, sub, masVendidosIds, resumen);
+    }
+
+    private Optional<Producto> buscarPorIdOrSlug(String idOrSlug) {
+        try {
+            return prodRepo.findById(Long.parseLong(idOrSlug));
+        } catch (NumberFormatException e) {
+            return prodRepo.findBySlug(idOrSlug);
+        }
     }
 
     // ─── Empaque requerido cuando el envío real (Envia.com) está activo ────────────────────

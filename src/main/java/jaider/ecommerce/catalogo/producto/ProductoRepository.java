@@ -7,11 +7,16 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Optional;
 
 public interface ProductoRepository extends JpaRepository<Producto, Long> {
 
     @Query("SELECT p FROM Producto p ORDER BY p.creadoEn DESC")
     List<Producto> findAllOrdered();
+
+    // Detalle público por slug (URLs "bonitas" /producto/nombre-del-producto en vez de
+    // /producto/{id}) — uidx_prd_slug garantiza que sea único por tenant.
+    Optional<Producto> findBySlug(String slug);
 
     // Solo la usa el catálogo PÚBLICO (PublicCatalogService.getProductos) — por eso filtra
     // p.activo=true directo en la query, a diferencia de search()/findAllOrdered(), que también

@@ -49,7 +49,7 @@ public class MediaProxyService {
             // fuera de ESTE tenant (correcto vía RLS), pero nunca que el producto dueño siguiera
             // activo/visible — cualquiera que adivinara un pi_id consecutivo podía ver fotos de
             // productos ocultos/en borrador antes de que la tienda quisiera mostrarlos, algo que
-            // PublicCatalogService.getProductoById() sí filtra (Producto::isActivo) pero este
+            // PublicCatalogService.getProductoByIdOrSlug() sí filtra (Producto::isActivo) pero este
             // proxy no. Mismo trato que "no encontrada" a propósito — no hay que confirmarle a
             // quien adivina el ID si el producto existe pero está oculto.
             Producto producto = productoRepo.findById(img.getPrdId())

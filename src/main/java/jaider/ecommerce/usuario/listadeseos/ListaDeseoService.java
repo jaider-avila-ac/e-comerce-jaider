@@ -37,7 +37,7 @@ public class ListaDeseoService {
         return listarIds(usrId).stream()
                 .map(prdId -> {
                     try {
-                        return catalogFacade.getProductoById(prdId);
+                        return catalogFacade.getProductoByIdOrSlug(String.valueOf(prdId));
                     } catch (Exception e) {
                         return null;
                     }

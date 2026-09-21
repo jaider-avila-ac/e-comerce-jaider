@@ -53,13 +53,13 @@ public class PublicCatalogFacade {
         );
     }
 
-    public PublicProductoResponse getProductoById(Long id) {
+    public PublicProductoResponse getProductoByIdOrSlug(String idOrSlug) {
         String tnd = TenantContext.get();
         long v = cache.currentVersion(tnd);
         return cache.getOrLoad(
-                cache.key(tnd, v, "product", String.valueOf(id)),
+                cache.key(tnd, v, "product", idOrSlug),
                 Duration.ofMinutes(10),
-                () -> service.getProductoById(id),
+                () -> service.getProductoByIdOrSlug(idOrSlug),
                 new TypeReference<>() {}
         );
     }

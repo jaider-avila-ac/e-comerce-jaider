@@ -37,8 +37,9 @@ public class PublicCatalogController {
         return facade.getProductosPaginado(catId, q, page, size);
     }
 
-    @GetMapping("/productos/{id}")
-    public PublicProductoResponse getProducto(@PathVariable Long id) {
-        return facade.getProductoById(id);
+    // Acepta id numérico o slug — ver PublicCatalogService.getProductoByIdOrSlug.
+    @GetMapping("/productos/{idOrSlug}")
+    public PublicProductoResponse getProducto(@PathVariable String idOrSlug) {
+        return facade.getProductoByIdOrSlug(idOrSlug);
     }
 }

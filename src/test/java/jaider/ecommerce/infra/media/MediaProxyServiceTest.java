@@ -18,7 +18,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * Integración real (BD local, sin mocks) del hallazgo de la guía de medios (2026-08-30): el
  * proxy verificaba correctamente el tenant vía RLS, pero nunca que el PRODUCTO dueño de la
  * imagen siguiera activo — cualquiera que adivinara un pi_id consecutivo podía ver fotos de
- * productos ocultos/en borrador, algo que PublicCatalogService.getProductoById() sí filtra pero
+ * productos ocultos/en borrador, algo que PublicCatalogService.getProductoByIdOrSlug() sí filtra pero
  * el proxy no filtraba en absoluto.
  *
  * @Transactional para que los fixtures nunca queden persistidos de verdad.
