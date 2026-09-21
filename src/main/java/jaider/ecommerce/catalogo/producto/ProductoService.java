@@ -313,11 +313,16 @@ public class ProductoService {
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Categoría no encontrada"));
             p.setCatId(req.catId());
         }
+        // subId es "opcional-explícito": ausente/null sin limpiarSubId=true deja el valor
+        // actual intacto (protege actualizaciones parciales que no tocan este campo); solo
+        // limpiarSubId=true lo borra a propósito (botón "Sin subcategoría" del panel).
         if (req.subId() != null) {
             subcategoriaRepo.findById(req.subId())
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Subcategoría no encontrada"));
+            p.setSubId(req.subId());
+        } else if (Boolean.TRUE.equals(req.limpiarSubId())) {
+            p.setSubId(null);
         }
-        p.setSubId(req.subId());
         if (req.nombre() != null) p.setNombre(req.nombre());
         if (req.slug() != null) p.setSlug(req.slug());
         if (req.descripcion() != null) p.setDescripcion(req.descripcion());
@@ -344,7 +349,8 @@ public class ProductoService {
         // Empaque opcional (PLAN_INTEGRACION_ENVIA.md, Fase 1) — mismo cuidado que catId/subId:
         // la FK no respeta RLS al validar la referencia, así que sin este findById() un producto
         // de la tienda A podría terminar apuntando a un empaque de la tienda B con solo mandar
-        // su ID.
+        // su ID. Mismo criterio "opcional-explícito" que subId: ausente/null sin
+        // limpiarEmpaqueId=true deja el empaque actual intacto.
         if (req.empaqueId() != null) {
             var empaque = empaqueRepo.findById(req.empaqueId())
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Empaque no encontrado"));
@@ -352,8 +358,10 @@ public class ProductoService {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                         "Esta tienda calcula el envío real — selecciona un empaque activo");
             }
+            p.setEmpaqueId(req.empaqueId());
+        } else if (Boolean.TRUE.equals(req.limpiarEmpaqueId())) {
+            p.setEmpaqueId(null);
         }
-        p.setEmpaqueId(req.empaqueId());
 
         // Corrección de auditoría (2026-09-01, tercera vuelta): un producto ACTIVO sin empaque,
         // en una tienda ya en modo 'envia', rompe el checkout para el primer cliente que lo

@@ -104,7 +104,7 @@ class EmpaqueServiceTest {
         Long catId = crearCategoriaFixture();
         productoService.create(new ProductoRequest(catId, null, "Producto fixture guard " + System.nanoTime(),
                 "producto-fixture-guard-" + System.nanoTime(), null, 50000L, null, null, Map.of(), true,
-                null, null, empaque.id()));
+                null, null, empaque.id(), null, null));
 
         assertThatThrownBy(() -> service.update(empaque.id(), new EmpaqueRequest(
                 null, null, null, null, null, null, false)))
@@ -121,7 +121,7 @@ class EmpaqueServiceTest {
         Long catId = crearCategoriaFixture();
         productoService.create(new ProductoRequest(catId, null, "Producto fixture guard 2 " + System.nanoTime(),
                 "producto-fixture-guard2-" + System.nanoTime(), null, 50000L, null, null, Map.of(), true,
-                null, null, empaque.id()));
+                null, null, empaque.id(), null, null));
 
         assertThatThrownBy(() -> service.delete(empaque.id()))
                 .isInstanceOf(ResponseStatusException.class)
