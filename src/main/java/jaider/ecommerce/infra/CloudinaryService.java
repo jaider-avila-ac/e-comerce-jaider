@@ -9,6 +9,16 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import javax.imageio.IIOImage;
+import javax.imageio.ImageIO;
+import javax.imageio.ImageWriteParam;
+import javax.imageio.ImageWriter;
+import javax.imageio.stream.ImageOutputStream;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.Map;
 
@@ -18,6 +28,14 @@ import java.util.Map;
 public class CloudinaryService {
 
     private static final String PROVEEDOR = "cloudinary";
+
+    // Fotos de celular llegan fácil a 4000-9000px de lado — nadie necesita eso ni de lejos para
+    // verse bien en cualquier pantalla (hasta una 4K real mide 3840px de ancho), así que reducir
+    // hasta acá no se nota, y en cambio baja muchísimo lo que realmente ocupa en Cloudinary.
+    private static final int LADO_MAXIMO_PX = 2000;
+    // JPEG "calidad alta" estándar — la pérdida es imperceptible a simple vista, muy lejos de la
+    // compresión agresiva que sí se nota.
+    private static final float CALIDAD_JPEG = 0.9f;
 
     private final TenantCloudinaryClients clientes;
     private final TiendaRepository tiendaRepo;
@@ -78,9 +96,11 @@ public class CloudinaryService {
                         "folder",        folder,
                         "resource_type", "image");
 
+        byte[] bytes = esVideo ? file.getBytes() : comprimir(file.getBytes());
+
         Map<?, ?> result;
         try {
-            result = clientes.get(tndId).uploader().upload(file.getBytes(), params);
+            result = clientes.get(tndId).uploader().upload(bytes, params);
         } catch (IOException e) {
             circuitBreaker.registrarFallo(tndId, PROVEEDOR);
             throw e;
@@ -88,17 +108,75 @@ public class CloudinaryService {
         circuitBreaker.registrarExito(tndId, PROVEEDOR);
 
         String url = (String) result.get("secure_url");
-        // El archivo se guarda tal cual se subió (jpg, png, lo que sea) — "fetch_format"/"quality"
-        // como parámetros de upload no hacen nada útil ahí, esos solo aplican en la URL de
-        // entrega. f_auto,q_auto acá sí es lo real: Cloudinary decide en cada solicitud, según el
-        // navegador que pida la imagen, si sirve WebP/AVIF (más liviano) o el formato original —
-        // sin perder calidad y sin tener que reconvertir nada a mano. Como queda guardado en la
-        // URL, todo el que la use (tienda, admin, carrito) ya sale optimizado automáticamente.
+        // "fetch_format"/"quality" como parámetros de upload no hacen nada útil ahí, esos solo
+        // aplican en la URL de entrega. f_auto,q_auto acá sí es lo real: Cloudinary decide en
+        // cada solicitud, según el navegador que pida la imagen, si sirve WebP/AVIF (más
+        // liviano) o el formato ya comprimido (ver comprimir()) — sin perder calidad y sin
+        // reconvertir nada a mano. Como queda guardado en la URL, todo el que la use (tienda,
+        // admin, carrito) ya sale optimizado automáticamente.
         if (!esVideo) {
             url = url.replaceFirst("/upload/", "/upload/f_auto,q_auto/");
         }
         log.info("Archivo ({}) subido a Cloudinary en {}: {}", resourceType, folder, url);
         return url;
+    }
+
+    /**
+     * Redimensiona (si hace falta) y recodifica a JPEG de calidad alta ANTES de subir — esto es
+     * lo que de verdad baja lo que ocupa en Cloudinary (f_auto,q_auto en la URL de entrega solo
+     * afecta cómo se sirve, no lo que se guarda). Fotos de celular llegan fácil a 4000-9000px de
+     * lado sin que nadie las vaya a ver a ese tamaño — bajarlas a {@link #LADO_MAXIMO_PX} no se
+     * nota, y ahorra la mayoría del peso.
+     *
+     * Nunca lanza ni bloquea la subida: si la imagen no se puede decodificar (formato raro,
+     * CMYK problemático, etc.) o si comprimida termina pesando MÁS que el original (pasa con
+     * imágenes ya muy optimizadas), se sube el archivo original tal cual llegó.
+     */
+    // Visibilidad de paquete a propósito: CloudinaryServiceTest la prueba directo, sin mockear
+    // el cliente de Cloudinary (comprimir() no toca la red).
+    byte[] comprimir(byte[] original) {
+        try {
+            BufferedImage fuente = ImageIO.read(new ByteArrayInputStream(original));
+            if (fuente == null) return original;
+
+            int ancho = fuente.getWidth();
+            int alto = fuente.getHeight();
+            int ladoMayor = Math.max(ancho, alto);
+            double escala = ladoMayor > LADO_MAXIMO_PX ? (double) LADO_MAXIMO_PX / ladoMayor : 1.0;
+            int anchoFinal = Math.max(1, (int) Math.round(ancho * escala));
+            int altoFinal = Math.max(1, (int) Math.round(alto * escala));
+
+            // TYPE_INT_RGB a propósito: JPEG no soporta canal alfa, y todo lo que sube este
+            // servicio son fotos (productos/banners/categorías/colecciones/devoluciones), nunca
+            // gráficos con transparencia real que la necesiten.
+            BufferedImage destino = new BufferedImage(anchoFinal, altoFinal, BufferedImage.TYPE_INT_RGB);
+            Graphics2D g = destino.createGraphics();
+            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g.drawImage(fuente, 0, 0, anchoFinal, altoFinal, null);
+            g.dispose();
+
+            ByteArrayOutputStream salida = new ByteArrayOutputStream();
+            ImageWriter writer = ImageIO.getImageWritersByFormatName("jpg").next();
+            try {
+                ImageWriteParam wparams = writer.getDefaultWriteParam();
+                wparams.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
+                wparams.setCompressionQuality(CALIDAD_JPEG);
+                try (ImageOutputStream ios = ImageIO.createImageOutputStream(salida)) {
+                    writer.setOutput(ios);
+                    writer.write(null, new IIOImage(destino, null, null), wparams);
+                }
+            } finally {
+                writer.dispose();
+            }
+
+            byte[] comprimida = salida.toByteArray();
+            return comprimida.length < original.length ? comprimida : original;
+        } catch (IOException e) {
+            log.warn("No se pudo comprimir la imagen antes de subirla, se sube tal cual: {}", e.getMessage());
+            return original;
+        }
     }
 
     /**
