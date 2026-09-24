@@ -87,9 +87,12 @@ public class PedidoCreacionService {
         // online, el cliente le paga al transportador al recibir. Se guarda el modo vigente al
         // momento de la compra en el propio pedido (ped_envio_contra_entrega) para que quede fijo
         // en el historial aunque el admin cambie la configuración después.
-        boolean envioContraEntrega = "contra_entrega".equals(envioModo);
-        boolean envioGratis = !envioContraEntrega && Boolean.TRUE.equals(envioConfig[1])
+        // El envío gratis por monto mínimo también aplica en "contra entrega": si se alcanza, la
+        // tienda asume el flete y el pedido queda SIN contra entrega (el cliente no paga nada al
+        // recibir). Misma regla que CarritoService.obtener — lo mostrado en el carrito es lo cobrado.
+        boolean envioGratis = Boolean.TRUE.equals(envioConfig[1])
                 && subtotal >= ((Number) envioConfig[2]).longValue();
+        boolean envioContraEntrega = "contra_entrega".equals(envioModo) && !envioGratis;
         long envio;
         Map<String, Object> cotizacionSnapshot = null;
         if (envioContraEntrega || envioGratis) {

@@ -277,15 +277,17 @@ public class CarritoService {
                 """)
                 .setParameter("tndId", tndId)
                 .getSingleResult();
-        boolean envioContraEntrega = "contra_entrega".equals(envioConfig[0]);
-        // En "contra entrega" el envío no se cobra en el checkout online (el cliente le paga al
-        // transportador al recibir) — el envío gratis por monto mínimo solo tiene sentido cuando
-        // sí se cobra envío en el checkout (modo "fijo"), así que se fuerza a false para que la
-        // barra de progreso "te faltan $X para envío gratis" no se muestre en ese modo.
-        boolean envioGratisActivo = !envioContraEntrega && Boolean.TRUE.equals(envioConfig[1]);
+        boolean modoContraEntrega = "contra_entrega".equals(envioConfig[0]);
+        // El mínimo para envío gratis aplica en TODOS los modos, incluido "contra entrega": ahí el
+        // envío nunca se cobra en el checkout (el cliente le paga al transportador al recibir),
+        // pero si el carrito alcanza el mínimo la tienda asume ese costo y el cliente no paga
+        // nada al recibir — por eso "envio_contra_entrega" solo es true mientras NO se alcance.
+        boolean envioGratisActivo = Boolean.TRUE.equals(envioConfig[1]);
         long envioGratisDesde = ((Number) envioConfig[2]).longValue() / 100L;
         long envioCosto = ((Number) envioConfig[3]).longValue() / 100L;
-        long envio = envioContraEntrega || (envioGratisActivo && total >= envioGratisDesde) ? 0L : envioCosto;
+        boolean envioGratisAlcanzado = envioGratisActivo && total >= envioGratisDesde;
+        boolean envioContraEntrega = modoContraEntrega && !envioGratisAlcanzado;
+        long envio = modoContraEntrega || envioGratisAlcanzado ? 0L : envioCosto;
         long faltanteEnvioGratis = envioGratisActivo ? Math.max(0L, envioGratisDesde - total) : 0L;
         int progresoEnvioGratis = envioGratisActivo && envioGratisDesde > 0
                 ? (int) Math.min(100L, total * 100L / envioGratisDesde)
@@ -295,7 +297,7 @@ public class CarritoService {
         result.put("envio_contra_entrega", envioContraEntrega);
         result.put("envio_gratis_activo", envioGratisActivo);
         result.put("envio_gratis_desde", envioGratisDesde);
-        result.put("envio_gratis_alcanzado", envioGratisActivo && total >= envioGratisDesde);
+        result.put("envio_gratis_alcanzado", envioGratisAlcanzado);
         result.put("faltante_envio_gratis", faltanteEnvioGratis);
         result.put("progreso_envio_gratis", progresoEnvioGratis);
         return result;
