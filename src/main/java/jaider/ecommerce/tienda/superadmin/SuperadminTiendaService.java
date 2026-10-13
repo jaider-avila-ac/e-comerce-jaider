@@ -160,15 +160,16 @@ public class SuperadminTiendaService {
         return healthService.chequear(tndId);
     }
 
+    /**
+     * Activar NO exige que las integraciones estén configuradas (decisión del usuario,
+     * 2026-10-12): una tienda en desarrollo necesita estar activa para cargarle productos desde su
+     * panel, y no todas las tiendas usan las 4 integraciones (Envia solo aplica con envío
+     * "envia", Wompi solo si cobra en línea). El estado de cada integración se revisa aparte con
+     * {@link #verificar}; cada flujo que usa una integración ya valida sus credenciales al usarla.
+     */
     @Transactional
     public void activar(Long tndId) {
         Tienda tienda = tiendaObligatoria(tndId);
-        List<IntegracionSalud> salud = healthService.chequear(tndId);
-        boolean saludOk = salud.stream().allMatch(IntegracionSalud::ok);
-        if (!saludOk) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "No se puede activar: hay integraciones sin configurar o fallando. Verifica primero.");
-        }
         tienda.setActivo(true);
         tiendaRepo.save(tienda);
     }

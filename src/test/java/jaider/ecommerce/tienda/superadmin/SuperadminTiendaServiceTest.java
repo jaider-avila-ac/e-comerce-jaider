@@ -7,15 +7,13 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Integración real (BD local, sin mocks) del flujo nuevo de superadmin: crear tienda en
- * borrador, guardar credenciales cifradas, ver su estado SIN el valor, y que activar() rechace
- * una tienda con integraciones incompletas.
+ * borrador, guardar credenciales cifradas, ver su estado SIN el valor, y que activar() funcione
+ * aunque falten integraciones (una tienda en desarrollo no tiene por qué tenerlas todas).
  *
  * @Transactional: todo lo creado acá (incluido el superadmin de prueba) se revierte solo al
  * terminar cada test.
@@ -87,9 +85,11 @@ class SuperadminTiendaServiceTest {
         assertThat(webhookSecretEstado.configurada()).isFalse();
         assertThat(estadoEnvia.toString()).doesNotContain("envia_token_fake");
 
-        // Resend/Cloudinary siguen sin configurar — activar debe rechazar con 409, no con 500.
-        assertThatThrownBy(() -> service.activar(tndId))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("Verifica primero");
+        // Resend/Cloudinary siguen sin configurar — igual se puede activar.
+        service.activar(tndId);
+        em.flush();
+        Boolean activo = (Boolean) em.createNativeQuery("SELECT tnd_activo FROM tiendas WHERE tnd_id = :id")
+                .setParameter("id", tndId).getSingleResult();
+        assertThat(activo).isTrue();
     }
 }
