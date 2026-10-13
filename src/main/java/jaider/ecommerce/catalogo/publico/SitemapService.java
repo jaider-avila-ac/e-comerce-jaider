@@ -49,7 +49,7 @@ public class SitemapService {
 
     @Transactional(readOnly = true)
     @SuppressWarnings("unchecked")
-    public String generar() {
+    public String generar(String hostReal) {
         String tndIdStr = TenantContext.get();
         if (tndIdStr == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -58,7 +58,7 @@ public class SitemapService {
         Long tndId = Long.parseLong(tndIdStr);
         tenantSupport.requireTenant(em);
 
-        String base = baseUrl(tndId).replaceAll("/+$", "");
+        String base = baseUrl(tndId, hostReal).replaceAll("/+$", "");
 
         StringBuilder xml = new StringBuilder();
         xml.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
@@ -86,10 +86,20 @@ public class SitemapService {
         return xml.toString();
     }
 
-    /** Dominio principal registrado de la tienda si existe (§5), si no el valor global de
-     *  desarrollo (frontend.tienda-url) — así el sitemap sigue funcionando en local sin tener
-     *  que registrar un dominio real para cada tenant de prueba. */
-    private String baseUrl(Long tndId) {
+    /** El dominio por el que de verdad llegó esta petición (si está registrado y activo para
+     *  este tenant) — no necesariamente coincide con el dominio "principal" del tenant: Jey
+     *  Avila Music, por ejemplo, tiene un sitio del artista como dominio principal y la tienda
+     *  en un subdominio aparte, los dos sobre el mismo tenant. Si no hay match (dev local, o un
+     *  Host desconocido), cae al dominio principal registrado (§5) y luego al valor global de
+     *  desarrollo (frontend.tienda-url) — así el sitemap sigue funcionando sin tener que
+     *  registrar un dominio real para cada tenant de prueba. */
+    private String baseUrl(Long tndId, String hostReal) {
+        if (hostReal != null && !hostReal.isBlank()) {
+            boolean coincideConEsteTenant = dominioRepo.findByDominioAndActivoTrue(hostReal)
+                    .map(d -> d.getTndId().equals(tndId))
+                    .orElse(false);
+            if (coincideConEsteTenant) return "https://" + hostReal;
+        }
         return dominioRepo.findByTndIdAndPrincipalTrueAndActivoTrue(tndId)
                 .map(d -> "https://" + d.getDominio())
                 .orElse(frontendTiendaUrlPorDefecto);
