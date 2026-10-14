@@ -10,6 +10,7 @@ import jaider.ecommerce.pedido.PedidoCreacionService.PedidoCreado;
 import jaider.ecommerce.shared.idempotencia.IdempotenciaGuard;
 import jaider.ecommerce.shared.idempotencia.IdempotenciaService;
 import jaider.ecommerce.shared.idempotencia.IdempotenciaService.Registro;
+import jaider.ecommerce.tienda.TiendaDominioRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -51,9 +52,22 @@ public class PedidoCheckoutService {
     private final PagoConfirmacionService confirmacionService;
     private final IdempotenciaGuard idempotenciaGuard;
     private final IdempotenciaService idempotenciaService;
+    private final TiendaDominioRepository dominioRepo;
 
     @Value("${frontend.tienda-url}")
     private String frontendTiendaUrl;
+
+    // La URL a la que Wompi redirige al cliente ("volver al comercio") debe ser la del dominio
+    // PROPIO de esa tienda — con el valor global de frontend.tienda-url, cualquier tienda que no
+    // sea la que tiene ese valor configurado terminaba mandando al cliente a OTRA tienda al
+    // volver de pagar (bug encontrado 2026-10-14: un pago de Jey Avila Music volvía a
+    // calzacaribe.com). No es el dominio "principal" a ciegas — ver el mismo razonamiento en
+    // SuperadminTiendaService.detalle().
+    private String frontendUrlDe(Long tndId) {
+        return dominioRepo.findByTndIdAndSirveApiTrueAndActivoTrue(tndId)
+                .map(d -> "https://" + d.getDominio())
+                .orElse(frontendTiendaUrl);
+    }
 
     @Transactional
     public CheckoutResponse iniciarCheckoutHospedado(Long usrId, Long tndId, CheckoutRequest req, String idempotencyKey) {
@@ -85,7 +99,7 @@ public class PedidoCheckoutService {
                     // reconciliarHospedado() lo encuentre si el proceso muere antes de completar().
                     idempotenciaService.registrarPedido(idmId, pedido.pedId());
 
-                    String redirectUrl = frontendTiendaUrl + "/pedido/resultado?numero=" + pedido.numero();
+                    String redirectUrl = frontendUrlDe(tndId) + "/pedido/resultado?numero=" + pedido.numero();
                     String checkoutUrl = gateway.buildCheckoutUrl(referencia, pedido.totalCentavos(), "COP", redirectUrl);
 
                     return new CheckoutResponse(pedido.pedId(), pedido.numero(), referencia, checkoutUrl,
@@ -199,7 +213,7 @@ public class PedidoCheckoutService {
     private Optional<CheckoutResponse> reconciliarHospedado(Long tndId, Registro reg) {
         if (reg.pedId() == null) return Optional.empty();
         return pedidoCreacionService.obtenerUltimoPago(reg.pedId()).map(pago -> {
-            String redirectUrl = frontendTiendaUrl + "/pedido/resultado?numero=" + pago.numeroPedido();
+            String redirectUrl = frontendUrlDe(tndId) + "/pedido/resultado?numero=" + pago.numeroPedido();
             // buildCheckoutUrl es una construcción local de URL (no llama a Wompi ni cobra nada),
             // así que reconstruirla es seguro y determinístico dado el mismo referencia/monto.
             String checkoutUrl = gatewayFactory.forTenant(tndId)

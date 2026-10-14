@@ -136,10 +136,20 @@ public class PagoWebhookService {
                 pedidoRepo.updateEstado(pago.getPedId(), "cancelado");
             }
             case "DECLINED", "ERROR" -> {
+                // NO se cancela el pedido acá a propósito (bug encontrado 2026-10-14, pedido
+                // PED20261014-4066 de Jey Avila): con métodos asíncronos (Nequi, PSE,
+                // transferencia) el widget hospedado de Wompi deja reintentar DENTRO de la
+                // misma referencia — un primer intento puede dar ERROR o DECLINED y uno
+                // posterior, APPROVED. Si acá cancelábamos el pedido de inmediato, cuando
+                // llegaba el APPROVED del reintento el pedido ya estaba en un estado terminal
+                // y confirmarPedido() no podía marcarlo pagado — generaba un reembolso
+                // automático (a veces ni siquiera soportado por el método de pago, ej. Nequi)
+                // por una compra que el cliente sí alcanzó a pagar. El pedido se queda en
+                // pendiente_pago: si de verdad nunca se aprueba, PedidoAbandonoScheduler lo
+                // cancela solo a las 2 horas (ver PedidoAbandonoService).
                 String estado = "DECLINED".equals(status) ? "DECLINED" : "ERROR";
                 confirmacionService.registrarRechazado(pago.getId(), estado, extraerStatusMessage(evento),
                         tx.gatewayTxId(), tx.metodoPago(), evento);
-                confirmacionService.cancelarPedidoNoAprobado(pago.getId());
             }
             default -> log.info("Webhook con estado no manejado: {} (ref {})", status, tx.referencia());
         }
