@@ -30,6 +30,14 @@ public class TiendaDominio {
     @Column(name = "tdo_principal", nullable = false)
     private boolean principal;
 
+    // El dominio "principal" es el de marca (el que la gente reconoce); el que de verdad
+    // reenvía /api/** hacia el backend puede ser otro — ej. Duo Chic: duochicstudio.com es
+    // principal pero es hosting estático sin proxy, api.duochicstudio.com es el que sirve la
+    // API. Para URLs que el admin de la tienda vaya a pegar en otro sistema (webhooks de
+    // Wompi/Envia) hay que usar ESTE dominio, nunca el principal a ciegas.
+    @Column(name = "tdo_sirve_api", nullable = false)
+    private boolean sirveApi;
+
     @Column(name = "tdo_activo", nullable = false)
     private boolean activo = true;
 

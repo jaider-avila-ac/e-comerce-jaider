@@ -7,4 +7,5 @@ import java.util.Optional;
 public interface TiendaDominioRepository extends JpaRepository<TiendaDominio, Long> {
     Optional<TiendaDominio> findByDominioAndActivoTrue(String dominio);
     Optional<TiendaDominio> findByTndIdAndPrincipalTrueAndActivoTrue(Long tndId);
+    Optional<TiendaDominio> findByTndIdAndSirveApiTrueAndActivoTrue(Long tndId);
 }

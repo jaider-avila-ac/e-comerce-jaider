@@ -96,14 +96,29 @@ public class SuperadminTiendaService {
         Tienda tienda = tiendaObligatoria(tndId);
         String dominio = dominioRepo.findByTndIdAndPrincipalTrueAndActivoTrue(tndId)
                 .map(d -> d.getDominio()).orElse(null);
+        // Las URLs de webhook que ve el admin de la tienda (para pegar en Wompi/Envia) deben
+        // mostrar el dominio PROPIO de esa tienda, no el dominio compartido del backend — a un
+        // comerciante no le genera confianza que el webhook que configura en su propia cuenta
+        // diga "calzacaribe.com" cuando su tienda es otra completamente distinta. El dominio
+        // propio ya funciona igual de bien (el tenant de cada webhook se resuelve server-side
+        // desde su propio payload, no desde el Host de la petición).
+        //
+        // OJO: no es el dominio PRINCIPAL — ese es el de marca, y puede no servir /api/** en
+        // absoluto (ej. Duo Chic: duochicstudio.com es principal pero es hosting estático sin
+        // proxy; api.duochicstudio.com es el que de verdad llega al backend). Por eso se busca
+        // el dominio marcado sirveApi, y solo si la tienda no tiene ninguno todavía (recién
+        // creada, aún en borrador) se cae al dominio compartido del backend.
+        String dominioApi = dominioRepo.findByTndIdAndSirveApiTrueAndActivoTrue(tndId)
+                .map(d -> d.getDominio()).orElse(null);
+        String base = dominioApi != null ? "https://" + dominioApi : appBaseUrl;
         return new TiendaDetalleResponse(
                 tienda.getId(), tienda.getNombre(), tienda.getSlug(), tienda.isActivo(), dominio,
                 estadoCampos(tndId, tienda.getSecretAlias(), "WOMPI", "PUBLIC_KEY", "PRIVATE_KEY", "INTEGRITY_KEY", "EVENTS_KEY"),
                 estadoCampos(tndId, tienda.getSecretAlias(), "RESEND", "API_KEY", "FROM"),
                 estadoCampos(tndId, tienda.getSecretAlias(), "CLOUDINARY", "CLOUD_NAME", "API_KEY", "API_SECRET"),
                 estadoCampos(tndId, tienda.getSecretAlias(), "ENVIA", "API_TOKEN", "WEBHOOK_SECRET"),
-                appBaseUrl + "/api/v1/public/pagos/webhook/wompi",
-                appBaseUrl + "/api/v1/public/envios/webhook/envia/" + tndId
+                base + "/api/v1/public/pagos/webhook/wompi",
+                base + "/api/v1/public/envios/webhook/envia/" + tndId
         );
     }
 

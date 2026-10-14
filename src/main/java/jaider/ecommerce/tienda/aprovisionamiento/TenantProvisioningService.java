@@ -84,6 +84,11 @@ public class TenantProvisioningService {
         tiendaDominio.setTndId(tndId);
         tiendaDominio.setDominio(dominio);
         tiendaDominio.setPrincipal(true);
+        // Por defecto este único dominio también sirve la API (el caso normal: un dominio hace
+        // ambas cosas). Si más adelante la tienda pasa a un hosting estático sin proxy y necesita
+        // un subdominio aparte solo para la API (como Duo Chic), hay que mover este flag al
+        // dominio nuevo a mano — ver TiendaDominio.sirveApi.
+        tiendaDominio.setSirveApi(true);
         tiendaDominio.setActivo(true);
         tiendaDominio.setCreadoEn(OffsetDateTime.now());
         dominioRepo.save(tiendaDominio);
