@@ -12,6 +12,7 @@ import jaider.ecommerce.tienda.aprovisionamiento.TenantProvisioningRequest;
 import jaider.ecommerce.tienda.aprovisionamiento.TenantProvisioningResult;
 import jaider.ecommerce.tienda.aprovisionamiento.TenantProvisioningService;
 import jaider.ecommerce.tienda.integracion.IntegracionSalud;
+import jaider.ecommerce.tienda.integracion.TiendaWompiCredencialesService;
 import jaider.ecommerce.tienda.integracion.TenantCloudinaryClients;
 import jaider.ecommerce.tienda.integracion.TenantIntegrationHealthService;
 import jaider.ecommerce.tienda.secretos.SecretEncryptionService;
@@ -62,6 +63,7 @@ public class SuperadminTiendaService {
     private final AuditoriaService auditoriaService;
     private final TenantSupport tenantSupport;
     private final Environment environment;
+    private final TiendaWompiCredencialesService wompiCredencialesService;
 
     @Value("${app.base-url}")
     private String appBaseUrl;
@@ -113,7 +115,7 @@ public class SuperadminTiendaService {
         String base = dominioApi != null ? "https://" + dominioApi : appBaseUrl;
         return new TiendaDetalleResponse(
                 tienda.getId(), tienda.getNombre(), tienda.getSlug(), tienda.isActivo(), dominio,
-                estadoCampos(tndId, tienda.getSecretAlias(), "WOMPI", "PUBLIC_KEY", "PRIVATE_KEY", "INTEGRITY_KEY", "EVENTS_KEY"),
+                wompiCredencialesService.estado(tndId),
                 estadoCampos(tndId, tienda.getSecretAlias(), "RESEND", "API_KEY", "FROM"),
                 estadoCampos(tndId, tienda.getSecretAlias(), "CLOUDINARY", "CLOUD_NAME", "API_KEY", "API_SECRET"),
                 estadoCampos(tndId, tienda.getSecretAlias(), "ENVIA", "API_TOKEN", "WEBHOOK_SECRET"),
@@ -122,16 +124,11 @@ public class SuperadminTiendaService {
         );
     }
 
+    // Delega en TiendaWompiCredencialesService: la misma lógica la usa también el admin de cada
+    // tienda (ver TiendaWompiController) — Wompi es la única integración que ambos pueden tocar.
     @Transactional
     public List<CampoEstadoResponse> guardarWompi(Long tndId, WompiCredencialesRequest req, Long adminId) {
-        Map<String, String> campos = new LinkedHashMap<>();
-        campos.put("PUBLIC_KEY", req.publicKey());
-        campos.put("INTEGRITY_KEY", req.integrityKey());
-        campos.put("EVENTS_KEY", req.eventsKey());
-        if (req.privateKey() != null && !req.privateKey().isBlank()) campos.put("PRIVATE_KEY", req.privateKey());
-        guardarCampos(tndId, "WOMPI", campos, adminId);
-        Tienda tienda = tiendaObligatoria(tndId);
-        return estadoCampos(tndId, tienda.getSecretAlias(), "WOMPI", "PUBLIC_KEY", "PRIVATE_KEY", "INTEGRITY_KEY", "EVENTS_KEY");
+        return wompiCredencialesService.guardar(tndId, req, adminId, "superadmin");
     }
 
     @Transactional
