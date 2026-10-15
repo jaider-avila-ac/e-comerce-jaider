@@ -13,6 +13,7 @@ import jaider.ecommerce.tienda.aprovisionamiento.TenantProvisioningResult;
 import jaider.ecommerce.tienda.aprovisionamiento.TenantProvisioningService;
 import jaider.ecommerce.tienda.integracion.IntegracionSalud;
 import jaider.ecommerce.tienda.integracion.TiendaWompiCredencialesService;
+import jaider.ecommerce.tienda.TiendaApiKeyService;
 import jaider.ecommerce.tienda.integracion.TenantCloudinaryClients;
 import jaider.ecommerce.tienda.integracion.TenantIntegrationHealthService;
 import jaider.ecommerce.tienda.secretos.SecretEncryptionService;
@@ -64,6 +65,7 @@ public class SuperadminTiendaService {
     private final TenantSupport tenantSupport;
     private final Environment environment;
     private final TiendaWompiCredencialesService wompiCredencialesService;
+    private final TiendaApiKeyService apiKeyService;
 
     @Value("${app.base-url}")
     private String appBaseUrl;
@@ -120,8 +122,17 @@ public class SuperadminTiendaService {
                 estadoCampos(tndId, tienda.getSecretAlias(), "CLOUDINARY", "CLOUD_NAME", "API_KEY", "API_SECRET"),
                 estadoCampos(tndId, tienda.getSecretAlias(), "ENVIA", "API_TOKEN", "WEBHOOK_SECRET"),
                 base + "/api/v1/public/pagos/webhook/wompi",
-                base + "/api/v1/public/envios/webhook/envia/" + tndId
+                base + "/api/v1/public/envios/webhook/envia/" + tndId,
+                tienda.getApiKeyHash() != null
         );
+    }
+
+    /** Devuelve la api key en texto plano — ÚNICA vez que existe así (ver TiendaApiKeyService).
+     *  Sustituye cualquier key anterior de esta tienda, que deja de funcionar de inmediato. */
+    @Transactional
+    public String generarApiKey(Long tndId) {
+        tiendaObligatoria(tndId);
+        return apiKeyService.generar(tndId);
     }
 
     // Delega en TiendaWompiCredencialesService: la misma lógica la usa también el admin de cada

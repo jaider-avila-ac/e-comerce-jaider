@@ -23,5 +23,8 @@ public record TiendaDetalleResponse(
         // el tipo de webhook configurado no está confirmado en documentación (varios formatos
         // posibles, con o sin datos de referencia propia), así que el tenant se resuelve desde
         // la URL en vez de confiar en el contenido — más simple y robusto ante esa incertidumbre.
-        String webhookEnviaUrl
+        String webhookEnviaUrl,
+        // Solo si YA tiene api key generada (ver TiendaApiKeyService) — nunca el valor, eso
+        // existe en texto plano una única vez, justo al generarla.
+        boolean apiKeyConfigurada
 ) {}

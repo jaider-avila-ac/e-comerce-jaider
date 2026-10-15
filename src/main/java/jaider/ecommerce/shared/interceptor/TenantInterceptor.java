@@ -2,6 +2,7 @@ package jaider.ecommerce.shared.interceptor;
 
 import jaider.ecommerce.tienda.TenantDomainResolver;
 import jaider.ecommerce.tienda.TenantEstadoCache;
+import jaider.ecommerce.tienda.TiendaApiKeyService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -26,10 +27,13 @@ import java.util.Optional;
  * de PLAN_MEJORAS_API_ECOMMERCE_MULTITENANT.md: un cliente autenticado en la tienda A no puede
  * leer/escribir datos de la tienda B solo cambiando este header.
  *
- * En rutas públicas (sin JWT), el dominio (§5 del plan) tiene prioridad sobre X-Tenant-Id — un
- * navegador no puede falsificar en qué dominio real está parado, mientras que el header sí es
- * un valor arbitrario que el propio cliente decide mandar. X-Tenant-Id sigue funcionando como
- * respaldo cuando el Host no coincide con ningún dominio registrado (dev local, Postman, etc.).
+ * En rutas públicas (sin JWT), el orden es: api key propia de la tienda (X-Store-Api-Key, ver
+ * TiendaApiKeyService — nunca la manda el navegador directo, la inyecta server-side el nginx de
+ * esa tienda) > dominio (§5 del plan) > X-Tenant-Id. El dominio sigue por encima de X-Tenant-Id
+ * porque un navegador no puede falsificar en qué dominio real está parado, mientras que el
+ * header sí es un valor arbitrario que el propio cliente decide mandar — X-Tenant-Id sigue
+ * funcionando como respaldo solo para las tiendas que todavía no tienen api key (dev local,
+ * Postman, migración en curso, etc.).
  *
  * También valida, una sola vez por solicitud sin importar la fuente (JWT, dominio o header),
  * que el tenant resuelto exista, esté activo y esté bien formado (§3.3 del plan) — ver
@@ -41,6 +45,7 @@ public class TenantInterceptor implements HandlerInterceptor {
 
     private final TenantDomainResolver domainResolver;
     private final TenantEstadoCache estadoCache;
+    private final TiendaApiKeyService apiKeyService;
 
     /** Nombre del atributo del request donde queda el tenant ya resuelto — a diferencia de
      *  TenantContext (ThreadLocal, se limpia en afterCompletion), un atributo del request vive
@@ -68,11 +73,19 @@ public class TenantInterceptor implements HandlerInterceptor {
             return true;
         }
 
-        Optional<Long> tndIdPorDominio = domainResolver.resolveTenantId(hostReal(request));
-        if (tndIdPorDominio.isPresent()) {
-            TenantContext.set(tndIdPorDominio.get().toString());
-        } else if (headerTenantId != null && !headerTenantId.isBlank()) {
-            TenantContext.set(headerTenantId.trim());
+        String apiKey = request.getHeader("X-Store-Api-Key");
+        Long tndIdPorApiKey = apiKey != null && !apiKey.isBlank()
+                ? apiKeyService.resolverTenantId(apiKey.trim()) : null;
+
+        if (tndIdPorApiKey != null) {
+            TenantContext.set(tndIdPorApiKey.toString());
+        } else {
+            Optional<Long> tndIdPorDominio = domainResolver.resolveTenantId(hostReal(request));
+            if (tndIdPorDominio.isPresent()) {
+                TenantContext.set(tndIdPorDominio.get().toString());
+            } else if (headerTenantId != null && !headerTenantId.isBlank()) {
+                TenantContext.set(headerTenantId.trim());
+            }
         }
         if (TenantContext.get() != null) {
             validarTenantExisteYActivo(TenantContext.get());

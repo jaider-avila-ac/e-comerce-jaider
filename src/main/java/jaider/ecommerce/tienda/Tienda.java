@@ -100,6 +100,13 @@ public class Tienda {
     @Column(name = "tnd_email_contacto", length = 255)
     private String emailContacto;
 
+    // Hash (SHA-256, hex) de la api key propia de esta tienda — nunca el valor en texto plano
+    // (ver TiendaApiKeyService). Null = la tienda todavía no tiene una generada, sigue
+    // resolviéndose por dominio/X-Tenant-Id mientras se migra (§ decisión 2026-10-15: la api key
+    // reemplaza esos dos mecanismos, no convive con ellos de forma permanente una vez generada).
+    @Column(name = "tnd_api_key_hash", unique = true, length = 64)
+    private String apiKeyHash;
+
     @Column(name = "tnd_activo", nullable = false)
     private boolean activo = true;
 

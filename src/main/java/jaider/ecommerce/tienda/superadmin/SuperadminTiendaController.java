@@ -79,6 +79,14 @@ public class SuperadminTiendaController {
         return service.guardarEnvia(id, req, adminIdDe(principal));
     }
 
+    @PostMapping("/{id}/api-key/generar")
+    public java.util.Map<String, String> generarApiKey(@PathVariable Long id) {
+        // Clave del Map literal (Jackson no le aplica property-naming-strategy a claves de Map,
+        // solo a campos de record/clase) — snake_case a mano para seguir la misma convención que
+        // el resto de esta API (ver webhook_wompi_url, dominio_principal, etc.).
+        return java.util.Map.of("api_key", service.generarApiKey(id));
+    }
+
     @PostMapping("/{id}/integraciones/verificar")
     public List<IntegracionSalud> verificar(@PathVariable Long id) {
         return service.verificar(id);

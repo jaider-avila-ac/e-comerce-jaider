@@ -2,6 +2,7 @@ package jaider.ecommerce.shared.interceptor;
 
 import jaider.ecommerce.tienda.TenantDomainResolver;
 import jaider.ecommerce.tienda.TenantEstadoCache;
+import jaider.ecommerce.tienda.TiendaApiKeyService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.AfterEach;
@@ -29,6 +30,7 @@ class TenantInterceptorTest {
 
     private TenantDomainResolver domainResolver;
     private TenantEstadoCache estadoCache;
+    private TiendaApiKeyService apiKeyService;
     private TenantInterceptor interceptor;
 
     @BeforeEach
@@ -39,7 +41,12 @@ class TenantInterceptorTest {
         // Por defecto, cualquier tenant "existe y está activo" — los tests de §3.3 abajo
         // sobrescriben esto puntualmente para probar el caso contrario.
         when(estadoCache.existeYActivo(any())).thenReturn(true);
-        interceptor = new TenantInterceptor(domainResolver, estadoCache);
+        apiKeyService = mock(TiendaApiKeyService.class);
+        // Por defecto, ninguna api key resuelve a nada — los tests de api key abajo sobrescriben
+        // esto puntualmente; así el resto de los tests (escritos antes de que existiera) sigue
+        // funcionando exactamente igual, sin tener que tocarlos uno por uno.
+        when(apiKeyService.resolverTenantId(any())).thenReturn(null);
+        interceptor = new TenantInterceptor(domainResolver, estadoCache, apiKeyService);
     }
 
     @AfterEach
@@ -80,6 +87,37 @@ class TenantInterceptorTest {
         // El navegador intenta pedir la tienda 2 por header, pero el dominio real es de la 1 —
         // el dominio manda porque el cliente no puede falsificar en qué Host está parado.
         when(request.getHeader("X-Tenant-Id")).thenReturn("2");
+
+        boolean continua = interceptor.preHandle(request, response, new Object());
+
+        assertThat(continua).isTrue();
+        assertThat(TenantContext.get()).isEqualTo("1");
+    }
+
+    @Test
+    void sinJwt_apiKeyValida_tienePrioridadSobreDominioYHeader() {
+        when(apiKeyService.resolverTenantId("sk_tienda_valida")).thenReturn(7L);
+        when(domainResolver.resolveTenantId(any())).thenReturn(Optional.of(1L));
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        HttpServletResponse response = mock(HttpServletResponse.class);
+        when(request.getHeader("Host")).thenReturn("calzacaribe.com");
+        when(request.getHeader("X-Tenant-Id")).thenReturn("2");
+        when(request.getHeader("X-Store-Api-Key")).thenReturn("sk_tienda_valida");
+
+        boolean continua = interceptor.preHandle(request, response, new Object());
+
+        assertThat(continua).isTrue();
+        assertThat(TenantContext.get()).isEqualTo("7");
+    }
+
+    @Test
+    void sinJwt_apiKeyQueNoResuelveANinguno_caeAlDominio() {
+        when(apiKeyService.resolverTenantId("sk_tienda_invalida")).thenReturn(null);
+        when(domainResolver.resolveTenantId(any())).thenReturn(Optional.of(1L));
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        HttpServletResponse response = mock(HttpServletResponse.class);
+        when(request.getHeader("Host")).thenReturn("calzacaribe.com");
+        when(request.getHeader("X-Store-Api-Key")).thenReturn("sk_tienda_invalida");
 
         boolean continua = interceptor.preHandle(request, response, new Object());
 
