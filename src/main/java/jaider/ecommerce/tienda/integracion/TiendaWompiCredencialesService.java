@@ -6,6 +6,7 @@ import jaider.ecommerce.auth.admin.AdminUserRepository;
 import jaider.ecommerce.shared.TenantSupport;
 import jaider.ecommerce.shared.interceptor.TenantContext;
 import jaider.ecommerce.tienda.Tienda;
+import jaider.ecommerce.tienda.TiendaApiBaseUrlResolver;
 import jaider.ecommerce.tienda.TiendaRepository;
 import jaider.ecommerce.tienda.secretos.SecretEncryptionService;
 import jaider.ecommerce.tienda.secretos.TenantSecretCache;
@@ -52,6 +53,7 @@ public class TiendaWompiCredencialesService {
     private final AuditoriaService auditoriaService;
     private final TenantSupport tenantSupport;
     private final Environment environment;
+    private final TiendaApiBaseUrlResolver baseUrlResolver;
 
     @PersistenceContext
     private EntityManager em;
@@ -60,6 +62,11 @@ public class TiendaWompiCredencialesService {
     public List<CampoEstadoResponse> estado(Long tndId) {
         Tienda tienda = tiendaObligatoria(tndId);
         return Arrays.stream(CAMPOS).map(campo -> estadoDeUnCampo(tndId, tienda.getSecretAlias(), campo)).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public String webhookUrl(Long tndId) {
+        return baseUrlResolver.resolver(tndId) + "/api/v1/public/pagos/webhook/wompi";
     }
 
     /** origen: "superadmin" | "tienda_admin" — solo para distinguir en la auditoría quién hizo el

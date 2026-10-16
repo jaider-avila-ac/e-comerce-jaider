@@ -6,6 +6,7 @@ import jaider.ecommerce.auth.admin.AdminUserRepository;
 import jaider.ecommerce.shared.TenantSupport;
 import jaider.ecommerce.shared.interceptor.TenantContext;
 import jaider.ecommerce.tienda.Tienda;
+import jaider.ecommerce.tienda.TiendaApiBaseUrlResolver;
 import jaider.ecommerce.tienda.TiendaDominioRepository;
 import jaider.ecommerce.tienda.TiendaRepository;
 import jaider.ecommerce.tienda.aprovisionamiento.TenantProvisioningRequest;
@@ -23,7 +24,6 @@ import jaider.ecommerce.tienda.secretos.TiendaSecretoRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.env.Environment;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -66,9 +66,7 @@ public class SuperadminTiendaService {
     private final Environment environment;
     private final TiendaWompiCredencialesService wompiCredencialesService;
     private final TiendaApiKeyService apiKeyService;
-
-    @Value("${app.base-url}")
-    private String appBaseUrl;
+    private final TiendaApiBaseUrlResolver baseUrlResolver;
 
     @PersistenceContext
     private EntityManager em;
@@ -105,23 +103,16 @@ public class SuperadminTiendaService {
         // comerciante no le genera confianza que el webhook que configura en su propia cuenta
         // diga "calzacaribe.com" cuando su tienda es otra completamente distinta. El dominio
         // propio ya funciona igual de bien (el tenant de cada webhook se resuelve server-side
-        // desde su propio payload, no desde el Host de la petición).
-        //
-        // OJO: no es el dominio PRINCIPAL — ese es el de marca, y puede no servir /api/** en
-        // absoluto (ej. Duo Chic: duochicstudio.com es principal pero es hosting estático sin
-        // proxy; api.duochicstudio.com es el que de verdad llega al backend). Por eso se busca
-        // el dominio marcado sirveApi, y solo si la tienda no tiene ninguno todavía (recién
-        // creada, aún en borrador) se cae al dominio compartido del backend.
-        String dominioApi = dominioRepo.findByTndIdAndSirveApiTrueAndActivoTrue(tndId)
-                .map(d -> d.getDominio()).orElse(null);
-        String base = dominioApi != null ? "https://" + dominioApi : appBaseUrl;
+        // desde su propio payload, no desde el Host de la petición). Ver TiendaApiBaseUrlResolver
+        // para el criterio de cuál dominio es ese (no el principal de marca, el que sirveApi).
+        String base = baseUrlResolver.resolver(tndId);
         return new TiendaDetalleResponse(
                 tienda.getId(), tienda.getNombre(), tienda.getSlug(), tienda.isActivo(), dominio,
                 wompiCredencialesService.estado(tndId),
                 estadoCampos(tndId, tienda.getSecretAlias(), "RESEND", "API_KEY", "FROM"),
                 estadoCampos(tndId, tienda.getSecretAlias(), "CLOUDINARY", "CLOUD_NAME", "API_KEY", "API_SECRET"),
                 estadoCampos(tndId, tienda.getSecretAlias(), "ENVIA", "API_TOKEN", "WEBHOOK_SECRET"),
-                base + "/api/v1/public/pagos/webhook/wompi",
+                wompiCredencialesService.webhookUrl(tndId),
                 base + "/api/v1/public/envios/webhook/envia/" + tndId,
                 tienda.getApiKeyHash() != null
         );

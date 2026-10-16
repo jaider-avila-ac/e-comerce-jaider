@@ -42,8 +42,9 @@ public class TiendaWompiController {
     private EntityManager em;
 
     @GetMapping
-    public List<CampoEstadoResponse> estado() {
-        return service.estado(tndIdActual());
+    public TiendaWompiEstadoResponse estado() {
+        Long tndId = tndIdActual();
+        return new TiendaWompiEstadoResponse(service.estado(tndId), service.webhookUrl(tndId));
     }
 
     @PutMapping
