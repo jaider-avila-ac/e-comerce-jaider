@@ -51,8 +51,8 @@ public class AuditoriaService {
         tenantSupport.requireTenant(em);
 
         Page<Auditoria> resultado = (entidad != null && !entidad.isBlank())
-                ? repository.findByTndIdAndEntidadOrderByCreadoEnDesc(tndId, entidad, PageRequest.of(page, size))
-                : repository.findByTndIdOrderByCreadoEnDesc(tndId, PageRequest.of(page, size));
+                ? repository.findVisibleByTndIdAndEntidad(tndId, entidad, PageRequest.of(page, size))
+                : repository.findVisibleByTndId(tndId, PageRequest.of(page, size));
 
         Set<Long> adminIds = resultado.getContent().stream().map(Auditoria::getAdminId)
                 .collect(java.util.stream.Collectors.toSet());
