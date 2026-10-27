@@ -73,6 +73,10 @@ public class PedidoService {
 
     private static final Set<String> ESTADOS_TERMINALES = Set.of("cancelado", "devuelto");
 
+    // Mismo criterio que puedeVerSeguimiento en el frontend (OrderDetailPage): desde "preparando"
+    // en adelante, ya se exigió un responsable para llegar ahí — ver updateEstado().
+    private static final Set<String> ESTADOS_REQUIEREN_RESPONSABLE = Set.of("preparando", "enviado", "entregado");
+
     // Estados alcanzables solo después de que el pago se confirmó y PagoConfirmacionService
     // ya descontó el stock de las variantes (ver descontarStock allá).
     private static final Set<String> ESTADOS_CON_STOCK_DESCONTADO = Set.of(
@@ -323,12 +327,22 @@ public class PedidoService {
     }
 
     /** Reasignar o quitar el responsable (colaboradorId nullable) — solo admin/superadmin,
-     *  sin la validación de "ya está tomado" (es un override intencional). */
+     *  sin la validación de "ya está tomado" (es un override intencional: reasignar a otra
+     *  persona siempre está permitido). Quitarlo del todo (dejarlo "sin asignar") es distinto:
+     *  si el pedido ya está en preparando/enviado/entregado, updateEstado() ya exigió que
+     *  hubiera alguien asignado para llegar hasta ahí — dejarlo sin nadie ahora contradice esa
+     *  misma garantía (un pedido "siendo preparado" o "ya enviado" sin responsable). */
     @Transactional
     public PedidoResponse asignar(Long id, Long colaboradorId, Long adminId) {
         tenantSupport.requireTenant(em);
         Pedido p = pedidoRepo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pedido no encontrado"));
+
+        if (colaboradorId == null && ESTADOS_REQUIEREN_RESPONSABLE.contains(p.getEstado())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "No puedes quitar el responsable de un pedido que ya está \"" + p.getEstado()
+                            + "\" — reasígnalo a otra persona en su lugar");
+        }
 
         pedidoRepo.asignarColaborador(id, colaboradorId);
         p.setColaboradorId(colaboradorId);
