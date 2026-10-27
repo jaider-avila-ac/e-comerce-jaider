@@ -8,4 +8,5 @@ public interface TiendaDominioRepository extends JpaRepository<TiendaDominio, Lo
     Optional<TiendaDominio> findByDominioAndActivoTrue(String dominio);
     Optional<TiendaDominio> findByTndIdAndPrincipalTrueAndActivoTrue(Long tndId);
     Optional<TiendaDominio> findByTndIdAndSirveApiTrueAndActivoTrue(Long tndId);
+    Optional<TiendaDominio> findByTndIdAndSirveFrontendTrueAndActivoTrue(Long tndId);
 }

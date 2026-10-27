@@ -84,11 +84,13 @@ public class TenantProvisioningService {
         tiendaDominio.setTndId(tndId);
         tiendaDominio.setDominio(dominio);
         tiendaDominio.setPrincipal(true);
-        // Por defecto este único dominio también sirve la API (el caso normal: un dominio hace
-        // ambas cosas). Si más adelante la tienda pasa a un hosting estático sin proxy y necesita
-        // un subdominio aparte solo para la API (como Duo Chic), hay que mover este flag al
-        // dominio nuevo a mano — ver TiendaDominio.sirveApi.
+        // Por defecto este único dominio hace las tres cosas: marca, API y frontend (el caso
+        // normal). Si más adelante la tienda pasa a un hosting estático sin proxy y necesita un
+        // subdominio aparte solo para la API (como Duo Chic) o solo para el SPA (como Jey Avila,
+        // cuyo "principal" es el sitio del cantante, no la tienda), hay que repartir estos flags
+        // a mano entre los dominios — ver TiendaDominio.sirveApi / sirveFrontend.
         tiendaDominio.setSirveApi(true);
+        tiendaDominio.setSirveFrontend(true);
         tiendaDominio.setActivo(true);
         tiendaDominio.setCreadoEn(OffsetDateTime.now());
         dominioRepo.save(tiendaDominio);

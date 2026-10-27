@@ -38,6 +38,18 @@ public class TiendaDominio {
     @Column(name = "tdo_sirve_api", nullable = false)
     private boolean sirveApi;
 
+    // Independiente de sirveApi: cuál dominio sirve de verdad el SPA del cliente final (a dónde
+    // debe volver su navegador, ej. al terminar de pagar en Wompi). Para tiendas con un solo
+    // dominio que hace todo (Calzacaribe) coincide con sirveApi; para Duo Chic el frontend está
+    // en el principal (duochicstudio.com) y sirveApi es OTRO dominio (api.duochicstudio.com); para
+    // Jey Avila es al revés: el frontend real es tienda.jeyavilamusic.com (que también sirveApi),
+    // mientras que jeyavilamusic.com (el "principal" de marca) es el sitio del cantante, no la
+    // tienda. Ningún combo de principal/sirveApi solo basta para los tres casos (bug encontrado
+    // 2026-10-26: Wompi devolvía al cliente de Duo Chic a api.duochicstudio.com, que no sirve el
+    // SPA en absoluto).
+    @Column(name = "tdo_sirve_frontend", nullable = false)
+    private boolean sirveFrontend;
+
     @Column(name = "tdo_activo", nullable = false)
     private boolean activo = true;
 

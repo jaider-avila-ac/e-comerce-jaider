@@ -61,10 +61,12 @@ public class PedidoCheckoutService {
     // PROPIO de esa tienda — con el valor global de frontend.tienda-url, cualquier tienda que no
     // sea la que tiene ese valor configurado terminaba mandando al cliente a OTRA tienda al
     // volver de pagar (bug encontrado 2026-10-14: un pago de Jey Avila Music volvía a
-    // calzacaribe.com). No es el dominio "principal" a ciegas — ver el mismo razonamiento en
-    // SuperadminTiendaService.detalle().
+    // calzacaribe.com). No es el dominio "principal" a ciegas, NI el que sirveApi a ciegas — es
+    // el que sirveFrontend específicamente (ver TiendaDominio.sirveFrontend: para Duo Chic el
+    // dominio que sirveApi, api.duochicstudio.com, no sirve el SPA en absoluto; bug encontrado
+    // 2026-10-26, Wompi devolvía ahí al cliente en vez de a duochicstudio.com).
     private String frontendUrlDe(Long tndId) {
-        return dominioRepo.findByTndIdAndSirveApiTrueAndActivoTrue(tndId)
+        return dominioRepo.findByTndIdAndSirveFrontendTrueAndActivoTrue(tndId)
                 .map(d -> "https://" + d.getDominio())
                 .orElse(frontendTiendaUrl);
     }
