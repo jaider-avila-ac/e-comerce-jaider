@@ -26,4 +26,13 @@ public class MediaProxyController {
                 .cacheControl(CacheControl.maxAge(Duration.ofDays(30)).cachePublic())
                 .body(img.bytes());
     }
+
+    @GetMapping("/guia-tallas/{tndId}/{prdId}")
+    public ResponseEntity<byte[]> guiaTallas(@PathVariable Long tndId, @PathVariable Long prdId) {
+        MediaProxyService.ProxiedImage img = service.fetchGuiaTallas(tndId, prdId);
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(img.contentType()))
+                .cacheControl(CacheControl.maxAge(Duration.ofDays(30)).cachePublic())
+                .body(img.bytes());
+    }
 }

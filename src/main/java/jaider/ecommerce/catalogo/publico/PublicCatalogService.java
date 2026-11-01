@@ -309,8 +309,17 @@ public class PublicCatalogService {
                 stockTotal,
                 caracteristicas,
                 resumen != null ? resumen.promedio() : null,
-                resumen != null ? resumen.total() : null
+                resumen != null ? resumen.total() : null,
+                guiaTallasUrlPublica(p)
         );
+    }
+
+    // Va por el proxy de medios, igual que las fotos. El ?v= cambia cuando se sube otra guía,
+    // así la caché de 30 días del proxy no deja ver la imagen vieja.
+    private String guiaTallasUrlPublica(Producto p) {
+        if (p.getGuiaTallasUrl() == null) return null;
+        return baseUrl + "/api/v1/public/media/guia-tallas/" + p.getTndId() + "/" + p.getId()
+                + "?v=" + Integer.toHexString(p.getGuiaTallasUrl().hashCode());
     }
 
     // ─── Más vendidos ──────────────────────────────────────────────────────

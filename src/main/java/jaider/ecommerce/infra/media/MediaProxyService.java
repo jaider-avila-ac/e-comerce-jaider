@@ -64,6 +64,22 @@ public class MediaProxyService {
         }
     }
 
+    /** Guía de tallas del producto — mismas reglas que las fotos: solo de productos activos. */
+    @Transactional(readOnly = true)
+    public ProxiedImage fetchGuiaTallas(Long tndId, Long prdId) {
+        TenantContext.set(tndId.toString());
+        try {
+            tenantSupport.requireTenant(em);
+            Producto producto = productoRepo.findById(prdId)
+                    .filter(Producto::isActivo)
+                    .filter(p -> p.getGuiaTallasUrl() != null)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Imagen no encontrada"));
+            return fetchRemote(producto.getGuiaTallasUrl());
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
     private ProxiedImage fetchRemote(String url) {
         try {
             HttpRequest req = HttpRequest.newBuilder(URI.create(url)).GET().build();

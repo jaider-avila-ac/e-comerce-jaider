@@ -28,7 +28,8 @@ public record PublicProductoResponse(
         Integer stockTotal,
         Map<String, Object> caracteristicas,
         Double ratingPromedio, // null si el producto no tiene reseñas aprobadas todavía
-        Integer totalResenas
+        Integer totalResenas,
+        String guiaTallas      // url (por el proxy de medios) de la guía de tallas — null si no tiene
 ) {
     public record ImagenInfo(String url, Long varId) {}
     public record TiendaOpcion(String valor, Integer stock, String hex, Long varId) {}

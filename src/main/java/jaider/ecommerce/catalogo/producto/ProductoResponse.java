@@ -21,5 +21,6 @@ public record ProductoResponse(
         List<VarianteResponse> variantes,
         List<ImagenResponse> imagenes,
         // Referencia opcional al empaque (caja) asignado (PLAN_INTEGRACION_ENVIA.md, Fase 1)
-        Long empaqueId
+        Long empaqueId,
+        String guiaTallasUrl  // imagen de guía de tallas (null = el producto no tiene)
 ) {}

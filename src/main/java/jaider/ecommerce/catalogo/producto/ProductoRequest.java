@@ -30,5 +30,9 @@ public record ProductoRequest(
         // panel (buildBasePayload) siempre manda estos flags explícitamente en cada guardado,
         // así que el botón "Sin subcategoría"/"Sin empaque asignado" sigue funcionando igual.
         Boolean limpiarSubId,
-        Boolean limpiarEmpaqueId
+        Boolean limpiarEmpaqueId,
+        // Guía de tallas (imagen ya subida con /upload/imagen). Mismo criterio
+        // "opcional-explícito" que subId/empaqueId: null sin limpiarGuiaTallas=true la deja intacta.
+        String guiaTallasUrl,
+        Boolean limpiarGuiaTallas
 ) {}

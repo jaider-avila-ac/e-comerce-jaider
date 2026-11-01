@@ -64,6 +64,11 @@ public class Producto {
     @Column(name = "prd_oferta_hasta")
     private java.time.OffsetDateTime ofertaHasta;
 
+    // Imagen opcional con la tabla de medidas del producto (Cloudinary, carpeta del producto).
+    // La tienda la muestra con un enlace "Guía de tallas" solo cuando existe.
+    @Column(name = "prd_guia_tallas_url", columnDefinition = "text")
+    private String guiaTallasUrl;
+
     // prd_tsv NO se mapea: tsvector gestionado por trigger
 
     @Column(name = "prd_creado_en", nullable = false, insertable = false, updatable = false)

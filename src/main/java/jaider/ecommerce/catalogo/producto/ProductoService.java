@@ -107,8 +107,14 @@ public class ProductoService {
 
         Producto p = productoRepo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Producto no encontrado"));
+        String guiaAnterior = p.getGuiaTallasUrl();
         applyRequest(p, req);
         p = productoRepo.save(p);
+
+        // Guía de tallas reemplazada o quitada: la imagen vieja ya no la usa nadie
+        if (guiaAnterior != null && !guiaAnterior.equals(p.getGuiaTallasUrl())) {
+            cloudinaryService.delete(guiaAnterior, p.getTndId());
+        }
 
         if (req.variantes() != null) {
             updateVariantes(p.getId(), req.variantes());
@@ -344,6 +350,11 @@ public class ProductoService {
             p.setOfertaHasta(null);
         }
         if (req.fichaTecnica() != null) p.setFichaTecnica(req.fichaTecnica());
+        if (req.guiaTallasUrl() != null && !req.guiaTallasUrl().isBlank()) {
+            p.setGuiaTallasUrl(req.guiaTallasUrl().trim());
+        } else if (Boolean.TRUE.equals(req.limpiarGuiaTallas())) {
+            p.setGuiaTallasUrl(null);
+        }
         if (req.activo() != null) p.setActivo(req.activo());
 
         // Empaque opcional (PLAN_INTEGRACION_ENVIA.md, Fase 1) — mismo cuidado que catId/subId:
@@ -537,7 +548,8 @@ public class ProductoService {
                 stockTotal,
                 variantes,
                 imagenes,
-                p.getEmpaqueId()
+                p.getEmpaqueId(),
+                p.getGuiaTallasUrl()
         );
     }
 

@@ -59,7 +59,7 @@ class ProductoServiceTest {
         ProductoResponse creado = service.create(new ProductoRequest(
                 catId, subId, "Producto parcial " + System.nanoTime(),
                 "producto-parcial-" + System.nanoTime(), null, 50000L, null, null,
-                Map.of(), true, null, null, empaqueId, null, null));
+                Map.of(), true, null, null, empaqueId, null, null, null, null));
         assertThat(creado.subId()).isEqualTo(subId);
         assertThat(creado.empaqueId()).isEqualTo(empaqueId);
 
@@ -67,7 +67,7 @@ class ProductoServiceTest {
         // manda cualquier PUT que no incluye esos campos).
         ProductoResponse actualizado = service.update(creado.id(), new ProductoRequest(
                 null, null, null, null, null, null, null, null,
-                Map.of("marca", "Duo Chic Studio"), null, null, null, null, null, null));
+                Map.of("marca", "Duo Chic Studio"), null, null, null, null, null, null, null, null));
 
         assertThat(actualizado.subId()).as("subId no debe borrarse en una actualización parcial").isEqualTo(subId);
         assertThat(actualizado.empaqueId()).as("empaqueId no debe borrarse en una actualización parcial").isEqualTo(empaqueId);
@@ -83,12 +83,12 @@ class ProductoServiceTest {
         ProductoResponse creado = service.create(new ProductoRequest(
                 catId, subId, "Producto limpiar sub " + System.nanoTime(),
                 "producto-limpiar-sub-" + System.nanoTime(), null, 50000L, null, null,
-                Map.of(), true, null, null, null, null, null));
+                Map.of(), true, null, null, null, null, null, null, null));
         assertThat(creado.subId()).isEqualTo(subId);
 
         ProductoResponse actualizado = service.update(creado.id(), new ProductoRequest(
                 null, null, null, null, null, null, null, null,
-                null, null, null, null, null, true, null));
+                null, null, null, null, null, true, null, null, null));
 
         assertThat(actualizado.subId()).isNull();
     }
@@ -104,12 +104,12 @@ class ProductoServiceTest {
         ProductoResponse creado = service.create(new ProductoRequest(
                 catId, null, "Producto limpiar empaque " + System.nanoTime(),
                 "producto-limpiar-empaque-" + System.nanoTime(), null, 50000L, null, null,
-                Map.of(), true, null, null, empaqueId, null, null));
+                Map.of(), true, null, null, empaqueId, null, null, null, null));
         assertThat(creado.empaqueId()).isEqualTo(empaqueId);
 
         ProductoResponse actualizado = service.update(creado.id(), new ProductoRequest(
                 null, null, null, null, null, null, null, null,
-                null, null, null, null, null, null, true));
+                null, null, null, null, null, null, true, null, null));
 
         assertThat(actualizado.empaqueId()).isNull();
     }
@@ -124,11 +124,11 @@ class ProductoServiceTest {
         ProductoResponse creado = service.create(new ProductoRequest(
                 catId, subId1, "Producto cambia sub " + System.nanoTime(),
                 "producto-cambia-sub-" + System.nanoTime(), null, 50000L, null, null,
-                Map.of(), true, null, null, null, null, null));
+                Map.of(), true, null, null, null, null, null, null, null));
 
         ProductoResponse actualizado = service.update(creado.id(), new ProductoRequest(
                 null, subId2, null, null, null, null, null, null,
-                null, null, null, null, null, null, null));
+                null, null, null, null, null, null, null, null, null));
 
         assertThat(actualizado.subId()).isEqualTo(subId2);
     }
