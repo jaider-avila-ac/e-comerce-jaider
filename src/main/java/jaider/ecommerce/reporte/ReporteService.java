@@ -40,7 +40,7 @@ public class ReporteService {
         // alguna razón no se pudo resolver quién es, nunca se cae a "sin filtrar" (que mostraría
         // la tienda completa) — se responde vacío en vez de arriesgar una fuga de datos.
         if (!esAdmin && colaboradorId == null) {
-            return new ReporteResumenResponse(0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L);
+            return new ReporteResumenResponse(0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L);
         }
 
         Periodo periodo = periodo(mes);
@@ -57,6 +57,12 @@ public class ReporteService {
                                  THEN ped_envio_centavos END), 0)                                AS ingresos_envio,
               COALESCE(SUM(CASE WHEN ped_estado IN ('preparando', 'enviado', 'entregado')
                                  THEN ped_descuento_centavos END), 0)                             AS total_descuentos,
+              -- PENDIENTE_DUO_CHIC: de ese total, cuánto es específicamente por cupón (online) —
+              -- ped_cupon_id solo lo pone el checkout online, nunca venta local (ver
+              -- VentaLocalService, que nunca toca esa columna) — así el admin distingue un
+              -- descuento manual de mostrador de uno por cupón, en vez de verlos mezclados.
+              COALESCE(SUM(CASE WHEN ped_estado IN ('preparando', 'enviado', 'entregado') AND ped_cupon_id IS NOT NULL
+                                 THEN ped_descuento_centavos END), 0)                             AS total_descuentos_cupon,
               COALESCE(SUM(CASE WHEN ped_estado = 'pagado' THEN ped_total_centavos END), 0)      AS ingresos_pendientes,
               COUNT(*)                                                                          AS total_pedidos,
               COUNT(*) FILTER (WHERE ped_estado IN ('pagado', 'preparando', 'enviado')) AS en_proceso
@@ -74,9 +80,10 @@ public class ReporteService {
         long ingresosEnvioCentavos = ((Number) row[1]).longValue();
         long ingresosProductosCentavos = totalIngresosCentavos - ingresosEnvioCentavos;
         long totalDescuentosCentavos = ((Number) row[2]).longValue();
-        long ingresosPendientesCentavos = ((Number) row[3]).longValue();
-        long totalPedidos          = ((Number) row[4]).longValue();
-        long pedidosEnProceso      = ((Number) row[5]).longValue();
+        long totalDescuentosCuponCentavos = ((Number) row[3]).longValue();
+        long ingresosPendientesCentavos = ((Number) row[4]).longValue();
+        long totalPedidos          = ((Number) row[5]).longValue();
+        long pedidosEnProceso      = ((Number) row[6]).longValue();
 
         Number rowClientes = (Number) em.createNativeQuery("""
             SELECT
@@ -108,6 +115,7 @@ public class ReporteService {
                 ingresosProductosCentavos / 100L,
                 ingresosEnvioCentavos / 100L,
                 totalDescuentosCentavos / 100L,
+                totalDescuentosCuponCentavos / 100L,
                 ingresosPendientesCentavos / 100L,
                 totalPedidos,
                 totalPedidos,
