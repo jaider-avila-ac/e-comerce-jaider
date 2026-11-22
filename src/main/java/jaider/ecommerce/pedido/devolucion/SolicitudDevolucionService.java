@@ -39,6 +39,11 @@ public class SolicitudDevolucionService {
     // tope operativo razonable para no dejarlo indefinido, no es un límite que imponga la ley.
     private static final int DIAS_PLAZO_DEFECTO = 30;
 
+    // PENDIENTE_DUO_CHIC: exige un motivo con algo de detalle real, no solo "no me gustó" — igual
+    // al mínimo que ya aplica el formulario del cliente (ver DevolucionPanel.jsx), pero validado
+    // también acá porque nunca se confía solo en lo que valida el front (Q-04).
+    private static final int MOTIVO_LARGO_MINIMO = 15;
+
     private final SolicitudDevolucionRepository repo;
     private final SolicitudDevolucionFotoRepository fotoRepo;
     private final DireccionDevolucionRepository direccionRepo;
@@ -57,8 +62,9 @@ public class SolicitudDevolucionService {
     public SolicitudDevolucionResponse crear(Long usrId, Long tndId, String numero, SolicitudDevolucionRequest req) {
         tenantSupport.requireTenant(em);
 
-        if (req.motivo() == null || req.motivo().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Indica el motivo de la devolución");
+        if (req.motivo() == null || req.motivo().trim().length() < MOTIVO_LARGO_MINIMO) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Cuéntanos con más detalle el motivo de la devolución (mínimo " + MOTIVO_LARGO_MINIMO + " caracteres)");
         }
         String tipo = req.tipo() == null ? "" : req.tipo().trim();
         if (!TIPOS_VALIDOS.contains(tipo)) {

@@ -15,6 +15,7 @@ public record PedidoResponse(
         Map<String, Object> dirSnapshot,
         Long subtotal,
         Long descuento,
+        String cuponCodigo,  // PENDIENTE_DUO_CHIC — null si no se aplicó ninguno
         Long envio,
         Boolean envioContraEntrega,
         Long total,

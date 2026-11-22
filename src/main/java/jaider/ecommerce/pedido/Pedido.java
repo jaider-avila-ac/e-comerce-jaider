@@ -43,6 +43,12 @@ public class Pedido {
     @Column(name = "ped_descuento_centavos", nullable = false)
     private Long descuentoCentavos = 0L;
 
+    // PENDIENTE_DUO_CHIC — código del cupón aplicado (si hubo), en texto: un snapshot, no una FK
+    // viva, porque el cupón puede desactivarse o incluso borrarse más adelante y el pedido
+    // histórico debe seguir mostrando cuál se usó.
+    @Column(name = "ped_cupon_codigo", updatable = false, length = 30)
+    private String cuponCodigo;
+
     @Column(name = "ped_envio_centavos", nullable = false)
     private Long envioCentavos = 0L;
 

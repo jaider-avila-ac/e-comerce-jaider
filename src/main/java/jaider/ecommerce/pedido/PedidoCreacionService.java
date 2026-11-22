@@ -1,6 +1,8 @@
 package jaider.ecommerce.pedido;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jaider.ecommerce.cupon.Cupon;
+import jaider.ecommerce.cupon.CuponService;
 import jaider.ecommerce.geo.ColombiaGeoService;
 import jaider.ecommerce.shared.TenantSupport;
 import jaider.ecommerce.tienda.envio.CotizacionParaCongelar;
@@ -46,6 +48,7 @@ public class PedidoCreacionService {
     private final ColombiaGeoService geoService;
     private final CotizacionTokenService cotizacionTokenService;
     private final PaqueteCalculoService paqueteCalculoService;
+    private final CuponService cuponService;
 
     @PersistenceContext
     private EntityManager em;
@@ -70,7 +73,7 @@ public class PedidoCreacionService {
     @Transactional
     public PedidoCreado crearDesdeCarrito(Long usrId, Long tndId, Long direccionId,
                                            ClienteDireccionRequest direccionInline, String notas,
-                                           String cotizacionToken) {
+                                           String cotizacionToken, String cuponCodigo) {
         tenantSupport.requireTenant(em);
 
         List<ItemCarrito> items = cargarCarritoValidado(usrId);
@@ -132,15 +135,34 @@ public class PedidoCreacionService {
         } else {
             envio = ((Number) envioConfig[3]).longValue();
         }
-        long total = subtotal + envio;
+
+        // PENDIENTE_DUO_CHIC: el cupón se canjea (consume un uso) acá mismo, en la misma
+        // transacción que crea el pedido — no al confirmar el pago. Un pedido abandonado sin
+        // pagar sí "gasta" el uso; es la misma idea de "reservar" el cupón al iniciar la compra,
+        // y evita el problema mucho peor de cobrar por Wompi un total ya descontado sin poder
+        // garantizar después que el cupón seguía disponible. Al estar dentro de
+        // IdempotenciaGuard.ejecutar() (ver PedidoCheckoutService), un reintento con la misma
+        // Idempotency-Key nunca vuelve a canjear el mismo cupón dos veces.
+        long descuentoCupon = 0L;
+        Long cuponId = null;
+        String cuponCodigoNormalizado = null;
+        if (cuponCodigo != null && !cuponCodigo.isBlank()) {
+            Cupon cupon = cuponService.canjear(tndId, cuponCodigo);
+            descuentoCupon = cuponService.calcularDescuento(cupon, subtotal);
+            cuponId = cupon.getId();
+            cuponCodigoNormalizado = cupon.getCodigo();
+        }
+        long total = subtotal + envio - descuentoCupon;
         String numero = generarNumeroUnico();
 
         Number pedIdNum = (Number) em.createNativeQuery("""
                 INSERT INTO pedidos (ped_tnd_id, ped_usr_id, ped_numero, ped_dir_snapshot,
-                                      ped_subtotal_centavos, ped_envio_centavos, ped_total_centavos, ped_notas,
-                                      ped_envio_contra_entrega, ped_envio_cotizacion_snapshot)
-                VALUES (:tndId, :usrId, :numero, CAST(:dirSnapshot AS jsonb), :subtotal, :envio, :total, :notas,
-                        :envioContraEntrega, CAST(:cotizacionSnapshot AS jsonb))
+                                      ped_subtotal_centavos, ped_envio_centavos, ped_descuento_centavos,
+                                      ped_total_centavos, ped_notas, ped_envio_contra_entrega,
+                                      ped_envio_cotizacion_snapshot, ped_cupon_id, ped_cupon_codigo)
+                VALUES (:tndId, :usrId, :numero, CAST(:dirSnapshot AS jsonb), :subtotal, :envio, :descuentoCupon,
+                        :total, :notas, :envioContraEntrega, CAST(:cotizacionSnapshot AS jsonb),
+                        :cuponId, :cuponCodigo)
                 RETURNING ped_id
                 """)
                 .setParameter("tndId", tndId)
@@ -149,10 +171,13 @@ public class PedidoCreacionService {
                 .setParameter("dirSnapshot", toJson(dirSnapshot))
                 .setParameter("subtotal", subtotal)
                 .setParameter("envio", envio)
+                .setParameter("descuentoCupon", descuentoCupon)
                 .setParameter("total", total)
                 .setParameter("notas", (notas != null && !notas.isBlank()) ? notas.trim() : null)
                 .setParameter("envioContraEntrega", envioContraEntrega)
                 .setParameter("cotizacionSnapshot", cotizacionSnapshot != null ? toJson(cotizacionSnapshot) : null)
+                .setParameter("cuponId", cuponId)
+                .setParameter("cuponCodigo", cuponCodigoNormalizado)
                 .getSingleResult();
         Long pedId = pedIdNum.longValue();
 
@@ -187,6 +212,16 @@ public class PedidoCreacionService {
 
         log.info("[Checkout] Pedido {} ({}) creado para usuario {} — total {} centavos", pedId, numero, usrId, total);
         return new PedidoCreado(pedId, numero, total);
+    }
+
+    /** Subtotal del carrito actual del usuario — misma fuente de verdad que crearDesdeCarrito(),
+     *  para que la previsualización del cupón en el carrito (CuponPublicController) calcule el
+     *  descuento sobre el mismo monto que de verdad se cobrará, nunca sobre lo que mande el
+     *  cliente (ver Q-04: no confiar en montos que vengan del frontend). */
+    @Transactional(readOnly = true)
+    public long subtotalCarritoActual(Long usrId) {
+        tenantSupport.requireTenant(em);
+        return cargarCarritoValidado(usrId).stream().mapToLong(i -> i.precioCentavos() * i.cantidad()).sum();
     }
 
     private String valor(Map<String, Object> map, String key) {
@@ -375,7 +410,7 @@ public class PedidoCreacionService {
                        p.ped_creado_en, p.ped_confirmado_cliente_en,
                        p.ped_transportadora, p.ped_codigo_rastreo, p.ped_mostrar_seguimiento,
                        p.ped_cancel_motivo, p.ped_cancel_motivo_otro, p.ped_cancel_nota, p.ped_cancelado_en,
-                       p.ped_envio_contra_entrega
+                       p.ped_envio_contra_entrega, p.ped_cupon_codigo
                 FROM pedidos p
                 JOIN pagos pg ON pg.pag_ped_id = p.ped_id AND pg.pag_estado = CAST('APPROVED' AS estado_pago)
                 WHERE p.ped_usr_id = :usrId AND p.ped_tnd_id = :tndId
@@ -417,6 +452,7 @@ public class PedidoCreacionService {
             compra.put("cancel_nota", row[18]);
             compra.put("cancelado_en", row[19]);
             compra.put("envio_contra_entrega", row[20]);
+            compra.put("cupon_codigo", row[21]); // PENDIENTE_DUO_CHIC
             compra.put("metodo_pago", metodoPorPedido.get(pedId));
             compra.put("reembolso", reembolsoPorPedido.get(pedId));
             compra.put("items", itemsPorPedido.getOrDefault(pedId, List.of()));

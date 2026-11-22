@@ -756,6 +756,7 @@ public class PedidoService {
                 p.getDirSnapshot(),
                 p.getSubtotalCentavos() / 100L,
                 p.getDescuentoCentavos() / 100L,
+                p.getCuponCodigo(),
                 p.getEnvioCentavos() / 100L,
                 p.isEnvioContraEntrega(),
                 p.getTotalCentavos() / 100L,

@@ -13,6 +13,10 @@ public record CheckoutRequest(
         // Corrección de auditoría (2026-09-01, tercera vuelta) — obligatorio para tiendas con
         // envío calculado ('envia'): el token que devolvió GET /carrito/envio-cotizacion,
         // congelando la cotización EXACTA que se le mostró al cliente. Ver CotizacionTokenService.
-        String cotizacionToken
+        String cotizacionToken,
+        // PENDIENTE_DUO_CHIC — opcional: código de cupón ya validado en el carrito (ver
+        // CuponService). Se vuelve a validar y canjear acá, nunca se confía en lo que diga el
+        // frontend sobre si "ya se validó".
+        String cuponCodigo
 ) {
 }

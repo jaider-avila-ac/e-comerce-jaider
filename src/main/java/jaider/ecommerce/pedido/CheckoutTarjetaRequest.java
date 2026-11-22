@@ -11,6 +11,8 @@ public record CheckoutTarjetaRequest(
         String acceptanceToken,
         String personalAuthToken,
         // Corrección de auditoría (2026-09-01, tercera vuelta) — ver CheckoutRequest.cotizacionToken.
-        String cotizacionToken
+        String cotizacionToken,
+        // PENDIENTE_DUO_CHIC — ver CheckoutRequest.cuponCodigo.
+        String cuponCodigo
 ) {
 }

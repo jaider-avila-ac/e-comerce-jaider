@@ -82,6 +82,9 @@ public class PedidoCheckoutService {
         hashBasis.put("direccionInline", req.direccionInline());
         hashBasis.put("notas", req.notas());
         hashBasis.put("carrito", pedidoCreacionService.firmarCarrito(usrId));
+        // PENDIENTE_DUO_CHIC: el cupón cambia cuánto se cobra, así que sí define "qué se está
+        // comprando" (a diferencia de cardToken/etc. en tarjeta, que no — ver I-06 más abajo).
+        hashBasis.put("cuponCodigo", req.cuponCodigo());
 
         // Todo el flujo hospedado es una sola transacción (@Transactional a nivel de método): o
         // persiste completo (pedido + pago + idempotencia "completado") o no persiste nada de eso
@@ -93,7 +96,7 @@ public class PedidoCheckoutService {
                 idmId -> {
                     PaymentGateway gateway = gatewayFactory.forTenant(tndId);
                     PedidoCreado pedido = pedidoCreacionService.crearDesdeCarrito(
-                            usrId, tndId, req.direccionId(), req.direccionInline(), req.notas(), req.cotizacionToken());
+                            usrId, tndId, req.direccionId(), req.direccionInline(), req.notas(), req.cotizacionToken(), req.cuponCodigo());
 
                     String referencia = gateway.generarReferencia(tndId, pedido.pedId());
                     pedidoCreacionService.crearPago(pedido.pedId(), usrId, referencia, pedido.totalCentavos(), null);
@@ -120,6 +123,7 @@ public class PedidoCheckoutService {
         hashBasis.put("direccionInline", req.direccionInline());
         hashBasis.put("notas", req.notas());
         hashBasis.put("carrito", pedidoCreacionService.firmarCarrito(usrId)); // Q-04
+        hashBasis.put("cuponCodigo", req.cuponCodigo()); // PENDIENTE_DUO_CHIC — ver iniciarCheckoutHospedado
 
         return idempotenciaGuard.ejecutar(tndId, usrId, "checkout_tarjeta", idempotencyKey, hashBasis,
                 PagoTarjetaResponse.class,
@@ -130,7 +134,7 @@ public class PedidoCheckoutService {
     private PagoTarjetaResponse pagarConTarjetaReal(Long usrId, Long tndId, CheckoutTarjetaRequest req, Long idmId) {
         PaymentGateway gateway = gatewayFactory.forTenant(tndId);
         PedidoCreado pedido = pedidoCreacionService.crearDesdeCarrito(
-                usrId, tndId, req.direccionId(), req.direccionInline(), req.notas(), req.cotizacionToken());
+                usrId, tndId, req.direccionId(), req.direccionInline(), req.notas(), req.cotizacionToken(), req.cuponCodigo());
 
         String referencia = gateway.generarReferencia(tndId, pedido.pedId());
         Long pagoId = pedidoCreacionService.crearPago(pedido.pedId(), usrId, referencia, pedido.totalCentavos(), "CARD");
