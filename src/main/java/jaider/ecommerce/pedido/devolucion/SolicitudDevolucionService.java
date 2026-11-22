@@ -118,7 +118,7 @@ public class SolicitudDevolucionService {
         guardarFotos(solicitudId, req.fotoUrls());
 
         SolicitudDevolucion s = repo.findById(solicitudId).orElseThrow();
-        return toResponse(s, numero);
+        return toResponse(s, datosDePedido(pedId));
     }
 
     @Transactional(readOnly = true)
@@ -129,7 +129,7 @@ public class SolicitudDevolucionService {
 
         return repo.findByPedIdOrderByCreadoEnDesc(pedId).stream()
                 .findFirst()
-                .map(s -> toResponse(s, numero));
+                .map(s -> toResponse(s, datosDePedido(pedId)));
     }
 
     @Transactional
@@ -152,7 +152,7 @@ public class SolicitudDevolucionService {
         repo.registrarCodigoRastreo(s.getId(), codigo.trim());
         s.setEstado("en_transito");
         s.setCodigoRastreo(codigo.trim());
-        return toResponse(s, numero);
+        return toResponse(s, datosDePedido(pedId));
     }
 
     @Transactional
@@ -180,7 +180,7 @@ public class SolicitudDevolucionService {
         List<SolicitudDevolucion> lista = (estado != null && !estado.isBlank())
                 ? repo.findByEstado(estado)
                 : repo.findAllOrdered();
-        return lista.stream().map(s -> toResponse(s, numeroDePedido(s.getPedId()))).toList();
+        return lista.stream().map(s -> toResponse(s, datosDePedido(s.getPedId()))).toList();
     }
 
     @Transactional(readOnly = true)
@@ -188,7 +188,7 @@ public class SolicitudDevolucionService {
         tenantSupport.requireTenant(em);
         SolicitudDevolucion s = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Solicitud no encontrada"));
-        return toResponse(s, numeroDePedido(s.getPedId()));
+        return toResponse(s, datosDePedido(s.getPedId()));
     }
 
     @Transactional
@@ -220,7 +220,7 @@ public class SolicitudDevolucionService {
             auditoriaService.registrar(s.getTndId(), adminId, "devolucion.aprobada", "solicitud_devolucion", id,
                     Map.of("direccion_id", direccionId, "nota", notaLimpia == null ? "" : notaLimpia));
         }
-        return toResponse(s, numeroDePedido(s.getPedId()));
+        return toResponse(s, datosDePedido(s.getPedId()));
     }
 
     @Transactional
@@ -249,7 +249,7 @@ public class SolicitudDevolucionService {
             auditoriaService.registrar(s.getTndId(), adminId, "devolucion.rechazada", "solicitud_devolucion", id,
                     Map.of("nota", nota.trim()));
         }
-        return toResponse(s, numeroDePedido(s.getPedId()));
+        return toResponse(s, datosDePedido(s.getPedId()));
     }
 
     @Transactional
@@ -280,7 +280,7 @@ public class SolicitudDevolucionService {
         if (adminId != null) {
             auditoriaService.registrar(s.getTndId(), adminId, "devolucion.recibida", "solicitud_devolucion", id, Map.of());
         }
-        return toResponse(s, numeroDePedido(s.getPedId()));
+        return toResponse(s, datosDePedido(s.getPedId()));
     }
 
     // ─── Helpers ────────────────────────────────────────────────────────────
@@ -300,9 +300,18 @@ public class SolicitudDevolucionService {
         }
     }
 
-    private String numeroDePedido(Long pedId) {
-        return (String) em.createNativeQuery("SELECT ped_numero FROM pedidos WHERE ped_id = :id")
+    /** numero, cupón usado (null si no) y el descuento en pesos — ver SolicitudDevolucionResponse:
+     *  el admin necesita saber esto para aplicar la política de "artículos en descuento no tienen
+     *  cambio ni devolución" al revisar la solicitud. */
+    private record DatosPedido(String numero, String cuponCodigo, Long descuento) {}
+
+    private DatosPedido datosDePedido(Long pedId) {
+        Object[] row = (Object[]) em.createNativeQuery("""
+                SELECT ped_numero, ped_cupon_codigo, ped_descuento_centavos
+                FROM pedidos WHERE ped_id = :id
+                """)
                 .setParameter("id", pedId).getSingleResult();
+        return new DatosPedido((String) row[0], (String) row[1], ((Number) row[2]).longValue() / 100L);
     }
 
     /** Si la transición más reciente a "entregado" ocurrió dentro del plazo (días calendario) —
@@ -393,7 +402,7 @@ public class SolicitudDevolucionService {
         reembolsoService.procesarAutomatico(refId);
     }
 
-    private SolicitudDevolucionResponse toResponse(SolicitudDevolucion s, String numeroPedido) {
+    private SolicitudDevolucionResponse toResponse(SolicitudDevolucion s, DatosPedido pedido) {
         DireccionDevolucionResponse direccion = null;
         if (s.getDvdId() != null) {
             direccion = direccionRepo.findById(s.getDvdId()).map(d -> new DireccionDevolucionResponse(
@@ -405,8 +414,9 @@ public class SolicitudDevolucionService {
                 .stream().map(SolicitudDevolucionFoto::getUrl).toList();
 
         return new SolicitudDevolucionResponse(
-                s.getId(), s.getPedId(), numeroPedido, s.getEstado(), s.getTipo(), s.getMotivo(), direccion,
-                s.getCodigoRastreo(), s.getAdminNota(), s.getCreadoEn(), s.getRevisadoEn(), s.getRecibidaEn(), fotos
+                s.getId(), s.getPedId(), pedido.numero(), s.getEstado(), s.getTipo(), s.getMotivo(), direccion,
+                s.getCodigoRastreo(), s.getAdminNota(), s.getCreadoEn(), s.getRevisadoEn(), s.getRecibidaEn(), fotos,
+                pedido.cuponCodigo(), pedido.descuento()
         );
     }
 }
