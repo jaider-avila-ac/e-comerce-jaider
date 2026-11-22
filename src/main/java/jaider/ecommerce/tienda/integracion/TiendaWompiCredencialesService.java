@@ -69,6 +69,21 @@ public class TiendaWompiCredencialesService {
         return baseUrlResolver.resolver(tndId) + "/api/v1/public/pagos/webhook/wompi";
     }
 
+    /** Variante para el admin de la propia tienda (ver TiendaWompiController): resuelve el admin
+     *  por EMAIL DENTRO de esta misma transacción, nunca antes — resolverlo en el controller con
+     *  un EntityManager suelto corría en una transacción nueva sin el SET LOCAL del tenant que
+     *  pone tenantSupport.requireTenant() (expira con la transacción que lo puso), y el RLS
+     *  forzado de admin_users lo filtraba siempre: fallaba con "Admin no encontrado" aunque el
+     *  token fuera válido (bug encontrado 2026-11-21, mismo patrón que tenía CuponService). */
+    @Transactional
+    public List<CampoEstadoResponse> guardarComoTiendaAdmin(Long tndId, WompiCredencialesRequest req, String adminEmail) {
+        tenantSupport.requireTenant(em);
+        Long adminId = adminUserRepository.findByEmail(adminEmail)
+                .map(AdminUser::getId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Admin no encontrado"));
+        return guardar(tndId, req, adminId, "tienda_admin");
+    }
+
     /** origen: "superadmin" | "tienda_admin" — solo para distinguir en la auditoría quién hizo el
      *  cambio, nunca afecta el resultado. */
     @Transactional

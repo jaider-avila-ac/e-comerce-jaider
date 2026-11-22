@@ -1,13 +1,8 @@
 package jaider.ecommerce.tienda.integracion;
 
-import jaider.ecommerce.auth.admin.AdminUser;
-import jaider.ecommerce.auth.admin.AdminUserRepository;
-import jaider.ecommerce.shared.TenantSupport;
 import jaider.ecommerce.shared.interceptor.TenantContext;
 import jaider.ecommerce.tienda.superadmin.CampoEstadoResponse;
 import jaider.ecommerce.tienda.superadmin.WompiCredencialesRequest;
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -35,11 +30,6 @@ import java.util.List;
 public class TiendaWompiController {
 
     private final TiendaWompiCredencialesService service;
-    private final AdminUserRepository adminUserRepository;
-    private final TenantSupport tenantSupport;
-
-    @PersistenceContext
-    private EntityManager em;
 
     @GetMapping
     public TiendaWompiEstadoResponse estado() {
@@ -50,19 +40,12 @@ public class TiendaWompiController {
     @PutMapping
     public List<CampoEstadoResponse> actualizar(@RequestBody WompiCredencialesRequest req,
                                                  @AuthenticationPrincipal UserDetails principal) {
-        return service.guardar(tndIdActual(), req, adminIdDe(principal), "tienda_admin");
+        return service.guardarComoTiendaAdmin(tndIdActual(), req, principal.getUsername());
     }
 
     private Long tndIdActual() {
         String id = TenantContext.get();
         if (id == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Sin contexto de tenant");
         return Long.parseLong(id);
-    }
-
-    private Long adminIdDe(UserDetails principal) {
-        tenantSupport.requireTenant(em);
-        return adminUserRepository.findByEmail(principal.getUsername())
-                .map(AdminUser::getId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Admin no encontrado"));
     }
 }

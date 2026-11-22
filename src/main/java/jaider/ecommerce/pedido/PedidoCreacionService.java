@@ -153,6 +153,17 @@ public class PedidoCreacionService {
             cuponCodigoNormalizado = cupon.getCodigo();
         }
         long total = subtotal + envio - descuentoCupon;
+        // PENDIENTE_DUO_CHIC: nunca se permite un pedido en $0 — calcularDescuento() ya topa el
+        // descuento al subtotal (nunca lo supera), pero un cupón de 100% combinado con envío
+        // gratis/contra entrega sí puede dejar el TOTAL en 0. Si esto pasa, se rechaza el checkout
+        // completo ANTES de insertar nada: al estar antes del INSERT, la excepción revierte toda
+        // la transacción, incluido el canje del cupón de arriba (nunca queda "gastado" por un
+        // intento que de todos modos se iba a rechazar).
+        if (total <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, cuponId != null
+                    ? "Ese cupón dejaría tu pedido en $0 — no se pueden hacer compras por ese valor."
+                    : "El total del pedido no puede ser $0.");
+        }
         String numero = generarNumeroUnico();
 
         Number pedIdNum = (Number) em.createNativeQuery("""
