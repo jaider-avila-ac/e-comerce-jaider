@@ -1,7 +1,5 @@
 package jaider.ecommerce.cupon;
 
-import jaider.ecommerce.auth.admin.AdminUser;
-import jaider.ecommerce.auth.admin.AdminUserRepository;
 import jaider.ecommerce.shared.interceptor.TenantContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -23,7 +21,6 @@ import java.util.List;
 public class CuponAdminController {
 
     private final CuponService service;
-    private final AdminUserRepository adminUserRepository;
 
     @GetMapping
     public List<CuponResponse> listar() {
@@ -32,13 +29,13 @@ public class CuponAdminController {
 
     @PostMapping
     public CuponResponse crear(@RequestBody CrearCuponRequest req, @AuthenticationPrincipal UserDetails principal) {
-        return service.crear(tndIdActual(), req, adminIdDe(principal));
+        return service.crear(tndIdActual(), req, principal.getUsername());
     }
 
     @PatchMapping("/{id}/activo")
     public CuponResponse cambiarActivo(@PathVariable Long id, @RequestBody CambiarActivoRequest req,
                                         @AuthenticationPrincipal UserDetails principal) {
-        return service.cambiarActivo(tndIdActual(), id, req.activo(), adminIdDe(principal));
+        return service.cambiarActivo(tndIdActual(), id, req.activo(), principal.getUsername());
     }
 
     public record CambiarActivoRequest(boolean activo) {}
@@ -47,11 +44,5 @@ public class CuponAdminController {
         String id = TenantContext.get();
         if (id == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Sin contexto de tenant");
         return Long.parseLong(id);
-    }
-
-    private Long adminIdDe(UserDetails principal) {
-        return adminUserRepository.findByEmail(principal.getUsername())
-                .map(AdminUser::getId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Admin no encontrado"));
     }
 }

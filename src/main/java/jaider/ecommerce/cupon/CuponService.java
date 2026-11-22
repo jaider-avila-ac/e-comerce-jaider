@@ -1,6 +1,8 @@
 package jaider.ecommerce.cupon;
 
 import jaider.ecommerce.auditoria.AuditoriaService;
+import jaider.ecommerce.auth.admin.AdminUser;
+import jaider.ecommerce.auth.admin.AdminUserRepository;
 import jaider.ecommerce.shared.TenantSupport;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -30,6 +32,7 @@ public class CuponService {
     private final CuponRepository repository;
     private final AuditoriaService auditoriaService;
     private final TenantSupport tenantSupport;
+    private final AdminUserRepository adminUserRepository;
 
     @PersistenceContext
     private EntityManager em;
@@ -41,8 +44,9 @@ public class CuponService {
     }
 
     @Transactional
-    public CuponResponse crear(Long tndId, CrearCuponRequest req, Long adminId) {
+    public CuponResponse crear(Long tndId, CrearCuponRequest req, String adminEmail) {
         tenantSupport.requireTenant(em);
+        Long adminId = adminIdDe(adminEmail);
 
         String tipo = req.tipoDescuento() == null ? "" : req.tipoDescuento().trim().toLowerCase();
         if (!TIPOS_VALIDOS.contains(tipo)) {
@@ -84,8 +88,9 @@ public class CuponService {
     }
 
     @Transactional
-    public CuponResponse cambiarActivo(Long tndId, Long id, boolean activo, Long adminId) {
+    public CuponResponse cambiarActivo(Long tndId, Long id, boolean activo, String adminEmail) {
         tenantSupport.requireTenant(em);
+        Long adminId = adminIdDe(adminEmail);
         Cupon c = cuponDeLaTienda(tndId, id);
         c.setActivo(activo);
         auditoriaService.registrar(tndId, adminId, activo ? "cupon.activado" : "cupon.desactivado",
@@ -140,6 +145,18 @@ public class CuponService {
                 ? Math.round(subtotalCentavos * (c.getValor() / 100.0))
                 : c.getValor() * 100; // valor fijo viene en pesos; el pedido trabaja en centavos
         return Math.min(descuento, subtotalCentavos); // nunca más que el subtotal
+    }
+
+    /** Resuelve el id del admin DENTRO de esta misma transacción — a propósito, no en el
+     *  controller: ahí el SET LOCAL app.current_tnd_id de tenantSupport.requireTenant() ya se
+     *  perdió (expira con la transacción que lo puso), así que una consulta aparte sobre
+     *  admin_users (con RLS forzado) nunca encontraba al admin ("Admin no encontrado" incluso con
+     *  credenciales válidas — bug encontrado 2026-11-21 al probar los cupones en vivo, presente
+     *  también en TiendaWompiController con el mismo patrón). */
+    private Long adminIdDe(String email) {
+        return adminUserRepository.findByEmail(email)
+                .map(AdminUser::getId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Admin no encontrado"));
     }
 
     private Cupon cuponDeLaTienda(Long tndId, Long id) {

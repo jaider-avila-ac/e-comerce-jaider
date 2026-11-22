@@ -33,14 +33,18 @@ class CuponServiceTest {
     @PersistenceContext
     private EntityManager em;
 
-    private Long crearAdminAuditor() {
-        return ((Number) em.createNativeQuery("""
+    /** Devuelve el EMAIL (no el id): crear()/cambiarActivo() lo resuelven a id ellos mismos,
+     *  DENTRO de su propia transacción (ver CuponService.adminIdDe) — pasar el id ya resuelto
+     *  saltaba justo la parte que probaba el bug real (RLS + SET LOCAL fuera de transacción). */
+    private String crearAdminAuditor() {
+        String email = "cupon-test-" + System.nanoTime() + "@example.com";
+        em.createNativeQuery("""
                 INSERT INTO admin_users (email, password, nombre, rol, tienda_id, activo)
                 VALUES (:email, 'x', 'Admin Test', CAST('superadmin' AS rol_empleado), NULL, true)
-                RETURNING id
                 """)
-                .setParameter("email", "cupon-test-" + System.nanoTime() + "@example.com")
-                .getSingleResult()).longValue();
+                .setParameter("email", email)
+                .executeUpdate();
+        return email;
     }
 
     private Long crearTienda() {
@@ -58,14 +62,14 @@ class CuponServiceTest {
     void crear_generaCodigoAleatorioUnico_yNormalizaElPersonalizadoAMayusculas() {
         Long tndId = crearTienda();
         TenantContext.set(tndId.toString());
-        Long adminId = crearAdminAuditor();
+        String adminEmail = crearAdminAuditor();
         try {
             CuponResponse aleatorio = service.crear(tndId,
-                    new CrearCuponRequest(null, true, "porcentaje", 10L, 1), adminId);
+                    new CrearCuponRequest(null, true, "porcentaje", 10L, 1), adminEmail);
             assertThat(aleatorio.codigo()).hasSize(8);
 
             CuponResponse personalizado = service.crear(tndId,
-                    new CrearCuponRequest("verano20", false, "fijo", 5000L, 1), adminId);
+                    new CrearCuponRequest("verano20", false, "fijo", 5000L, 1), adminEmail);
             assertThat(personalizado.codigo()).isEqualTo("VERANO20");
         } finally {
             TenantContext.clear();
@@ -76,11 +80,11 @@ class CuponServiceTest {
     void crear_rechazaCodigoDuplicadoEnLaMismaTienda() {
         Long tndId = crearTienda();
         TenantContext.set(tndId.toString());
-        Long adminId = crearAdminAuditor();
+        String adminEmail = crearAdminAuditor();
         try {
-            service.crear(tndId, new CrearCuponRequest("REPETIDO", false, "porcentaje", 10L, 1), adminId);
+            service.crear(tndId, new CrearCuponRequest("REPETIDO", false, "porcentaje", 10L, 1), adminEmail);
             assertThatThrownBy(() ->
-                    service.crear(tndId, new CrearCuponRequest("repetido", false, "porcentaje", 10L, 1), adminId))
+                    service.crear(tndId, new CrearCuponRequest("repetido", false, "porcentaje", 10L, 1), adminEmail))
                     .isInstanceOf(ResponseStatusException.class)
                     .hasMessageContaining("Ya existe");
         } finally {
@@ -92,10 +96,10 @@ class CuponServiceTest {
     void validar_calculaElDescuentoSinConsumirNingunUso() {
         Long tndId = crearTienda();
         TenantContext.set(tndId.toString());
-        Long adminId = crearAdminAuditor();
+        String adminEmail = crearAdminAuditor();
         try {
             CuponResponse c = service.crear(tndId,
-                    new CrearCuponRequest("DESC10", false, "porcentaje", 10L, 1), adminId);
+                    new CrearCuponRequest("DESC10", false, "porcentaje", 10L, 1), adminEmail);
 
             ValidarCuponResponse v = service.validar(tndId, "desc10", 100_000L); // 1000 pesos = 100000 centavos
             assertThat(v.valido()).isTrue();
@@ -114,9 +118,9 @@ class CuponServiceTest {
     void canjear_consumeUnUso_yElSegundoCanjeDeUnoDeUnSoloUsoFalla() {
         Long tndId = crearTienda();
         TenantContext.set(tndId.toString());
-        Long adminId = crearAdminAuditor();
+        String adminEmail = crearAdminAuditor();
         try {
-            service.crear(tndId, new CrearCuponRequest("SOLOUNO", false, "fijo", 2000L, 1), adminId);
+            service.crear(tndId, new CrearCuponRequest("SOLOUNO", false, "fijo", 2000L, 1), adminEmail);
 
             Cupon primero = service.canjear(tndId, "soloUno");
             assertThat(primero.getUsosActuales()).isEqualTo(1);
@@ -133,9 +137,9 @@ class CuponServiceTest {
     void canjear_conLimiteDeUsos_dejaCanjearHastaElLimiteYLuegoFalla() {
         Long tndId = crearTienda();
         TenantContext.set(tndId.toString());
-        Long adminId = crearAdminAuditor();
+        String adminEmail = crearAdminAuditor();
         try {
-            service.crear(tndId, new CrearCuponRequest("TRESUSOS", false, "porcentaje", 5L, 3), adminId);
+            service.crear(tndId, new CrearCuponRequest("TRESUSOS", false, "porcentaje", 5L, 3), adminEmail);
 
             service.canjear(tndId, "TRESUSOS");
             service.canjear(tndId, "TRESUSOS");
@@ -153,12 +157,12 @@ class CuponServiceTest {
     void cambiarActivo_desactivaUnCuponYValidarLoRechaza() {
         Long tndId = crearTienda();
         TenantContext.set(tndId.toString());
-        Long adminId = crearAdminAuditor();
+        String adminEmail = crearAdminAuditor();
         try {
             CuponResponse c = service.crear(tndId,
-                    new CrearCuponRequest("DESACTIVAR", false, "porcentaje", 10L, 5), adminId);
+                    new CrearCuponRequest("DESACTIVAR", false, "porcentaje", 10L, 5), adminEmail);
 
-            service.cambiarActivo(tndId, c.id(), false, adminId);
+            service.cambiarActivo(tndId, c.id(), false, adminEmail);
 
             ValidarCuponResponse v = service.validar(tndId, "DESACTIVAR", 50_000L);
             assertThat(v.valido()).isFalse();
