@@ -185,7 +185,13 @@ public class ReporteService {
               pi.pi_prd_id,
               pi.pi_nombre_snap,
               SUM(pi.pi_cantidad)                       AS unidades,
-              SUM(pi.pi_subtotal_centavos)              AS total_centavos,
+              -- El descuento (venta local o cupón) es sobre todo el pedido, no por ítem — se
+              -- reparte proporcionalmente al peso de cada ítem en el subtotal de SU pedido, para
+              -- que la suma de "más vendidos" cuadre con lo realmente cobrado (ped_total_centavos
+              -- en el resumen), no con el precio de lista antes del descuento.
+              SUM(pi.pi_subtotal_centavos
+                  * (p.ped_subtotal_centavos - p.ped_descuento_centavos)
+                  / NULLIF(p.ped_subtotal_centavos, 0)::numeric)             AS total_centavos,
               (SELECT pim.pi_url FROM producto_imagenes pim
                WHERE pim.pi_prd_id = pi.pi_prd_id AND pim.pi_tipo = 'imagen'
                ORDER BY pim.pi_orden ASC LIMIT 1)      AS imagen_url
@@ -230,7 +236,11 @@ public class ReporteService {
         List<Object[]> rows = em.createNativeQuery("""
             SELECT
               c.cat_nombre,
-              SUM(pi.pi_subtotal_centavos) AS total_centavos,
+              -- Mismo reparto proporcional del descuento del pedido que productosMasVendidos() —
+              -- ver ese comentario.
+              SUM(pi.pi_subtotal_centavos
+                  * (p.ped_subtotal_centavos - p.ped_descuento_centavos)
+                  / NULLIF(p.ped_subtotal_centavos, 0)::numeric)             AS total_centavos,
               SUM(pi.pi_cantidad)          AS unidades
             FROM pedido_items pi
             JOIN pedidos p   ON p.ped_id   = pi.pi_ped_id
